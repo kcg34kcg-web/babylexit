@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, PlusCircle, ShoppingCart, User, Book } from 'lucide-react';
+// BookOpen ikonunu buraya ekledik
+import { Home, PlusCircle, ShoppingCart, User, Book, BookOpen } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { twMerge } from 'tailwind-merge';
@@ -39,11 +40,17 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     onClose();
   };
 
+  // MENÜ ÖĞELERİNİ BURADA DÜZENLEDİK
   const navItems = [
     { href: '/', icon: Home, label: 'Ana Akış' },
     { href: '/ask', icon: PlusCircle, label: 'Soru Sor' },
     { href: '/questions', icon: Book, label: 'Cevapla' },
     { href: '/market', icon: ShoppingCart, label: 'Market', badge: 'Beta' },
+    
+    // --- YENİ EKLENEN KISIM BAŞLANGIÇ ---
+    { href: '/publications', icon: BookOpen, label: 'Yayınlar', badge: 'Yeni' },
+    // --- YENİ EKLENEN KISIM BİTİŞ ---
+    
     { href: '/profile', icon: User, label: 'Hesabım' },
   ];
 
@@ -65,15 +72,23 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               <Link
                 href={item.href}
                 className={twMerge(
-                  "flex items-center p-3 rounded-lg hover:bg-slate-700",
-                  pathname === item.href && 'bg-amber-500 text-slate-900'
+                  "flex items-center p-3 rounded-lg hover:bg-slate-700 transition-colors",
+                  pathname === item.href && 'bg-amber-500 text-slate-900 font-medium shadow-md shadow-amber-500/20'
                 )}
                 onClick={onClose}
               >
                 <item.icon size={20} className="mr-3" />
                 <span className="text-lg">{item.label}</span>
                 {item.badge && (
-                  <span className="ml-auto bg-amber-500 text-slate-900 text-xs font-semibold px-2.5 py-0.5 rounded-full">{item.badge}</span>
+                  <span className={clsx(
+                    "ml-auto text-xs font-semibold px-2.5 py-0.5 rounded-full",
+                    // Aktifse koyu yazı, pasifse amber yazı
+                    pathname === item.href 
+                      ? "bg-slate-900 text-amber-500" 
+                      : "bg-amber-500 text-slate-900"
+                  )}>
+                    {item.badge}
+                  </span>
                 )}
               </Link>
             </li>
@@ -88,17 +103,19 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
               <img
                 src={user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${user.user_metadata?.full_name || user.email}`}
                 alt="User Avatar"
-                className="w-10 h-10 rounded-full mr-3 bg-slate-700"
+                className="w-10 h-10 rounded-full mr-3 bg-slate-700 object-cover"
               />
-              <span className="text-slate-200">{user.user_metadata?.full_name || user.email}</span>
+              <span className="text-slate-200 text-sm truncate max-w-[100px]" title={user.user_metadata?.full_name || user.email}>
+                {user.user_metadata?.full_name || user.email?.split('@')[0]}
+              </span>
             </div>
-            <button onClick={handleLogout} className="text-amber-500 hover:text-amber-400 text-sm">
-              Log Out
+            <button onClick={handleLogout} className="text-amber-500 hover:text-amber-400 text-xs font-bold ml-2">
+              Çıkış
             </button>
           </div>
         ) : (
-          <Link href="/login" className="text-amber-500 hover:text-amber-400 text-sm">
-            Log In
+          <Link href="/login" className="text-amber-500 hover:text-amber-400 text-sm flex justify-center w-full font-bold">
+            Giriş Yap
           </Link>
         )}
       </div>

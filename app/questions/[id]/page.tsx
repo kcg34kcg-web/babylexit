@@ -60,39 +60,44 @@ export default function QuestionDetailPage() {
   
   const supabase = createClient();
 
-  // --- VERİ ÇEKME FONKSİYONU ---
   const fetchData = async () => {
+    console.log("🚀 FetchData Başlatıldı. ID:", id);
+    
+    // URL Kontrolü (GÜVENLİK İÇİN SADECE KONSOLA YAZDIRIN)
+    console.log("🌍 Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL ? "Tanımlı" : "TANIMSIZ!");
+
     try {
       setIsLoading(true);
 
-      // ID Kontrolü: ID yoksa işlemi durdur
       if (!id) {
-        console.warn("ID parametresi bulunamadı.");
-        setIsLoading(false);
-        return;
+        console.warn("⚠️ ID parametresi yok, işlem iptal.");
+        return; // finally çalışacak
       }
       
+      console.log("⏳ Soru çekiliyor...");
       // 1. Soruyu Çek
       const { data: qData, error: qError } = await supabase
         .from('questions')
         .select(`*, profiles(full_name, avatar_url)`)
         .eq('id', id)
-        .maybeSingle(); // .single() yerine .maybeSingle() hatayı yumuşatır
+        .maybeSingle();
 
       if (qError) {
-        console.error("Soru çekme hatası:", qError);
-        throw qError; // Hatayı catch bloğuna fırlat
+        console.error("❌ Soru çekme hatası:", qError);
+        throw qError;
       }
+      
+      console.log("✅ Soru yanıtı geldi:", qData ? "Veri Var" : "Veri Yok");
 
       if (!qData) {
         setQuestion(null);
-        // Soru yoksa loading'i kapatıp fonksiyondan çıkıyoruz
         return; 
       }
       
       setQuestion(qData as any);
 
-      // 2. Cevapları ve Oyları Çek
+      console.log("⏳ Cevaplar çekiliyor...");
+      // 2. Cevapları Çek
       const { data: aData, error: aError } = await supabase
         .from('answers')
         .select(`
@@ -105,15 +110,14 @@ export default function QuestionDetailPage() {
         .order('created_at', { ascending: true });
 
       if (aError) {
-        console.error("Cevaplar çekilirken hata:", aError);
+        console.error("❌ Cevap hatası:", aError);
+      } else {
+        console.log("✅ Cevaplar geldi. Sayı:", aData?.length);
       }
       
       if (aData) {
-        // Oyları client tarafında hesapla
         const processedAnswers = aData.map((ans: any) => {
-          // GÜVENLİK ÖNLEMİ: votes null veya undefined ise boş dizi ata
           const votesArray = Array.isArray(ans.votes) ? ans.votes : [];
-          
           const up = votesArray.filter((v: any) => v.vote_type === 1).length;
           const down = votesArray.filter((v: any) => v.vote_type === -1).length;
           return { ...ans, upvotes: up, downvotes: down };
@@ -122,9 +126,9 @@ export default function QuestionDetailPage() {
       }
       
     } catch (error) {
-      console.error("Beklenmeyen hata:", error);
+      console.error("💥 Beklenmeyen HATA:", error);
     } finally {
-      // BAŞARILI DA OLSA HATALI DA OLSA YÜKLEMEYİ KAPAT
+      console.log("🏁 Finally bloğu çalıştı: Loading false yapılıyor.");
       setIsLoading(false);
     }
   };
@@ -133,18 +137,17 @@ export default function QuestionDetailPage() {
     if(id) {
       fetchData();
     } else {
-      // ID henüz hazır değilse loading dönebilir ama biz durduralım ki boş sayfa kalmasın
+      console.log("⚠️ useEffect çalıştı ama ID henüz yok.");
       setIsLoading(false);
     }
     moment.locale('tr');
   }, [id]);
 
-  // --- OYLAMA İŞLEMİ (OPTIMISTIC UI) ---
+  // --- OYLAMA İŞLEMİ ---
   const handleVote = async (answerId: string, voteType: number) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return alert("Oy vermek için giriş yapmalısınız!");
 
-    // 1. Arayüzü anında güncelle (Optimistic UI)
     setAnswers(prev => prev.map(a => {
       if (a.id === answerId) {
         return { 
@@ -156,20 +159,21 @@ export default function QuestionDetailPage() {
       return a;
     }));
 
-    // 2. Arka planda sunucuya işle
     await supabase.rpc('vote_answer', {
       p_answer_id: answerId,
       p_user_id: user.id,
       p_vote_type: voteType
     });
     
-    // 3. Veriyi doğrulamak için tekrar çek
     fetchData();
   };
 
-  if (isLoading) return <div className="min-h-screen bg-slate-950 flex justify-center items-center"><Loader2 className="animate-spin text-amber-500 w-10 h-10" /></div>;
+  if (isLoading) return <div className="min-h-screen bg-slate-950 flex justify-center items-center flex-col gap-4">
+      <Loader2 className="animate-spin text-amber-500 w-10 h-10" />
+      <p className="text-slate-400 text-sm">Veriler yükleniyor...</p>
+      <button onClick={() => window.location.reload()} className="text-xs text-blue-400 hover:underline">Sayfa takıldıysa yenile</button>
+  </div>;
   
-  // Soru null ise gösterilecek ekran
   if (!question) return <div className="min-h-screen bg-slate-950 text-white p-10 text-center flex flex-col items-center justify-center">
     <p className="mb-4 text-xl">Soru bulunamadı.</p>
     <Link href="/" className="text-amber-500 hover:underline">Anasayfaya Dön</Link>

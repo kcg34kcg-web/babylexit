@@ -16,7 +16,9 @@ import {
   User, 
   Calendar,
   Eye,
-  Loader2
+  Loader2,
+  BookOpen,    // YENİ EKLENDİ: Makaleler için
+  PlayCircle   // YENİ EKLENDİ: Videolar için
 } from 'lucide-react';
 
 interface Profile {
@@ -80,7 +82,7 @@ export default function DashboardPage() {
         .order('created_at', { ascending: false })
         .limit(10); // Son 10 soru
 
-if (questionsData) setQuestions(questionsData as any);      
+      if (questionsData) setQuestions(questionsData as any);      
       setLoading(false);
     };
 
@@ -131,8 +133,9 @@ if (questionsData) setQuestions(questionsData as any);
         </div>
       </div>
 
-      {/* HIZLI AKSİYONLAR */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* HIZLI AKSİYONLAR - GÜNCELLENDİ: 3 SÜTUN YAPILDI */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* 1. SORU SOR */}
         <Link 
           href="/ask" 
           className="bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 p-6 rounded-2xl flex items-center justify-between group transition-all shadow-lg shadow-amber-900/20"
@@ -146,6 +149,7 @@ if (questionsData) setQuestions(questionsData as any);
           </div>
         </Link>
 
+        {/* 2. MARKET */}
         <Link 
           href="/market" 
           className="bg-slate-900 border border-slate-800 hover:border-slate-600 p-6 rounded-2xl flex items-center justify-between group transition-all"
@@ -158,6 +162,31 @@ if (questionsData) setQuestions(questionsData as any);
             <ShoppingCart size={28} />
           </div>
         </Link>
+
+        {/* 3. YAYINLAR (YENİ EKLENEN KISIM) */}
+        <Link 
+          href="/publications" 
+          className="bg-slate-900 border border-slate-800 hover:border-indigo-500/50 p-6 rounded-2xl flex items-center justify-between group transition-all relative overflow-hidden"
+        >
+          <div className="z-10">
+            <h3 className="text-white font-bold text-xl mb-1">Yayınlar</h3>
+            <div className="flex gap-2 mt-1.5">
+              {/* Makale Badge */}
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-400 font-medium">
+                <BookOpen size={10} /> Makale
+              </span>
+              {/* Video Badge */}
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-400 font-medium">
+                <PlayCircle size={10} /> Video
+              </span>
+            </div>
+          </div>
+          <div className="bg-slate-800 p-3 rounded-full text-slate-400 group-hover:text-indigo-400 transition-colors z-10">
+            <BookOpen size={28} />
+          </div>
+          {/* Hafif arka plan efekti */}
+          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-indigo-500/5 blur-2xl group-hover:bg-indigo-500/10 transition-all"></div>
+        </Link>
       </div>
 
       {/* GÜNDEM AKIŞI ve ARAMA */}
@@ -168,7 +197,7 @@ if (questionsData) setQuestions(questionsData as any);
             Gündemdeki Tartışmalar
           </h2>
 
-          {/* YENİ: ARAMA ÇUBUĞU */}
+          {/* ARAMA ÇUBUĞU */}
           <div className="relative w-full md:w-80">
             <input 
               type="text" 
@@ -188,7 +217,6 @@ if (questionsData) setQuestions(questionsData as any);
               <div key={q.id} className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-amber-500/30 transition-all group shadow-md">
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="text-lg font-bold text-white group-hover:text-amber-500 transition-colors line-clamp-1">
-                    {/* DÜZELTİLDİ: Artık doğru linke gidiyor */}
                     <Link href={`/questions/${q.id}`}>
                       {q.title}
                     </Link>
@@ -208,7 +236,6 @@ if (questionsData) setQuestions(questionsData as any);
                     {q.profiles?.full_name || 'Gizli Üye'}
                   </div>
                   
-                  {/* DÜZELTİLDİ: Cevapla Butonu */}
                   <Link 
                     href={`/questions/${q.id}`}
                     className="text-sm font-bold text-amber-500 hover:text-amber-400 flex items-center gap-1 bg-slate-800 py-2 px-4 rounded-lg hover:bg-slate-700 transition-colors"
