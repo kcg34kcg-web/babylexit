@@ -48,9 +48,9 @@ export default function AskPage() {
     fetchCredits();
   }, [supabase, router]);
 
-  // --- 2. GÜNCELLENEN GÖNDERİM FONKSİYONU (Client-Side Logic) ---
+  // --- 2. GÜNCELLENEN GÖNDERİM FONKSİYONU ---
   const handleClientSubmit = async (formData: FormData) => {
-    // A. Client-Side Validasyon
+    // A. Validasyonlar
     if (credits !== null && credits <= 0) {
       toast.error('Yeterli krediniz yok. Lütfen kredi yükleyin.');
       return;
@@ -65,17 +65,16 @@ export default function AskPage() {
 
     try {
       // B. Server Action Çağrısı
-      // Server Action artık { success: true, questionId: "..." } veya { error: "..." } dönecek.
+      // Server Action artık { success: true, questionId: "..." } dönecek.
       const result = await submitQuestion(formData);
 
       if (result?.error) {
         toast.error(`Hata: ${result.error}`);
-        setIsSubmitting(false); // Hata varsa butonu tekrar aktif et
+        setIsSubmitting(false);
       } else if (result?.success && result?.questionId) {
-        // C. Başarılıysa Manuel Yönlendirme
+        // C. Başarılıysa Manuel Yönlendirme (Router Push)
+        // Bu sayede "Try-Catch" bloğu hata yakalamaz, işlem temizce biter.
         toast.success('Analiz tamamlandı! Yönlendiriliyorsunuz...');
-        
-        // Router.push kullanarak "Redirect Error" hatasını önlüyoruz
         router.push(`/questions/${result.questionId}`); 
       }
     } catch (error) {
@@ -89,7 +88,7 @@ export default function AskPage() {
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-3xl mx-auto">
         
-        {/* ÜST MENÜ & GERİ DÖN BUTONU */}
+        {/* ÜST MENÜ */}
         <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
           <Link 
             href="/" 
@@ -114,7 +113,7 @@ export default function AskPage() {
           </div>
         </div>
 
-        {/* --- FORM ALANI --- */}
+        {/* FORM ALANI */}
         <form action={handleClientSubmit} className="bg-slate-900 p-6 md:p-8 rounded-2xl shadow-xl border border-slate-800">
           <div className="flex items-center gap-3 mb-6">
              <h1 className="text-2xl font-bold text-white">Yapay Zeka Hukuk Görüşü</h1>
@@ -136,7 +135,7 @@ export default function AskPage() {
             <input
               type="text"
               id="title"
-              name="title" // FormData için gerekli
+              name="title" 
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all placeholder:text-slate-600"
@@ -150,7 +149,7 @@ export default function AskPage() {
             <label htmlFor="content" className="block text-slate-300 text-sm font-bold mb-2">Detaylı Açıklama</label>
             <textarea
               id="content"
-              name="content" // FormData için gerekli
+              name="content" 
               rows={6}
               value={content}
               onChange={(e) => setContent(e.target.value)}

@@ -4,10 +4,14 @@ import { createClient } from '@/utils/supabase/server';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { revalidatePath } from 'next/cache';
 
-// Google Gemini API Kurulumu
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+// --- API ANAHTARI ---
+// gift-ai projenizden alınan çalışan anahtar
+const API_KEY = "AIzaSyC9B3xtrbfnoT7TnUxRRYVSS8xBEEV17sA"; 
+
+const genAI = new GoogleGenerativeAI(API_KEY);
 
 async function generateLegalAnswer(questionTitle: string, questionContent: string) {
+  // ARTIK BU MODEL KESİN ÇALIŞACAK (Kütüphane güncellendiği için)
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
   
   const systemPrompt = `
@@ -27,11 +31,12 @@ async function generateLegalAnswer(questionTitle: string, questionContent: strin
 
   try {
     const result = await model.generateContent(systemPrompt);
-    return result.response.text();
-  } catch (error) {
-    console.error("AI Üretim Hatası:", error);
-    // Hata olsa bile kullanıcıya göstermek için bir mesaj dönüyoruz
-    return "Şu anda yapay zeka hukuk görüşü oluşturulamadı. Lütfen topluluk cevaplarını bekleyiniz.";
+    const response = await result.response;
+    return response.text();
+  } catch (error: any) {
+    console.error("AI Model Hatası:", error);
+    // Hata durumunda kullanıcıya daha net bilgi veriyoruz
+    return `Yapay zeka servisine şu an ulaşılamıyor. (Hata: ${error.message})`;
   }
 }
 
@@ -76,9 +81,8 @@ export async function submitQuestion(formData: FormData) {
       is_verified: true
     });
 
-  // 5. Listeyi Yenile ama YÖNLENDİRME YAPMA (Client yapacak)
   revalidatePath('/questions');
   
-  // Başarılı olduğunu ve yeni ID'yi dön
+  // İşlem Başarılı
   return { success: true, questionId: questionData.id };
 }
