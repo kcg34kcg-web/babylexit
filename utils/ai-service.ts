@@ -3,7 +3,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 // 1. Gemini 1.5 Flash Başlatma
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 const model = genAI.getGenerativeModel({ 
-  model: "gemini-1.5-flash",
+  model: "gemini-2.5-flash",
   generationConfig: {
     temperature: 0.3, // Daha tutarlı ve objektif yanıtlar için düşük sıcaklık
   }

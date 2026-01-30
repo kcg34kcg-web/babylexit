@@ -1,38 +1,64 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server';
-import { GoogleGenerativeAI } from "@google/generative-ai";
+// DİKKAT: Bu kodun çalışması için terminalde: npm install @google/genai
+import { GoogleGenAI } from "@google/genai"; 
 import { revalidatePath } from 'next/cache';
 
-// --- API ANAHTARI ---
-// Senin gift-ai projen de çalışan anahtarı buraya koyduk.
-const API_KEY = "AIzaSyC9B3xtrbfnoT7TnUxRRYVSS8xBEEV17sA"; 
+const API_KEY = "AIzaSyCwOe4Hs1YcMw7sw79wceSyi91RE94u6P8"; 
 
-const genAI = new GoogleGenerativeAI(API_KEY);
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 async function generateLegalAnswer(questionTitle: string, questionContent: string) {
-  // ARTIK BU MODEL KESİN ÇALIŞACAK (Çünkü kütüphaneyi güncelledik!)
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-  
+  // --- GÜNCELLENMİŞ PROMPT BURADA ---
   const systemPrompt = `
-    Sen uzman bir Türk Hukuku Profesörüsün. Kullanıcının sorusunu sadece yürürlükteki Türk kanunlarına (TMK, TBK, TCK vb.) ve güncel hukuki kaynaklara dayanarak cevapla.
-    
-    BAĞLAM:
+    ROL VE AMAÇ:
+    Sen, Türk Hukuku konusunda uzmanlaşmış, titiz ve akademik bir Kıdemli Hukuk Asistanısın. Amacın, hukuk öğrencisi olan kullanıcıya, **sadece yürürlükteki** mevzuata dayanan, analitik hukuki değerlendirmeler sunmaktır.
+
+    BAĞLAM (KULLANICI SORUSU):
     Soru Başlığı: "${questionTitle}"
     Detaylar: "${questionContent}"
 
-    KURALLAR:
-    - Asla halüsinasyon görme (uydurma). Bilmiyorsan, bilmediğini açıkça belirt.
-    - Her hukuki iddian için ilgili Kanun Maddesini (Madde no) parantez içinde belirt.
-    - Cevabını maksimum 1-2 paragraf ile sınırlandır.
-    - Ton: Profesyonel, Akademik ve Tarafsız.
-    - Dil: Türkçe.
+    KRİTİK KURALLAR VE KISITLAMALAR:
+    1. **GÜNCELLİK ESASI (EN ÖNEMLİ KURAL):** Yanıtlarını verirken **sadece şu an yürürlükte olan** kanunları ve Resmi Gazete'de yayımlanmış en güncel değişiklikleri esas al. Mülga (yürürlükten kalkmış) kanunlara veya maddelere (Örn: 818 sayılı BK veya 765 sayılı TCK) asla atıf yapma.
+    
+    2. Doğruluk ve Dürüstlük (Sıfır Halüsinasyon): Asla var olmayan bir kanun maddesi veya içtihat uydurma. Bilmiyorsan "Bu konuda güncel veri tabanımda net bilgi yok" de.
+    
+    3. Atıf Formatı: Her hukuki iddianı mevzuat dayanağı ile destekle. Atıfları şu formatta yap: [Kanun Adı, Madde No/Fıkra]. Örnek: (Türk Medeni Kanunu m. 2/1).
+    
+    4. Yanıtlama Metodolojisi (IRAC):
+       - Hukuki sorunu tespit et.
+       - İlgili **Yürürlükteki** Kanun Maddesini belirt.
+       - Olayı madde ile ilişkilendir (Analiz).
+       - Net bir sonuca bağla.
+    
+    5. Ton ve Üslup: Profesyonel, objektif, didaktik ve akademik Türkçe.
+    
+    6. Uzunluk: Maksimum 2 yoğun ve bilgi dolu paragraf.
+
+    ÇIKTI FORMATI:
+    Giriş ve bitiş nezaket cümlelerini atla. Doğrudan hukuki analize başla.
   `;
 
   try {
-    const result = await model.generateContent(systemPrompt);
-    const response = await result.response;
-    return response.text();
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: [
+        { 
+          role: 'user', 
+          parts: [{ text: systemPrompt }] 
+        }
+      ]
+    });
+
+    const textAnswer = response?.candidates?.[0]?.content?.parts?.[0]?.text;
+    
+    if (!textAnswer) {
+      throw new Error("Yapay zeka boş cevap döndürdü.");
+    }
+
+    return textAnswer; 
+
   } catch (error: any) {
     console.error("AI Model Hatası:", error);
     return `Yapay zeka servisine şu an ulaşılamıyor. (Hata: ${error.message})`;

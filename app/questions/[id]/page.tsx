@@ -31,13 +31,13 @@ interface Answer {
   content: string;
   created_at: string;
   is_verified: boolean;
-  is_ai_generated: boolean; // YENİ: AI ayrımı için
-  ai_score: number | null; // ESKİ: Korundu
-  ai_feedback: string | null; // ESKİ: Korundu
+  is_ai_generated: boolean;
+  ai_score: number | null;
+  ai_feedback: string | null;
   upvotes: number;
   downvotes: number;
   profiles: Profile;
-  votes?: { user_id: string, vote_type: number }[]; // Join'den gelen veri
+  votes?: { user_id: string, vote_type: number }[];
 }
 
 interface Question {
@@ -62,50 +62,80 @@ export default function QuestionDetailPage() {
 
   // --- VERİ ÇEKME FONKSİYONU ---
   const fetchData = async () => {
-    setIsLoading(true);
-    
-    // 1. Soruyu Çek
-    const { data: qData, error: qError } = await supabase
-      .from('questions')
-      .select(`*, profiles(full_name, avatar_url)`)
-      .eq('id', id)
-      .single();
+    try {
+      setIsLoading(true);
 
-    if (qError) {
-      console.error(qError);
+      // ID Kontrolü: ID yoksa işlemi durdur
+      if (!id) {
+        console.warn("ID parametresi bulunamadı.");
+        setIsLoading(false);
+        return;
+      }
+      
+      // 1. Soruyu Çek
+      const { data: qData, error: qError } = await supabase
+        .from('questions')
+        .select(`*, profiles(full_name, avatar_url)`)
+        .eq('id', id)
+        .maybeSingle(); // .single() yerine .maybeSingle() hatayı yumuşatır
+
+      if (qError) {
+        console.error("Soru çekme hatası:", qError);
+        throw qError; // Hatayı catch bloğuna fırlat
+      }
+
+      if (!qData) {
+        setQuestion(null);
+        // Soru yoksa loading'i kapatıp fonksiyondan çıkıyoruz
+        return; 
+      }
+      
+      setQuestion(qData as any);
+
+      // 2. Cevapları ve Oyları Çek
+      const { data: aData, error: aError } = await supabase
+        .from('answers')
+        .select(`
+          *,
+          profiles(full_name, avatar_url),
+          votes(user_id, vote_type)
+        `)
+        .eq('question_id', id)
+        .order('is_ai_generated', { ascending: false }) 
+        .order('created_at', { ascending: true });
+
+      if (aError) {
+        console.error("Cevaplar çekilirken hata:", aError);
+      }
+      
+      if (aData) {
+        // Oyları client tarafında hesapla
+        const processedAnswers = aData.map((ans: any) => {
+          // GÜVENLİK ÖNLEMİ: votes null veya undefined ise boş dizi ata
+          const votesArray = Array.isArray(ans.votes) ? ans.votes : [];
+          
+          const up = votesArray.filter((v: any) => v.vote_type === 1).length;
+          const down = votesArray.filter((v: any) => v.vote_type === -1).length;
+          return { ...ans, upvotes: up, downvotes: down };
+        });
+        setAnswers(processedAnswers);
+      }
+      
+    } catch (error) {
+      console.error("Beklenmeyen hata:", error);
+    } finally {
+      // BAŞARILI DA OLSA HATALI DA OLSA YÜKLEMEYİ KAPAT
       setIsLoading(false);
-      return;
     }
-    setQuestion(qData as any);
-
-    // 2. Cevapları ve Oyları Çek
-    // Not: is_ai_generated en üstte, sonra tarih sırası
-    const { data: aData } = await supabase
-      .from('answers')
-      .select(`
-        *,
-        profiles(full_name, avatar_url),
-        votes(user_id, vote_type)
-      `)
-      .eq('question_id', id)
-      .order('is_ai_generated', { ascending: false }) 
-      .order('created_at', { ascending: true });
-
-    if (aData) {
-      // Oyları client tarafında hesapla (veya RPC kullanabilirsin)
-      const processedAnswers = aData.map((ans: any) => {
-        const up = ans.votes?.filter((v: any) => v.vote_type === 1).length || 0;
-        const down = ans.votes?.filter((v: any) => v.vote_type === -1).length || 0;
-        return { ...ans, upvotes: up, downvotes: down };
-      });
-      setAnswers(processedAnswers);
-    }
-    
-    setIsLoading(false);
   };
 
   useEffect(() => {
-    if(id) fetchData();
+    if(id) {
+      fetchData();
+    } else {
+      // ID henüz hazır değilse loading dönebilir ama biz durduralım ki boş sayfa kalmasın
+      setIsLoading(false);
+    }
     moment.locale('tr');
   }, [id]);
 
@@ -117,8 +147,6 @@ export default function QuestionDetailPage() {
     // 1. Arayüzü anında güncelle (Optimistic UI)
     setAnswers(prev => prev.map(a => {
       if (a.id === answerId) {
-        // Basit bir mantık: Tıklandığında sayıyı artırıyormuş gibi göster
-        // Gerçek mantık toggle içerir ama şimdilik görsel hız için yeterli
         return { 
             ...a, 
             upvotes: a.upvotes + (voteType === 1 ? 1 : 0), 
@@ -135,12 +163,17 @@ export default function QuestionDetailPage() {
       p_vote_type: voteType
     });
     
-    // 3. Veriyi doğrulamak için tekrar çek (Opsiyonel ama güvenli)
+    // 3. Veriyi doğrulamak için tekrar çek
     fetchData();
   };
 
   if (isLoading) return <div className="min-h-screen bg-slate-950 flex justify-center items-center"><Loader2 className="animate-spin text-amber-500 w-10 h-10" /></div>;
-  if (!question) return <div className="min-h-screen bg-slate-950 text-white p-10 text-center">Soru bulunamadı.</div>;
+  
+  // Soru null ise gösterilecek ekran
+  if (!question) return <div className="min-h-screen bg-slate-950 text-white p-10 text-center flex flex-col items-center justify-center">
+    <p className="mb-4 text-xl">Soru bulunamadı.</p>
+    <Link href="/" className="text-amber-500 hover:underline">Anasayfaya Dön</Link>
+  </div>;
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
@@ -229,7 +262,7 @@ export default function QuestionDetailPage() {
                            <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-2">
                              <span className="text-blue-300 font-bold text-lg">Babylexit AI</span>
                              <span className="bg-blue-500/20 text-blue-300 text-[10px] px-2 py-0.5 rounded border border-blue-500/30 w-fit font-bold tracking-wide">
-                                ⚖️ HUKUKİ GÖRÜŞ
+                               ⚖️ HUKUKİ GÖRÜŞ
                              </span>
                            </div>
                         ) : (
@@ -239,14 +272,14 @@ export default function QuestionDetailPage() {
                       </div>
                     </div>
 
-                    {/* SAĞ ÜST: SKOR VE DOĞRULAMA (ESKİ KODDAN KURTARILANLAR) */}
+                    {/* SAĞ ÜST: SKOR VE DOĞRULAMA */}
                     <div className="flex flex-col items-end gap-2">
                         {answer.is_verified && (
                             <div className="flex items-center text-green-500 text-xs font-bold bg-green-500/10 px-2 py-1 rounded border border-green-500/20">
                                 <CheckCircle2 size={12} className="mr-1" /> Doğrulanmış
                             </div>
                         )}
-                        {/* Eğer cevap insandan geldiyse ve AI ona puan verdiyse göster */}
+                        
                         {!isAI && answer.ai_score !== null && (
                             <div className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-black border ${
                                 answer.ai_score >= 70 ? 'bg-green-500/10 border-green-500/30 text-green-500' :
@@ -265,7 +298,7 @@ export default function QuestionDetailPage() {
                     {answer.content}
                   </div>
 
-                  {/* AI GERİ BİLDİRİMİ (ESKİ KODDAN KURTARILAN) */}
+                  {/* AI GERİ BİLDİRİMİ */}
                   {!isAI && answer.ai_feedback && (
                     <div className="mt-3 text-[11px] text-slate-400 bg-slate-900/50 p-3 rounded border-l-2 border-amber-500/50 italic flex gap-2">
                         <Bot size={14} className="text-amber-500 shrink-0 mt-0.5" />

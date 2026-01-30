@@ -59,8 +59,8 @@ export default function LoginPage() {
           </button>
         </form>
         <p className="text-center text-gray-700 dark:text-gray-300 text-sm mt-4">
-          Don't have an account? {' '}
-          <Link href="/signup" className="text-[#f59e0b] hover:underline">Sign Up</Link>
+          Hesabın yok mu, kaydol? {' '}
+          <Link href="/signup" className="text-[#f59e0b] hover:underline">Kayıt ol</Link>
         </p>
       </div>
     </div>
