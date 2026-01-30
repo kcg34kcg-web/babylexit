@@ -5,13 +5,13 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { revalidatePath } from 'next/cache';
 
 // --- API ANAHTARI ---
-// gift-ai projenizden alınan çalışan anahtar
+// Senin gift-ai projen de çalışan anahtarı buraya koyduk.
 const API_KEY = "AIzaSyC9B3xtrbfnoT7TnUxRRYVSS8xBEEV17sA"; 
 
 const genAI = new GoogleGenerativeAI(API_KEY);
 
 async function generateLegalAnswer(questionTitle: string, questionContent: string) {
-  // ARTIK BU MODEL KESİN ÇALIŞACAK (Kütüphane güncellendiği için)
+  // ARTIK BU MODEL KESİN ÇALIŞACAK (Çünkü kütüphaneyi güncelledik!)
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
   
   const systemPrompt = `
@@ -35,7 +35,6 @@ async function generateLegalAnswer(questionTitle: string, questionContent: strin
     return response.text();
   } catch (error: any) {
     console.error("AI Model Hatası:", error);
-    // Hata durumunda kullanıcıya daha net bilgi veriyoruz
     return `Yapay zeka servisine şu an ulaşılamıyor. (Hata: ${error.message})`;
   }
 }
@@ -46,13 +45,12 @@ export async function submitQuestion(formData: FormData) {
   const title = formData.get('title') as string;
   const content = formData.get('content') as string;
   
-  // 1. Kullanıcıyı Doğrula
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return { error: 'Kullanıcı girişi yapılmamış.' };
   }
 
-  // 2. Soruyu Kaydet
+  // Soruyu Kaydet
   const { data: questionData, error: questionError } = await supabase
     .from('questions')
     .insert({
@@ -67,10 +65,10 @@ export async function submitQuestion(formData: FormData) {
     return { error: questionError.message };
   }
 
-  // 3. AI Cevabını Üret
+  // AI Cevabını Üret
   const aiResponseContent = await generateLegalAnswer(title, content);
 
-  // 4. AI Cevabını Kaydet
+  // AI Cevabını Kaydet
   await supabase
     .from('answers')
     .insert({
@@ -83,6 +81,5 @@ export async function submitQuestion(formData: FormData) {
 
   revalidatePath('/questions');
   
-  // İşlem Başarılı
   return { success: true, questionId: questionData.id };
 }
