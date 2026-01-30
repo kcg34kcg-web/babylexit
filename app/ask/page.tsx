@@ -4,21 +4,27 @@ import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-// ArrowLeft ikonunu ekledik
-import { CheckCircle, Loader2, ArrowLeft, AlertCircle } from 'lucide-react';
-import Link from 'next/link'; // Link doğrusu bu
+import { CheckCircle, Loader2, ArrowLeft, AlertCircle, Sparkles } from 'lucide-react';
+import Link from 'next/link';
+import { submitQuestion } from '@/app/actions/submit-question'; // Server Action importu
 
 export default function AskPage() {
+  // UI State
+  const [credits, setCredits] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true); // Kredi yükleme durumu
+  
+  // Form State (Controlled inputs for validation)
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
-  const [credits, setCredits] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // useFormStatus yerine manuel loading state kullanıyoruz çünkü
+  // validation (kredi kontrolü) client-side'da yapılıyor.
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [newQuestionId, setNewQuestionId] = useState<string | null>(null);
+
   const router = useRouter();
   const supabase = createClient();
 
+  // --- 1. KREDİ KONTROLÜ (Mevcut Mantık Korundu) ---
   useEffect(() => {
     const fetchCredits = async () => {
       setIsLoading(true);
@@ -44,60 +50,36 @@ export default function AskPage() {
     fetchCredits();
   }, [supabase, router]);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!credits || credits <= 0) {
+  // --- 2. FORM GÖNDERİMİ (Server Action Entegrasyonu) ---
+  const handleClientSubmit = async (formData: FormData) => {
+    // A. Kredi Kontrolü
+    if (credits !== null && credits <= 0) {
       toast.error('Yeterli krediniz yok. Lütfen kredi yükleyin.');
       return;
     }
-    if (!title.trim() || !content.trim()) return;
+
+    if (!title.trim() || !content.trim()) {
+      toast.error('Lütfen tüm alanları doldurun.');
+      return;
+    }
 
     setIsSubmitting(true);
-    const { data, error } = await supabase.rpc('ask_question_transaction', {
-      p_title: title,
-      p_content: content,
-    });
 
-    if (error) {
-      toast.error(error.message || 'Hata oluştu.');
-      console.error('RPC error:', error);
-    } else if (data) {
-      // Başarılı olduğunda krediyi güncelle ve modalı aç
-      setCredits((prev) => (prev !== null ? prev - 1 : 0));
-      setNewQuestionId(data.question_id); // Dönen ID'yi yakala
-      setIsSuccess(true);
-      toast.success('Soru başarıyla iletildi!');
+    try {
+      // B. Server Action Çağrısı
+      // Not: submitQuestion fonksiyonu başarılı olursa redirect yapar.
+      // Hata fırlatırsa catch bloğuna düşeriz.
+      await submitQuestion(formData);
+      
+      // Redirect olduğu için burası çalışmayabilir ama tedbir amaçlı:
+      toast.success('Analiz ediliyor...');
+    } catch (error) {
+      console.error(error);
+      toast.error('Bir hata oluştu. Lütfen tekrar deneyin.');
+      setIsSubmitting(false);
     }
-    setIsSubmitting(false);
   };
 
-  // --- BAŞARI EKRANI ---
-  if (isSuccess) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4">
-        <div className="bg-slate-900 p-8 rounded-2xl shadow-2xl border border-amber-500/20 text-center max-w-md w-full animate-fade-in">
-          <div className="flex justify-center mb-6">
-             <CheckCircle size={80} className="text-green-500 animate-bounce" />
-          </div>
-          <h2 className="text-3xl font-bold text-slate-100 mb-3">Soru İletildi!</h2>
-          <p className="text-slate-400 mb-8">Hesabınızdan <span className="text-amber-500 font-bold">1 kredi</span> düşüldü.</p>
-          
-          <div className="flex flex-col space-y-3">
-            <Link href="/" className="bg-slate-800 hover:bg-slate-700 text-white font-medium py-3 px-6 rounded-lg transition-colors">
-              Anasayfaya Dön
-            </Link>
-            {newQuestionId && (
-              <Link href={`/questions/${newQuestionId}`} className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-3 px-6 rounded-lg transition-colors">
-                Soruyu Görüntüle
-              </Link>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- FORM EKRANI ---
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8">
       <div className="max-w-3xl mx-auto">
@@ -106,9 +88,9 @@ export default function AskPage() {
         <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
           <Link 
             href="/" 
-            className="inline-flex items-center text-slate-400 hover:text-amber-500 transition-colors font-medium"
+            className="inline-flex items-center text-slate-400 hover:text-amber-500 transition-colors font-medium group"
           >
-            <ArrowLeft className="mr-2" size={20} />
+            <ArrowLeft className="mr-2 group-hover:-translate-x-1 transition-transform" size={20} />
             Ana Menüye Dön
           </Link>
 
@@ -119,16 +101,24 @@ export default function AskPage() {
                 Yükleniyor...
               </div>
             ) : (
-              <div className={`px-5 py-2 rounded-full font-bold border ${credits === 0 ? 'bg-red-900/20 border-red-500 text-red-500' : 'bg-slate-900 border-amber-500/50 text-amber-500'}`}>
-                Kalan Kredi: {credits} 🪙
+              <div className={`px-5 py-2 rounded-full font-bold border flex items-center gap-2 ${credits === 0 ? 'bg-red-900/20 border-red-500 text-red-500' : 'bg-slate-900 border-amber-500/50 text-amber-500'}`}>
+                <span>Kalan Kredi: {credits}</span>
+                <span>🪙</span>
               </div>
             )}
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-slate-900 p-6 md:p-8 rounded-2xl shadow-xl border border-slate-800">
-          <h1 className="text-2xl font-bold text-white mb-6">Hukuki Görüş İste</h1>
+        {/* --- FORM ALANI --- */}
+        <form action={handleClientSubmit} className="bg-slate-900 p-6 md:p-8 rounded-2xl shadow-xl border border-slate-800">
+          <div className="flex items-center gap-3 mb-6">
+             <h1 className="text-2xl font-bold text-white">Yapay Zeka Hukuk Görüşü</h1>
+             <span className="px-3 py-1 rounded-full bg-blue-600/20 text-blue-400 text-xs font-bold border border-blue-600/30 animate-pulse">
+                AI-First
+             </span>
+          </div>
 
+          {/* KREDİ UYARISI */}
           {credits === 0 && !isLoading && (
              <div className="mb-6 bg-red-900/20 border border-red-500/30 p-4 rounded-lg flex items-center gap-3 text-red-400">
                 <AlertCircle size={24} />
@@ -141,6 +131,7 @@ export default function AskPage() {
             <input
               type="text"
               id="title"
+              name="title" // FormData için gerekli
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all placeholder:text-slate-600"
@@ -154,11 +145,12 @@ export default function AskPage() {
             <label htmlFor="content" className="block text-slate-300 text-sm font-bold mb-2">Detaylı Açıklama</label>
             <textarea
               id="content"
+              name="content" // FormData için gerekli
               rows={6}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all placeholder:text-slate-600 resize-none"
-              placeholder="Sorunuzun detaylarını buraya yazın..."
+              placeholder="Sorunuzun detaylarını, ilgili kanun maddelerini veya olay örgüsünü buraya yazın..."
               required
               disabled={isSubmitting || credits === 0}
             ></textarea>
@@ -166,16 +158,26 @@ export default function AskPage() {
 
           <button
             type="submit"
-            className="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-4 rounded-lg text-lg transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-amber-500/20"
+            className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold py-4 rounded-lg text-lg transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-amber-500/20"
             disabled={isSubmitting || credits === 0}
           >
             {isSubmitting ? (
-              <><Loader2 className="mr-2 animate-spin" size={24} /> İşleniyor...</>
+              <>
+                <Loader2 className="mr-2 animate-spin" size={24} />
+                <span className="animate-pulse">AI Analizi Başlatılıyor...</span>
+              </>
             ) : (
-              'Soruyu Gönder (-1 Kredi)'
+              <div className="flex items-center gap-2">
+                 <Sparkles size={20} />
+                 <span>AI Uzmanına Sor (-1 Kredi)</span>
+              </div>
             )}
           </button>
           
+          <p className="text-xs text-slate-500 text-center mt-4">
+            Sorunuz gönderildiğinde <strong>Babylexit AI</strong> saniyeler içinde analiz edip yanıtlayacaktır.
+          </p>
+
           {credits === 0 && (
              <div className="mt-4 text-center">
                 <Link href="/market" className="text-amber-500 hover:underline font-medium">

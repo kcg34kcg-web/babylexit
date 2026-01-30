@@ -1,72 +1,71 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// API Anahtarını .env.local dosyasından alıyoruz
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "");
-
-// En hızlı ve verimli model olan Gemini 1.5 Flash'ı kullanıyoruz
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// 1. Gemini 1.5 Flash Başlatma
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const model = genAI.getGenerativeModel({ 
+  model: "gemini-1.5-flash",
+  generationConfig: {
+    temperature: 0.3, // Daha tutarlı ve objektif yanıtlar için düşük sıcaklık
+  }
+});
 
 /**
- * Soru için profesyonel bir hukuki analiz (Community Note) oluşturur.
+ * Sorular için profesyonel hukuki analiz (Community Note) oluşturur.
  */
 export async function generateAILegalNote(questionTitle: string, questionContent: string) {
   const prompt = `
-    Sen uzman bir Türk Avukatısın. Aşağıdaki hukuki soruya profesyonel, objektif ve güvenilir bir analiz hazırla.
-    Analizin, X (Twitter) Topluluk Notları gibi kısa, öz ve bilgilendirici olmalı.
-    
-    Kurallar:
-    - İlgili Türk kanun maddelerine (TBK, TMK, TCK vb.) atıfta bulunmaya çalış.
-    - Dil resmi ve ciddi olmalı.
-    - Yanıtın en fazla 3-4 paragraf olsun.
-    
-    Soru Başlığı: ${questionTitle}
-    Soru İçeriği: ${questionContent}
-    
-    Analiz:
+    Sen "Babylexit" platformunda görev yapan kıdemli bir Türk Avukatı ve Hukuk Profesörüsün.
+    Aşağıdaki hukuki soruyu analiz et ve halkı bilgilendirici, tarafsız ve profesyonel bir "Hukuki Bilgi Notu" hazırla.
+
+    SORU BAŞLIĞI: "${questionTitle}"
+    SORU İÇERİĞİ: "${questionContent}"
+
+    TALİMATLAR:
+    - Resmi, objektif ve akademik bir dil kullan.
+    - Varsa ilgili kanun maddelerine (TMK, TBK, TCK vb.) atıfta bulun.
+    - Yanıtın sonunda "Bu bir yasal tavsiye değildir" uyarısını mutlaka ekle.
+    - Yanıtın toplamda 2-3 paragrafı geçmesin.
   `;
 
   try {
     const result = await model.generateContent(prompt);
-    const response = await result.response;
-    return response.text();
+    return result.response.text();
   } catch (error) {
-    console.error("Gemini Soru Analiz Hatası:", error);
-    return "Yapay zeka analizi şu an oluşturulamıyor.";
+    console.error("Legal Note Hatası:", error);
+    return "Hukuki analiz şu an oluşturulamıyor.";
   }
 }
 
 /**
- * Kullanıcının verdiği cevabı puanlar ve kısa geri bildirim verir.
+ * Kullanıcı cevaplarını puanlar ve kısa bir geri bildirim verir.
  */
 export async function rateUserAnswer(questionContent: string, userAnswer: string) {
   const prompt = `
-    Sen bir hukuk eğitmenisin. Bir öğrencinin aşağıdaki hukuki soruya verdiği cevabı değerlendir.
+    Sen uzman bir Türk Avukatısın. Bir kullanıcının aşağıdaki soruya verdiği cevabı değerlendir.
     
-    Soru: ${questionContent}
-    Öğrenci Cevabı: ${userAnswer}
+    SORU: "${questionContent}"
+    KULLANICI CEVABI: "${userAnswer}"
+
+    GÖREVİN:
+    1. Cevabı hukuki doğruluk açısından 0 ile 100 arasında puanla.
+    2. Cevapla ilgili tek bir cümlelik, profesyonel bir Türkçe geri bildirim yaz.
     
-    Lütfen yanıtını SADECE aşağıdaki formatta bir JSON olarak ver:
+    ÇIKTI FORMATI: Sadece aşağıdaki JSON formatında yanıt ver, başka açıklama ekleme:
     {
-      "score": (0-100 arası bir sayı),
-      "feedback": (Cevabın doğruluğu hakkında Türkçe tek bir kısa cümle)
+      "score": number,
+      "feedback": "string"
     }
   `;
 
   try {
     const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
+    const responseText = result.response.text();
     
-    // JSON içeriğini metnin içinden temizleyip alalım (bazen markdown ```json ekleyebiliyor)
-    const startIdx = text.indexOf('{');
-    const endIdx = text.lastIndexOf('}');
-    
-    if (startIdx !== -1 && endIdx !== -1) {
-      return JSON.parse(text.substring(startIdx, endIdx + 1));
-    }
-    return { score: 50, feedback: "Değerlendirme yapılamadı." };
+    // JSON içindeki olası Markdown bloklarını temizle
+    const cleanJson = responseText.replace(/```json|```/g, "").trim();
+    return JSON.parse(cleanJson);
   } catch (error) {
-    console.error("Gemini Puanlama Hatası:", error);
-    return { score: 0, feedback: "Hata oluştu." };
+    console.error("Rating Hatası:", error);
+    return { score: 0, feedback: "Değerlendirme şu an yapılamıyor." };
   }
 }

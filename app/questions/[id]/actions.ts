@@ -1,22 +1,22 @@
-'use server'
+'use server';
 
-import { createClient } from '@/utils/supabase/server';
-import { generateAILegalNote, rateUserAnswer } from '@/utils/ai-service';
-import { revalidatePath } from 'next/cache';
+import { createClient } from "@/utils/supabase/server";
+import { revalidatePath } from "next/cache";
 
-export async function processAIAnalysis(questionId: string, title: string, content: string) {
+export async function voteAction(answerId: string, voteType: number) {
   const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  // 1. AI Notu Üret
-  const aiNote = await generateAILegalNote(title, content);
+  if (!user) return { error: "Giriş yapmalısınız." };
 
-  // 2. Veritabanına Kaydet
-  const { error } = await supabase
-    .from('questions')
-    .update({ ai_response: aiNote })
-    .eq('id', questionId);
+  const { error } = await supabase.rpc('vote_answer', {
+    p_answer_id: answerId,
+    p_user_id: user.id,
+    p_vote_type: voteType
+  });
 
-  if (error) console.error("AI Kayıt Hatası:", error);
-  
-  revalidatePath(`/questions/${questionId}`);
+  if (error) return { error: "Oylama başarısız." };
+
+  revalidatePath(`/questions/${answerId}`);
+  return { success: true };
 }
