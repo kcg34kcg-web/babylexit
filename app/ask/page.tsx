@@ -4,27 +4,25 @@ import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { CheckCircle, Loader2, ArrowLeft, AlertCircle, Sparkles } from 'lucide-react';
+import { Loader2, ArrowLeft, AlertCircle, Sparkles } from 'lucide-react';
 import Link from 'next/link';
-import { submitQuestion } from '@/app/actions/submit-question'; // Server Action importu
+import { submitQuestion } from '@/app/actions/submit-question';
 
 export default function AskPage() {
   // UI State
   const [credits, setCredits] = useState<number | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // Kredi yükleme durumu
+  const [isLoading, setIsLoading] = useState(true);
   
-  // Form State (Controlled inputs for validation)
+  // Form State
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   
-  // useFormStatus yerine manuel loading state kullanıyoruz çünkü
-  // validation (kredi kontrolü) client-side'da yapılıyor.
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const router = useRouter();
   const supabase = createClient();
 
-  // --- 1. KREDİ KONTROLÜ (Mevcut Mantık Korundu) ---
+  // --- 1. KREDİ KONTROLÜ ---
   useEffect(() => {
     const fetchCredits = async () => {
       setIsLoading(true);
@@ -50,9 +48,9 @@ export default function AskPage() {
     fetchCredits();
   }, [supabase, router]);
 
-  // --- 2. FORM GÖNDERİMİ (Server Action Entegrasyonu) ---
+  // --- 2. GÜNCELLENEN GÖNDERİM FONKSİYONU (Client-Side Logic) ---
   const handleClientSubmit = async (formData: FormData) => {
-    // A. Kredi Kontrolü
+    // A. Client-Side Validasyon
     if (credits !== null && credits <= 0) {
       toast.error('Yeterli krediniz yok. Lütfen kredi yükleyin.');
       return;
@@ -67,15 +65,22 @@ export default function AskPage() {
 
     try {
       // B. Server Action Çağrısı
-      // Not: submitQuestion fonksiyonu başarılı olursa redirect yapar.
-      // Hata fırlatırsa catch bloğuna düşeriz.
-      await submitQuestion(formData);
-      
-      // Redirect olduğu için burası çalışmayabilir ama tedbir amaçlı:
-      toast.success('Analiz ediliyor...');
+      // Server Action artık { success: true, questionId: "..." } veya { error: "..." } dönecek.
+      const result = await submitQuestion(formData);
+
+      if (result?.error) {
+        toast.error(`Hata: ${result.error}`);
+        setIsSubmitting(false); // Hata varsa butonu tekrar aktif et
+      } else if (result?.success && result?.questionId) {
+        // C. Başarılıysa Manuel Yönlendirme
+        toast.success('Analiz tamamlandı! Yönlendiriliyorsunuz...');
+        
+        // Router.push kullanarak "Redirect Error" hatasını önlüyoruz
+        router.push(`/questions/${result.questionId}`); 
+      }
     } catch (error) {
       console.error(error);
-      toast.error('Bir hata oluştu. Lütfen tekrar deneyin.');
+      toast.error('Beklenmedik bir hata oluştu.');
       setIsSubmitting(false);
     }
   };

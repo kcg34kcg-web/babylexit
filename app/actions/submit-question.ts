@@ -3,7 +3,6 @@
 import { createClient } from '@/utils/supabase/server';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { revalidatePath } from 'next/cache';
-import { redirect } from 'next/navigation';
 
 // Google Gemini API Kurulumu
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
@@ -31,6 +30,7 @@ async function generateLegalAnswer(questionTitle: string, questionContent: strin
     return result.response.text();
   } catch (error) {
     console.error("AI Üretim Hatası:", error);
+    // Hata olsa bile kullanıcıya göstermek için bir mesaj dönüyoruz
     return "Şu anda yapay zeka hukuk görüşü oluşturulamadı. Lütfen topluluk cevaplarını bekleyiniz.";
   }
 }
@@ -44,8 +44,7 @@ export async function submitQuestion(formData: FormData) {
   // 1. Kullanıcıyı Doğrula
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    // Giriş yapmamışsa login sayfasına atabiliriz veya hata dönebiliriz
-    redirect('/login');
+    return { error: 'Kullanıcı girişi yapılmamış.' };
   }
 
   // 2. Soruyu Kaydet
@@ -59,26 +58,27 @@ export async function submitQuestion(formData: FormData) {
     .select()
     .single();
 
-  if (questionError) throw new Error(questionError.message);
+  if (questionError) {
+    return { error: questionError.message };
+  }
 
-  // 3. AI Cevabını Üret (Gemini Çağrısı)
+  // 3. AI Cevabını Üret
   const aiResponseContent = await generateLegalAnswer(title, content);
 
   // 4. AI Cevabını Kaydet
-  // ÖNEMLİ: 'is_ai_generated: true' olarak işaretliyoruz.
-  // user_id olarak şu anki kullanıcıyı veriyoruz, ancak frontend'de 'is_ai_generated' 
-  // true olduğu için kullanıcı adı yerine "Babylexit AI" görünecek.
   await supabase
     .from('answers')
     .insert({
       question_id: questionData.id,
       user_id: user.id, 
       content: aiResponseContent,
-      is_ai_generated: true, // <--- BU SATIR ÇOK ÖNEMLİ
+      is_ai_generated: true,
       is_verified: true
     });
 
-  // 5. Yönlendirme ve Yenileme
-  revalidatePath('/questions'); // Listeyi yenile
-  redirect(`/questions/${questionData.id}`); // Detay sayfasına git
+  // 5. Listeyi Yenile ama YÖNLENDİRME YAPMA (Client yapacak)
+  revalidatePath('/questions');
+  
+  // Başarılı olduğunu ve yeni ID'yi dön
+  return { success: true, questionId: questionData.id };
 }
