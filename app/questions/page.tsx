@@ -1,273 +1,173 @@
 'use client';
 
 import { createClient } from '@/utils/supabase/client';
-import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import moment from 'moment';
 import Link from 'next/link';
+import moment from 'moment';
 import 'moment/locale/tr';
-import { ArrowLeft, Loader2, User, Calendar, Bot, CheckCircle2, Star, ArrowUp, ArrowDown, Sparkles } from 'lucide-react';
-import AnswerForm from '@/components/answer-form';
-import { voteAction } from "@/app/questions/[id]/actions";
-
-// Veri Tipleri
-interface Profile {
-  full_name: string;
-  avatar_url: string;
-}
-
-interface Answer {
-  id: string;
-  content: string;
-  created_at: string;
-  is_verified: boolean;
-  is_ai_generated: boolean; // <--- EKLENDİ
-  ai_score: number | null;
-  ai_critique: string | null;
-  upvotes: number;
-  downvotes: number;
-  profiles: Profile;
-}
-
-interface AIResponse {
-  summary: string;
-  laws: string[];
-  disclaimer: string;
-}
+import { 
+  Loader2, 
+  MessageSquare, 
+  User, 
+  Calendar, 
+  ArrowRight,
+  Search,
+  ArrowLeft // <-- YENİ: İkon eklendi
+} from 'lucide-react';
 
 interface Question {
   id: string;
   title: string;
   content: string;
-  user_id: string;
-  status: string;
   created_at: string;
-  ai_response: AIResponse | null;
-  profiles: Profile;
+  status: string;
+  profiles: {
+    full_name: string;
+  };
+  answers?: { count: number }[]; 
 }
 
-export default function QuestionDetailPage() {
-  const params = useParams();
-  const router = useRouter();
-  const id = params?.id as string;
-  
-  const [question, setQuestion] = useState<Question | null>(null);
-  const [answers, setAnswers] = useState<Answer[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+export default function QuestionsPage() {
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
   
   const supabase = createClient();
 
-  // --- OPTIMISTIC OYLAMA FONKSİYONU ---
-  const handleVote = async (answerId: string, voteType: 1 | -1) => {
-    const originalAnswers = [...answers];
-
-    // Kullanıcıya anında tepki ver (Optimistic Update)
-    setAnswers(prevAnswers => 
-      prevAnswers.map(ans => {
-        if (ans.id === answerId) {
-          return {
-            ...ans,
-            upvotes: voteType === 1 ? (ans.upvotes || 0) + 1 : (ans.upvotes || 0),
-            downvotes: voteType === -1 ? (ans.downvotes || 0) + 1 : (ans.downvotes || 0)
-          };
-        }
-        return ans;
-      })
-    );
-
-    const result = await voteAction(answerId, voteType);
-
-    if (result?.error) {
-      setAnswers(originalAnswers);
-      alert(result.error);
-    } else {
-      // Sessizce güncelleme yapmaya gerek yok, optimistic yeterli olur genelde
-      // ama garanti olsun derseniz:
-      // fetchAnswers(); 
-    }
-  };
-
-  const fetchAnswers = async () => {
-    const { data } = await supabase
-      .from('answers')
-      .select(`
-        id, content, created_at, is_verified, is_ai_generated, ai_score, ai_critique, upvotes, downvotes,
-        profiles (full_name, avatar_url)
-      `)
-      .eq('question_id', id)
-      // ÖNCE AI CEVABI, SONRA TARİH (YENİDEN ESKİYE)
-      .order('is_ai_generated', { ascending: false }) 
-      .order('created_at', { ascending: true }); // veya false, tercihinize göre
-
-    if (data) setAnswers(data as any);
-  };
-
   useEffect(() => {
-    const fetchData = async () => {
-      if (!id) return;
-      setIsLoading(true);
+    const fetchQuestions = async () => {
+      setLoading(true);
       
-      const { data: questionData } = await supabase
+      const { data, error } = await supabase
         .from('questions')
-        .select(`*, profiles (full_name, avatar_url)`)
-        .eq('id', id)
-        .single();
+        .select(`
+          *,
+          profiles (full_name),
+          answers (count)
+        `)
+        .order('created_at', { ascending: false });
 
-      if (questionData) {
-        setQuestion(questionData as any);
-        
-        // Eski AI sistemi (soru tablosundaki JSON alanı) hala duruyor
-        if (!questionData.ai_response) {
-          // Gerekirse burası çalışmaya devam edebilir
-          fetch('/api/ai/analyze', {
-            method: 'POST',
-            body: JSON.stringify({ 
-                questionId: questionData.id, 
-                title: questionData.title, 
-                content: questionData.content 
-            }),
-          }).catch(err => console.error("Auto-analyze error:", err));
-        }
+      if (error) {
+        console.error('Hata:', error);
+      } else {
+        setQuestions(data as any);
       }
-
-      await fetchAnswers();
-      setIsLoading(false);
+      setLoading(false);
     };
 
-    fetchData();
+    fetchQuestions();
     moment.locale('tr');
-  }, [id]);
+  }, []);
 
-  if (isLoading) return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-      <Loader2 className="animate-spin text-amber-500 w-12 h-12" />
-    </div>
+  // Arama Filtresi
+  const filteredQuestions = questions.filter(q => 
+    q.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    q.content.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <Loader2 className="animate-spin text-amber-500 w-10 h-10" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 md:p-8 text-slate-200">
-      <div className="max-w-4xl mx-auto">
-        <Link href="/" className="inline-flex items-center text-slate-400 hover:text-amber-500 mb-6 transition-all group">
-          <ArrowLeft size={20} className="mr-2 group-hover:-translate-x-1" /> Geri Dön
+      <div className="max-w-5xl mx-auto space-y-8">
+        
+        {/* --- 1. GERİ DÖN BUTONU (YENİ EKLENDİ) --- */}
+        <Link 
+          href="/" 
+          className="inline-flex items-center text-slate-400 hover:text-amber-500 mb-2 transition-all group"
+        >
+          <ArrowLeft size={20} className="mr-2 group-hover:-translate-x-1 transition-transform" /> 
+          Ana Menüye Dön
         </Link>
 
-        {/* SORU KARTI */}
-        {question && (
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-8 shadow-xl">
-            <h1 className="text-3xl font-bold mb-4">{question.title}</h1>
-            <p className="text-slate-400 leading-relaxed mb-6 whitespace-pre-wrap">{question.content}</p>
-            
-            {/* ESKİ AI ANALİZ KUTUSU (İsterseniz kaldırabilirsiniz, yeni sistem aşağıda) */}
-            {question.ai_response && (
-              <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-5 mt-4">
-                <div className="flex items-center gap-2 mb-3 text-amber-500">
-                  <Bot size={20} /> <span className="font-bold uppercase tracking-tight text-sm">Hızlı Özet</span>
-                </div>
-                <p className="text-sm italic mb-4 leading-relaxed text-slate-400">{question.ai_response.summary}</p>
-              </div>
-            )}
+        {/* --- 2. BAŞLIK VE ARAMA ALANI --- */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-6">
+          <div>
+            <h1 className="text-3xl font-bold text-white mb-2">Topluluk Soruları</h1>
+            <p className="text-slate-400">Diğer kullanıcıların sorularını inceleyin ve bilginizi paylaşın.</p>
           </div>
-        )}
-
-        {/* CEVAPLAR LİSTESİ */}
-        <div className="space-y-6 mb-10">
-          <h2 className="text-xl font-bold border-b border-slate-800 pb-4">Topluluk Görüşleri ({answers.length})</h2>
           
-          {answers.map((answer) => {
-            // AI CEVABI MI?
-            const isAI = answer.is_ai_generated;
-
-            return (
-              <div 
-                key={answer.id} 
-                className={`rounded-xl p-6 flex gap-6 transition-all ${
-                  isAI 
-                    ? 'bg-blue-950/20 border border-blue-500/30 shadow-lg shadow-blue-900/10' // AI Stil
-                    : 'bg-slate-900/50 border border-slate-800' // Normal Stil
-                }`}
-              >
-                
-                {/* OYLAMA SİSTEMİ */}
-                <div className="flex flex-col items-center gap-2 pr-2 border-r border-slate-800/50 min-w-[3rem]">
-                  <button onClick={() => handleVote(answer.id, 1)} className={`transition-colors p-1 ${isAI ? 'hover:text-blue-400' : 'hover:text-green-500'}`}>
-                    <ArrowUp size={24} />
-                  </button>
-                  <span className={`font-bold text-lg ${isAI ? 'text-blue-200' : 'text-slate-300'}`}>
-                    {(answer.upvotes || 0) - (answer.downvotes || 0)}
-                  </span>
-                  <button onClick={() => handleVote(answer.id, -1)} className="hover:text-red-500 transition-colors p-1">
-                    <ArrowDown size={24} />
-                  </button>
-                </div>
-
-                <div className="flex-grow">
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center gap-3">
-                      
-                      {/* AVATAR */}
-                      {isAI ? (
-                        <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 border border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.2)]">
-                          <Sparkles size={18} />
-                        </div>
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500 font-bold border border-amber-500/20">
-                          {answer.profiles?.full_name?.[0] || 'U'}
-                        </div>
-                      )}
-
-                      <div>
-                        {isAI ? (
-                          <div className="flex items-center gap-2">
-                             <span className="text-sm font-bold text-blue-300">Babylexit AI</span>
-                             <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30 font-medium">
-                               TOPLULUK NOTU
-                             </span>
-                          </div>
-                        ) : (
-                          <span className="text-sm font-bold block text-slate-200">{answer.profiles?.full_name || 'İsimsiz Üye'}</span>
-                        )}
-                        <span className="text-[10px] text-slate-500">{moment(answer.created_at).fromNow()}</span>
-                      </div>
-                    </div>
-
-                    {/* GÜVEN SKORU (Sadece İnsan Cevaplarında) */}
-                    {!isAI && answer.ai_score && (
-                      <div className={`flex items-center gap-1 text-[10px] font-black px-2 py-1 rounded border ${
-                        answer.ai_score >= 70 ? 'text-green-500 bg-green-500/10 border-green-500/20' : 'text-amber-500 bg-amber-500/10 border-amber-500/20'
-                      }`}>
-                        <Star size={10} fill="currentColor" /> %{answer.ai_score} GÜVEN
-                      </div>
-                    )}
-                  </div>
-
-                  {/* İÇERİK */}
-                  <div className={`text-sm leading-relaxed mb-4 whitespace-pre-wrap ${isAI ? 'text-blue-100/90 font-medium' : 'text-slate-300'}`}>
-                    {answer.content}
-                  </div>
-
-                  {/* AI FEEDBACK (Sadece İnsan Cevaplarında) */}
-                  {!isAI && answer.ai_critique && (
-                    <div className="bg-slate-950/50 p-3 rounded-lg border-l-2 border-slate-700 text-[11px] text-slate-500 italic">
-                      <span className="text-amber-500/50 not-italic font-bold mr-1">AI Geri Bildirim:</span>
-                      {answer.ai_critique}
-                    </div>
-                  )}
-                  
-                   {/* AI YASAL UYARI (Sadece AI Cevaplarında) */}
-                   {isAI && (
-                    <div className="flex items-center gap-2 mt-3 text-[10px] text-blue-400/60">
-                      <CheckCircle2 size={12} />
-                      <span>Bu yanıt Türk Hukuku kaynakları taranarak oluşturulmuştur. Kesin hukuki tavsiye yerine geçmez.</span>
-                    </div>
-                   )}
-                </div>
-              </div>
-            );
-          })}
+          {/* Arama */}
+          <div className="relative w-full md:w-80">
+             <input 
+               type="text" 
+               placeholder="Soru ara..." 
+               value={searchTerm}
+               onChange={(e) => setSearchTerm(e.target.value)}
+               className="w-full bg-slate-900 border border-slate-700 rounded-full py-2.5 pl-10 pr-4 text-slate-200 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none"
+             />
+             <Search className="absolute left-3.5 top-3 text-slate-500" size={18} />
+          </div>
         </div>
 
-        <AnswerForm questionId={id} />
+        {/* --- 3. SORU LİSTESİ --- */}
+        <div className="grid gap-4">
+          {filteredQuestions.length > 0 ? (
+            filteredQuestions.map((q) => (
+              <div key={q.id} className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-amber-500/30 transition-all group shadow-md flex flex-col md:flex-row gap-4">
+                
+                {/* Sol Taraf: İçerik */}
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${q.status === 'open' ? 'bg-green-500/10 text-green-500 border-green-500/20' : 'bg-slate-700 text-slate-400 border-slate-600'}`}>
+                      {q.status === 'open' ? 'Görüşe Açık' : 'Çözüldü'}
+                    </span>
+                    <span className="text-xs text-slate-500 flex items-center gap-1">
+                      <Calendar size={12} /> {moment(q.created_at).fromNow()}
+                    </span>
+                  </div>
+
+                  <h3 className="text-xl font-bold text-white group-hover:text-amber-500 transition-colors mb-2">
+                    <Link href={`/questions/${q.id}`}>
+                      {q.title}
+                    </Link>
+                  </h3>
+                  
+                  <p className="text-slate-400 text-sm line-clamp-2 mb-4">
+                    {q.content}
+                  </p>
+
+                  <div className="flex items-center gap-3 text-xs text-slate-500">
+                    <div className="flex items-center gap-1">
+                      <User size={14} />
+                      {q.profiles?.full_name || 'Gizli Üye'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sağ Taraf: Aksiyon */}
+                <div className="flex flex-row md:flex-col items-center justify-between md:justify-center gap-4 border-t md:border-t-0 md:border-l border-slate-800 pt-4 md:pt-0 md:pl-6 min-w-[140px]">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-white mb-1">
+                      {/* Supabase count trick: answers bir dizi ise length, değilse 0 */}
+                      {Array.isArray(q.answers) ? q.answers.length : 0}
+                    </div>
+                    <div className="text-xs text-slate-500 uppercase tracking-wider">Cevap</div>
+                  </div>
+
+                  <Link 
+                    href={`/questions/${q.id}`}
+                    className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold py-2 px-4 rounded-lg flex items-center gap-2 transition-colors text-sm w-full md:w-auto justify-center"
+                  >
+                    Cevapla <ArrowRight size={16} />
+                  </Link>
+                </div>
+
+              </div>
+            ))
+          ) : (
+             <div className="text-center py-20 bg-slate-900/50 rounded-2xl border border-dashed border-slate-800">
+                <MessageSquare size={48} className="mx-auto text-slate-700 mb-4" />
+                <p className="text-slate-500 text-lg">Aradığınız kriterde soru bulunamadı.</p>
+             </div>
+          )}
+        </div>
       </div>
     </div>
   );

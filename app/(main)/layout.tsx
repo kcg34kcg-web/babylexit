@@ -2,7 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, PlusSquare, MessageSquare, ShoppingCart, User, LogOut } from 'lucide-react';
+import { 
+  Home, 
+  PlusSquare, 
+  MessageSquare, 
+  ShoppingCart, 
+  User, 
+  LogOut, 
+  BookOpen, 
+  Users 
+} from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
@@ -18,22 +27,21 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     router.push('/login');
   };
 
-  // MENÜ LİNKLERİ (İşte aradığın "Cevapla" butonu burada)
   const navigation = [
     { name: 'Ana Akış', href: '/', icon: Home },
     { name: 'Soru Sor', href: '/ask', icon: PlusSquare },
-    { name: 'Cevapla', href: '/questions', icon: MessageSquare }, // <-- EKSİK OLAN BUYDU!
+    { name: 'Cevapla', href: '/questions', icon: MessageSquare },
+    { name: 'Yayınlar', href: '/publications', icon: BookOpen },
+    { name: 'Lexwoow', href: '/social', icon: Users },
     { name: 'Market', href: '/market', icon: ShoppingCart },
-    { name: 'Hesabım', href: '/profile', icon: User }, // DİKKAT: Klasör adın 'profile' olmalı
+    { name: 'Hesabım', href: '/profile', icon: User },
   ];
 
   return (
     <div className="flex min-h-screen bg-slate-950">
       
-      {/* --- SOL MENÜ (SIDEBAR) --- */}
+      {/* --- 1. MASAÜSTÜ YAN MENÜ (SIDEBAR) --- */}
       <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col fixed h-full z-10">
-        
-        {/* Logo Alanı */}
         <div className="p-6 border-b border-slate-800">
           <h1 className="text-2xl font-bold bg-gradient-to-r from-amber-500 to-amber-700 bg-clip-text text-transparent">
             Babylexit
@@ -41,7 +49,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           <p className="text-xs text-slate-500 mt-1">Beta v1.0</p>
         </div>
 
-        {/* Linkler */}
         <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {navigation.map((item) => {
             const isActive = pathname === item.href;
@@ -62,7 +69,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
           })}
         </nav>
 
-        {/* Çıkış Yap Butonu */}
         <div className="p-4 border-t border-slate-800">
           <button
             onClick={handleLogout}
@@ -74,8 +80,21 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         </div>
       </aside>
 
-      {/* --- ANA İÇERİK ALANI --- */}
-      <main className="flex-1 md:ml-64 relative">
+      {/* --- 2. MOBİL ALT MENÜ (Eksik Olabilir Dediğimiz Kısım) --- */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-slate-800 flex justify-around items-center p-3 z-50">
+        {navigation.slice(0, 5).map((item) => { // Mobilde ilk 5 öğeyi gösterelim sığması için
+          const isActive = pathname === item.href;
+          return (
+            <Link key={item.name} href={item.href} className={`flex flex-col items-center gap-1 ${isActive ? 'text-amber-500' : 'text-slate-500'}`}>
+              <item.icon size={20} />
+              <span className="text-[10px]">{item.name}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* --- 3. ANA İÇERİK ALANI --- */}
+      <main className="flex-1 md:ml-64 relative pb-20 md:pb-0">
         {children}
       </main>
     </div>
