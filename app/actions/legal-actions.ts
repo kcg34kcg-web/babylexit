@@ -1,43 +1,38 @@
 'use server';
 
 import { createClient } from "@/utils/supabase/server";
-import { cookies } from "next/headers";
 import { generateAILegalNote, rateUserAnswer } from "@/utils/ai-service";
 import { revalidatePath } from "next/cache";
 
-/**
- * Yeni bir soru oluşturur ve AI analizini başlatır.
- */
+// 👇 DÜZELTME: Tipi artık ortak dosyadan alıyoruz
+// Eğer dosyanızın yeri farklıysa yolu ona göre düzenleyin (örn: "@/types/index")
+// Klasör adı 'types', dosya adı da 'types' olduğu için böyle yazmalısınız:
+import { FlatComment } from "../types/types";
+
 export async function createQuestionAction(formData: FormData) {
-  // Next.js 15'te cookies() await edilmelidir. 
-  // createClient fonksiyonun muhtemelen bunu içeride hallediyor, 
-  // ama en güvenli standart kullanımı budur:
   const supabase = await createClient();
 
   const title = formData.get('title') as string;
   const content = formData.get('content') as string;
 
-  // 1. Soruyu veritabanına kaydet
   const { data: question, error } = await supabase
     .from('questions')
     .insert([{ 
       title, 
       content,
-      ai_status: 'pending' // İşlem başladığı için pending olarak işaretliyoruz
+      ai_status: 'pending' 
     }])
     .select()
     .single();
 
   if (error || !question) return { error: "Soru kaydedilemedi." };
 
-  // 2. Arka planda AI analizini tetikle
-  // Not: aiNote zaten { summary, laws, disclaimer } objesi döndürdüğü için 
-  // doğrudan ai_response'a eşitliyoruz.
+  // AI Analizini Başlat
   generateAILegalNote(title, content).then(async (aiNote) => {
     await supabase
       .from('questions')
       .update({ 
-        ai_response: aiNote, // { summary: aiNote } yaparsak veriyi iç içe gömer, doğrusu bu.
+        ai_response: aiNote, 
         ai_status: 'completed' 
       })
       .eq('id', question.id);
@@ -49,13 +44,9 @@ export async function createQuestionAction(formData: FormData) {
   return { success: true, id: question.id };
 }
 
-/**
- * Bir cevabı kaydeder ve AI tarafından puanlanmasını sağlar.
- */
 export async function submitAnswerAction(questionId: string, questionContent: string, answerContent: string) {
   const supabase = await createClient();
 
-  // 1. Cevabı kaydet
   const { data: answer, error } = await supabase
     .from('answers')
     .insert([{ 
@@ -67,11 +58,10 @@ export async function submitAnswerAction(questionId: string, questionContent: st
 
   if (error || !answer) return { error: "Cevap gönderilemedi." };
 
-  // 2. AI Puanlamasını yap
+  // AI Puanlama
   try {
     const aiReview = await rateUserAnswer(questionContent, answerContent);
     
-    // SQL şemanda 'ai_critique' olarak belirlediğin sütuna aiReview içindeki 'feedback'i yazıyoruz.
     await supabase
       .from('answers')
       .update({
@@ -82,9 +72,35 @@ export async function submitAnswerAction(questionId: string, questionContent: st
 
   } catch (err) {
     console.error("AI Puanlama hatası:", err);
-    // Answers tablosunda ai_status sütunu eklemediysen bu satırı silebilirsin.
   }
 
   revalidatePath(`/questions/${questionId}`);
   return { success: true };
+}
+
+
+/* ============================================================
+   BÖLÜM 2: MÜZAKERE (COMMENT) SİSTEMİ
+   ============================================================ */
+
+// NOT: FlatComment tipi artık "@/types" dosyasından geliyor.
+// Buradaki eski tanımı sildik.
+
+/**
+ * Bir postun yorumlarını çeker.
+ */
+export async function getPostComments(postId: string) {
+  const supabase = await createClient();
+  
+  const { data, error } = await supabase
+    .from("comments_with_stats")
+    .select("*")
+    .eq("post_id", postId);
+
+  if (error) {
+    console.error("Yorumlar çekilirken hata oluştu:", error);
+    return [];
+  }
+
+  return data as FlatComment[];
 }
