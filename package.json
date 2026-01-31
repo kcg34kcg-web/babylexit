@@ -13,9 +13,12 @@
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.93.3",
     "browser-image-compression": "^2.0.2",
+    "bullmq": "^5.67.2",
+    "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.29.2",
+    "ioredis": "^5.9.2",
     "lucide-react": "^0.563.0",
     "moment": "^2.30.1",
     "next": "16.1.6",
@@ -24,7 +27,8 @@
     "react-hook-form": "^7.71.1",
     "react-hot-toast": "^2.6.0",
     "react-textarea-autosize": "^8.5.9",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
