@@ -1,99 +1,92 @@
-import { createClient } from '@/utils/supabase/client'; // Or server client depending on context
+import { createClient } from '@/utils/supabase/client';
 
-// Types based on your schema
 interface PostCandidate {
   id: string;
   author_id: string;
-  created_at: string; // ISO string
+  created_at: string;
   woow_count: number;
   doow_count: number;
-  is_following_author: boolean; // Injected during SQL fetch
+  is_following_author: boolean;
 }
 
 export class BabylexitRecommender {
-  /**
-   * THE GRAVITY DECAY ALGORITHM
-   * Python Equivalent:
-   * def calculate_score(row):
-   * age = (now - row.created_at).hours
-   * g = 0.8 if row.is_following else 1.8
-   * return base / (age + 2) ** g
-   */
   static calculateScore(post: PostCandidate): number {
     const now = new Date();
     const created = new Date(post.created_at);
     
-    // Convert ms to hours
-    const ageHours = (now.getTime() - created.getTime()) / (1000 * 60 * 60);
+    // Saate çevir (0'a bölünmeyi önlemek için minimum 0.1)
+    const ageHours = Math.max(0.1, (now.getTime() - created.getTime()) / (1000 * 60 * 60));
 
-    // 1. Base Score
-    // Heavy penalty for negative interaction to maintain "Professional Trust"
-    const baseScore = (post.woow_count * 10) - (post.doow_count * 15);
+    // 1. TABAN PUAN (DÜZELTİLDİ)
+    // Yeni postlar 0 beğeni ile başlasa bile, onlara "50" başlangıç puanı veriyoruz.
+    // Böylece 0 puanla elenmezler.
+    const STARTER_BONUS = 50; 
+    let baseScore = STARTER_BONUS + (post.woow_count * 10) - (post.doow_count * 15);
 
-    if (baseScore <= 0) return 0; // Don't recommend hated content
+    // Eğer çok fazla dislike aldıysa (puan negatife düştüyse), en az 1 puan ver ki hata vermesin
+    if (baseScore <= 0) baseScore = 1;
 
-    // 2. Newborn Immunity (The "Cold Start" Fix)
-    // If < 2 hours old, time stops.
-    const timeFactor = ageHours < 2 ? 0 : ageHours;
+    // 2. YENİ DOĞAN DOKUNULMAZLIĞI (Cold Start Fix)
+    // İlk 4 saat boyunca zaman, puanı çok az eritir.
+    const timeFactor = ageHours < 4 ? 0.5 : ageHours;
 
-    // 3. Dynamic Gravity
-    // Existing relationships decay slower (0.8) than random content (1.8)
-    const gravity = post.is_following_author ? 0.8 : 1.8;
+    // 3. GRAVİTE (Çekim Gücü)
+    // Takip ettiklerin (0.8) daha yavaş düşer, yabancılar (1.8) daha hızlı düşer.
+    // Eğer is_following_author undefined gelirse (SQL hatası vs.), varsayılan 1.5 al.
+    const gravity = post.is_following_author ? 0.8 : 1.5;
 
-    // The Formula
-    // (+ 2) ensures we never divide by zero or have extremely high initial spikes
+    // 4. FORMÜL
+    // (timeFactor + 2) -> 0 hatasını önler.
     const finalScore = baseScore / Math.pow(timeFactor + 2, gravity);
 
     return finalScore;
   }
 
-  /**
-   * FEED MERGER (The Zipper)
-   * Python Equivalent: itertools.zip_longest(personal, global, wildcard)
-   * We weight the distribution: 70% Personal, 20% Global, 10% Wildcard
-   */
   static mergeFeeds(
     personal: PostCandidate[],
     global: PostCandidate[],
     wildcard: PostCandidate[]
   ): PostCandidate[] {
     const result: PostCandidate[] = [];
-    const maxLen = Math.max(personal.length, global.length, wildcard.length);
-
-    // Set pointers
+    
+    // Döngü pointerları
     let pIdx = 0, gIdx = 0, wIdx = 0;
 
-    // We cycle 10 slots: P, P, P, P, P, P, P, G, G, W
-    // This is a deterministic approximation of probability
-    while (result.length < (personal.length + global.length + wildcard.length)) {
-        
-      // Try to push 7 Personal
+    // "Fermuar" Mantığı: Listeleri karıştır
+    // 10'luk paket: 7 Kişisel + 2 Global + 1 Sürpriz
+    const totalLen = personal.length + global.length + wildcard.length;
+    
+    // Sonsuz döngüyü önlemek için güvenlik sayacı
+    let safety = 0;
+    
+    while (result.length < totalLen && safety < 1000) {
+      safety++;
+
+      // 1. Kişisel Akıştan 7 tane al (Varsa)
       for (let i = 0; i < 7; i++) {
-        if (personal[pIdx]) result.push(personal[pIdx++]);
+        if (personal[pIdx]) {
+            if (!result.find(r => r.id === personal[pIdx].id)) result.push(personal[pIdx]);
+            pIdx++;
+        }
       }
 
-      // Try to push 2 Global
+      // 2. Global Akıştan 2 tane al
       for (let i = 0; i < 2; i++) {
         if (global[gIdx]) {
-            // Deduplication check (Set lookup is O(1))
-            if (!result.find(r => r.id === global[gIdx].id)) {
-                result.push(global[gIdx]);
-            }
+            if (!result.find(r => r.id === global[gIdx].id)) result.push(global[gIdx]);
             gIdx++;
         }
       }
 
-      // Try to push 1 Wildcard
+      // 3. Sürprizden 1 tane al
       for (let i = 0; i < 1; i++) {
         if (wildcard[wIdx]) {
-            if (!result.find(r => r.id === wildcard[wIdx].id)) {
-                result.push(wildcard[wIdx]);
-            }
+            if (!result.find(r => r.id === wildcard[wIdx].id)) result.push(wildcard[wIdx]);
             wIdx++;
         }
       }
 
-      // Break safety if all exhausted
+      // Eğer hepsi bittiyse çık
       if (!personal[pIdx] && !global[gIdx] && !wildcard[wIdx]) break;
     }
 

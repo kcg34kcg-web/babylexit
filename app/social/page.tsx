@@ -5,7 +5,7 @@ import {
   Search, Users, TrendingUp, ArrowLeft, 
   Image as ImageIcon, Send, X, Gavel,
   Home, ShoppingCart, Calendar, LogOut, Menu,
-  Sparkles, User // Added Sparkles (for Geft-AI) and User (for Profile)
+  Sparkles, User 
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -26,7 +26,7 @@ export default function LexwoowPage() {
   const [user, setUser] = useState<any>(null);
   const [showTransition, setShowTransition] = useState(true);
   
-  // STATE: Active Tab Management (WOOW vs Profile)
+  // STATE: Tab Yönetimi (WOOW vs Profil)
   const [activeTab, setActiveTab] = useState<'woow' | 'profile'>('woow');
   
   // Akışı yenilemek için kullanılan anahtar
@@ -71,7 +71,7 @@ export default function LexwoowPage() {
       setPreviewUrl(null);
       toast.success("Kürsüde paylaşıldı!");
       
-      // LOGIC UPDATE: Switch to Main Feed and Refresh on successful post
+      // MANTIK GÜNCELLEMESİ: Post atılınca Ana Akışa geç ve Yenile
       setActiveTab('woow');
       setRefreshKey(prev => prev + 1);
 
@@ -99,7 +99,7 @@ export default function LexwoowPage() {
         )}
       </AnimatePresence>
 
-      {/* --- HEADER (Mobilde görünür, Desktopta Sidebar var) --- */}
+      {/* --- HEADER (Mobil) --- */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-4 shadow-sm lg:hidden">
         <div className="flex items-center gap-4">
           <button onClick={() => router.push('/')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-all active:scale-90">
@@ -116,21 +116,18 @@ export default function LexwoowPage() {
         </div>
       </div>
 
-      {/* --- ANA LAYOUT (Twitter Tarzı: Sol - Orta - Sağ) --- */}
+      {/* --- ANA LAYOUT --- */}
       <main className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-4 gap-8 mt-6">
         
-        {/* 1. SOL KOLON: NAVİGASYON (Sidebar) */}
+        {/* 1. SOL KOLON: NAVİGASYON */}
         <div className="hidden lg:block lg:col-span-1">
            <div className="sticky top-8 space-y-6">
-              {/* Logo Alanı */}
               <div className="px-4 mb-8 flex items-center gap-2 text-amber-600">
                  <Gavel size={32} />
                  <span className="font-bold text-2xl tracking-widest text-slate-900">LEXWOOW</span>
               </div>
 
-              {/* Menü Linkleri */}
               <nav className="space-y-2">
-                 {/* WOOW BUTTON (Main Feed) */}
                  <button 
                     onClick={() => { setActiveTab('woow'); setRefreshKey(prev => prev + 1); }} 
                     className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'woow' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-slate-100'}`}
@@ -139,15 +136,13 @@ export default function LexwoowPage() {
                     <span>WOOW</span>
                  </button>
 
-                 {/* GEFT-AI BUTTON (New Feature) */}
                  <button 
                     className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-purple-600 hover:bg-purple-50 rounded-full transition-all w-full text-left group"
                  >
                     <Sparkles size={26} className="group-hover:rotate-12 transition-transform" />
-                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-500 font-bold">Gift-AI</span>
+                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-500 font-bold">Geft-AI</span>
                  </button>
 
-                 {/* HESABIM BUTTON (Profile Feed) */}
                  <button 
                     onClick={() => setActiveTab('profile')} 
                     className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'profile' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-transparent'}`}
@@ -166,14 +161,12 @@ export default function LexwoowPage() {
                     <span>Etkinlikler</span>
                  </button>
                  
-                 {/* Ana Menüye Dönüş Butonu */}
                  <button onClick={() => router.push('/')} className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-full transition-all w-full text-left mt-8">
                     <ArrowLeft size={26} />
                     <span>Ana Menü</span>
                  </button>
               </nav>
 
-              {/* Post Butonu (Sidebar) */}
               <button 
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 rounded-full shadow-lg shadow-amber-500/30 transition-all active:scale-95 mt-4"
@@ -183,8 +176,7 @@ export default function LexwoowPage() {
            </div>
         </div>
 
-
-        {/* 2. ORTA KOLON: AKIŞ VE PAYLAŞIM */}
+        {/* 2. ORTA KOLON: AKIŞ */}
         <div className="lg:col-span-2 space-y-8 pb-20">
           
           {/* Post Paylaşım Alanı */}
@@ -216,11 +208,8 @@ export default function LexwoowPage() {
                       className="hidden" 
                       accept="image/*" 
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        const selectedFile = e.target.files?.[0];
-                        if (selectedFile) {
-                          setFile(selectedFile);
-                          setPreviewUrl(URL.createObjectURL(selectedFile));
-                        }
+                        const f = e.target.files?.[0];
+                        if (f) { setFile(f); setPreviewUrl(URL.createObjectURL(f)); }
                       }} 
                     />
                   </label>
@@ -236,7 +225,7 @@ export default function LexwoowPage() {
             </div>
           </div>
 
-          {/* Akış Başlığı (Dynamic based on Tab) */}
+          {/* Akış Başlığı */}
           <div className="flex items-center gap-3 px-2">
              <div className="h-[1px] flex-1 bg-slate-200"></div>
              <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
@@ -248,8 +237,7 @@ export default function LexwoowPage() {
              <div className="h-[1px] flex-1 bg-slate-200"></div>
           </div>
 
-          {/* Post Listesi (Akıllı Feed Entegrasyonu) */}
-          {/* LOGIC: If WOOW tab, send undefined userId (Algorithm). If Profile tab, send user.id. */}
+          {/* POST LİSTESİ */}
           <PostList 
             key={refreshKey} 
             userId={activeTab === 'woow' ? undefined : user?.id} 
@@ -257,28 +245,20 @@ export default function LexwoowPage() {
           
         </div>
 
-
-        {/* 3. SAĞ KOLON: GÜNDEM VE GRUPLAR (Masaüstü Sadece) */}
+        {/* 3. SAĞ KOLON */}
         <div className="hidden lg:block lg:col-span-1">
           <div className="sticky top-8 space-y-6">
-            
-             {/* Arama Barı (Desktop) */}
              <div className="relative mb-6">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder="Ara..." 
-                  className="w-full bg-white border border-slate-200 rounded-full py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-amber-500/20 text-sm shadow-sm" 
-                />
+                <input type="text" placeholder="Ara..." className="w-full bg-white border border-slate-200 rounded-full py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-amber-500/20 text-sm shadow-sm" />
              </div>
 
-            {/* AKTİF GRUPLAR */}
             <div className="bg-white border border-slate-200/80 rounded-[1.5rem] p-6 shadow-sm shadow-slate-200/50">
               <h3 className="font-black text-[11px] mb-6 flex items-center gap-2 text-slate-900 uppercase tracking-widest">
                 <Users size={18} className="text-amber-500" /> Aktif Gruplar
               </h3>
               <div className="space-y-6">
-                {["#MedipolHukuk-3", "#FikriMülkiyet-Atölye", "#StajyerAvukatlar"].map((g) => (
+                {["#MedipolHukuk", "#FikriMülkiyet", "#StajyerAvukatlar"].map((g) => (
                   <div key={g} className="group cursor-pointer">
                     <p className="text-[14px] font-bold text-slate-700 group-hover:text-amber-600 transition-colors">{g}</p>
                     <p className="text-[11px] text-slate-400 mt-1 font-medium">Meslektaşlar tartışıyor</p>
@@ -287,28 +267,19 @@ export default function LexwoowPage() {
               </div>
             </div>
 
-            {/* GÜNCEL KONULAR */}
             <div className="bg-[#f1f5f9] border border-slate-200/50 rounded-[1.5rem] p-6 shadow-sm">
               <h3 className="font-black text-[11px] text-slate-500 mb-5 flex items-center gap-2 uppercase tracking-widest">
                 <TrendingUp size={16} className="text-amber-500" /> Güncel Konular
               </h3>
               <div className="space-y-5">
-                {[
-                  "Yapay Zeka ve Sorumluluk",
-                  "E-Ticaret Kanunu",
-                  "KVKK Yönetmelik",
-                  "Fikri Mülkiyet Yarışması"
-                ].map((konu) => (
+                {["Yapay Zeka Hukuku", "E-Ticaret", "KVKK", "Fikri Mülkiyet"].map((konu) => (
                   <div key={konu} className="cursor-pointer group flex items-start gap-2">
                       <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 opacity-0 group-hover:opacity-100 transition-all"></div>
-                      <p className="text-[12px] text-slate-600 group-hover:text-slate-900 group-hover:translate-x-1 transition-all font-semibold">
-                       {konu}
-                      </p>
+                      <p className="text-[12px] text-slate-600 group-hover:text-slate-900 group-hover:translate-x-1 transition-all font-semibold">{konu}</p>
                   </div>
                 ))}
               </div>
             </div>
-
           </div>
         </div>
 

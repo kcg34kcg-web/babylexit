@@ -228,7 +228,6 @@ export default function PostList({ userId }: { userId?: string }) {
       const cUserId = user?.id || null;
       setCurrentUserId(cUserId);
 
-      // 2. VERİ ÇEKME İŞLEMİ
       if (cUserId) {
          
          // A) PROFİL GÖRÜNÜMÜ
