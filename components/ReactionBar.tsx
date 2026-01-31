@@ -1,23 +1,25 @@
 'use client';
 
-import { useState } from 'react';
-import { Zap, ThumbsDown, Scale, MessageCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+// 👇 İKON GÜNCELLEMESİ: Yıldız (Star) ikonu eklendi
+import { Star, ThumbsDown, Scale, MessageCircle } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client'; 
-import toast from 'react-hot-toast'; // DÜZELTME: sonner yerine react-hot-toast
+import toast from 'react-hot-toast'; 
 
 type ReactionType = 'woow' | 'doow' | 'adil';
 
 interface ReactionBarProps {
   targetId: string;
   targetType: 'post' | 'comment'; 
-  initialCounts: {
+  initialCounts?: {
     woow: number;
     doow: number;
     adil: number;
     comment_count: number;
   };
   initialUserReaction: ReactionType | null;
-  onCommentClick?: () => void; 
+  isOwner?: boolean;
+  onMuzakereClick?: () => void; 
 }
 
 export default function ReactionBar({
@@ -25,41 +27,50 @@ export default function ReactionBar({
   targetType,
   initialCounts,
   initialUserReaction,
-  onCommentClick
+  isOwner = false,
+  onMuzakereClick
 }: ReactionBarProps) {
-  // 1. ISOLATION: Yerel state (Anlık UI güncellemesi için)
-  const [counts, setCounts] = useState(initialCounts);
-  const [myReaction, setMyReaction] = useState<ReactionType | null>(initialUserReaction);
   
-  // 2. LOGIC: Optimistik Güncelleme
+  const [counts, setCounts] = useState(initialCounts || {
+    woow: 0,
+    doow: 0,
+    adil: 0,
+    comment_count: 0
+  });
+
+  const [myReaction, setMyReaction] = useState<ReactionType | null>(initialUserReaction);
+
+  useEffect(() => {
+    if (initialCounts) {
+      setCounts(initialCounts);
+    }
+  }, [initialCounts]);
+  
   const handleReaction = async (newReaction: ReactionType) => {
-    // A. Önceki durumu sakla (Hata olursa geri almak için)
+    if (isOwner) {
+       toast.error("Kendi gönderinize oy veremezsiniz.");
+       return;
+    }
+
     const prevReaction = myReaction;
     const prevCounts = { ...counts };
-
-    // B. Yeni durumu hesapla
     let newCounts = { ...counts };
 
     if (prevReaction === newReaction) {
-      // Reaksiyonu geri çekme (Toggle Off)
       setMyReaction(null);
-      newCounts[newReaction] -= 1;
+      newCounts[newReaction] = Math.max(0, newCounts[newReaction] - 1);
     } else {
-      // Yeni reaksiyon ekleme veya değiştirme
       if (prevReaction) {
-        newCounts[prevReaction] -= 1; // Eskisini azalt
+        newCounts[prevReaction] = Math.max(0, newCounts[prevReaction] - 1);
       }
-      newCounts[newReaction] += 1; // Yenisini artır
+      newCounts[newReaction] += 1;
       setMyReaction(newReaction);
     }
 
-    // C. UI'ı anında güncelle
     setCounts(newCounts);
 
-    // D. Supabase'e gönder (Arka planda)
     try {
       const supabase = createClient();
-      
       const { error } = await supabase.rpc('handle_reaction', {
         p_target_id: targetId,
         p_target_type: targetType, 
@@ -70,70 +81,94 @@ export default function ReactionBar({
 
     } catch (error) {
       console.error('Reaction failed:', error);
-      // Hata durumunda geri al (Rollback)
       setMyReaction(prevReaction);
       setCounts(prevCounts);
-      toast.error('Reaksiyon kaydedilemedi'); // react-hot-toast kullanımı
+      toast.error('Reaksiyon kaydedilemedi'); 
     }
   };
 
-  // 3. GÖRSEL AYARLAR (Renkler ve Stil)
   const getButtonClass = (type: ReactionType) => {
-    const base = "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-none cursor-pointer select-none";
+    // Ortak temel stil (Hızlı tepki için 'duration-200' yapıldı)
+    const base = "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-transform duration-200 cursor-pointer select-none active:scale-95";
     
-    // Aktif Durumlar (Phase 1 Kuralları)
+    // AKTİF DURUMLAR
     if (myReaction === type) {
-      if (type === 'woow') return `${base} bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-sm`;
-      if (type === 'doow') return `${base} bg-red-500 text-white shadow-sm`;
-      if (type === 'adil') return `${base} bg-green-500 text-white shadow-sm`;
+      
+      // ⭐ YENİ WOOW STİLİ (Kırmızı-Pembe-Mor Degrade)
+      if (type === 'woow') {
+        return `
+          flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold 
+          transition-transform duration-200 active:scale-90
+          text-white
+          bg-gradient-to-r from-red-500 via-pink-500 to-purple-600
+          shadow-lg shadow-pink-500/30
+          border border-white/20
+        `;
+      }
+
+      // Klasik Doow
+      if (type === 'doow') return `${base} bg-red-500 text-white shadow-sm hover:bg-red-600`;
+      
+      // Klasik Adil
+      if (type === 'adil') return `${base} bg-green-500 text-white shadow-sm hover:bg-green-600`;
     }
 
-    // Pasif Durumlar (Yazısız, sadece ikon ve sayı)
-    return `${base} text-gray-500 bg-transparent hover:text-gray-700 active:scale-95`;
+    // PASİF DURUMLAR
+    // Woow pasifken pembeleşsin
+    if (type === 'woow') return `${base} text-slate-500 hover:text-pink-600 hover:bg-pink-50`;
+
+    return `${base} text-slate-500 bg-transparent hover:text-slate-700 hover:bg-slate-100`;
   };
+
+  if (!counts) return null;
 
   return (
     <div className="flex items-center gap-2 mt-2">
-      {/* WOOW BUTTON */}
+      {/* ⭐ WOOW (STAR) BUTTON */}
       <button 
         onClick={() => handleReaction('woow')}
-        className={getButtonClass('woow')}
+        className={`${getButtonClass('woow')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
         aria-label="Woow"
       >
-        <Zap className={`w-4 h-4 ${myReaction === 'woow' ? 'fill-white' : ''}`} />
-        <span>{counts.woow > 0 ? counts.woow : ''}</span>
+        <Star 
+          className={`
+            transition-all duration-200
+            ${myReaction === 'woow' ? 'w-4 h-4 text-white fill-white' : 'w-4 h-4'}
+          `} 
+        />
+        <span>{(counts.woow || 0) > 0 ? counts.woow : ''}</span>
       </button>
 
-      {/* DOOW BUTTON */}
+      {/* 👎 DOOW BUTTON */}
       <button 
         onClick={() => handleReaction('doow')}
-        className={getButtonClass('doow')}
+        className={`${getButtonClass('doow')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
         aria-label="Doow"
       >
         <ThumbsDown className={`w-4 h-4 ${myReaction === 'doow' ? 'fill-white' : ''}`} />
-        <span>{counts.doow > 0 ? counts.doow : ''}</span>
+        <span>{(counts.doow || 0) > 0 ? counts.doow : ''}</span>
       </button>
 
-      {/* ADIL BUTTON */}
+      {/* ⚖️ ADIL BUTTON */}
       <button 
         onClick={() => handleReaction('adil')}
-        className={getButtonClass('adil')}
+        className={`${getButtonClass('adil')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
         aria-label="Adil"
       >
         <Scale className={`w-4 h-4 ${myReaction === 'adil' ? 'fill-white' : ''}`} />
-        <span>{counts.adil > 0 ? counts.adil : ''}</span>
+        <span>{(counts.adil || 0) > 0 ? counts.adil : ''}</span>
       </button>
 
       {/* AYIRAÇ */}
-      <div className="h-4 w-px bg-gray-200 mx-1"></div>
+      <div className="h-4 w-px bg-slate-200 mx-1"></div>
 
-      {/* MÜZAKERE (YORUM) BUTTON */}
+      {/* 💬 MÜZAKERE BUTTON */}
       <button 
-        onClick={onCommentClick}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-blue-500 transition-none active:scale-95"
+        onClick={onMuzakereClick}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-transform duration-200 active:scale-95"
       >
         <MessageCircle className="w-4 h-4" />
-        <span className="text-blue-500">{counts.comment_count > 0 ? counts.comment_count : ''}</span>
+        <span className="text-blue-500">{(counts.comment_count || 0) > 0 ? counts.comment_count : ''}</span>
       </button>
     </div>
   );
