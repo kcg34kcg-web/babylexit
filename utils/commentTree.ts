@@ -1,6 +1,5 @@
 // 👇 DÜZELTME BURADA: Dosyanız 'app/types/types.ts' içindeyse doğru yol budur:
-import { FlatComment } from "@/app/types/types"; 
-
+import { FlatComment } from "@/app/types";
 // HATA ALIRSANIZ ALTERNATİF: Eğer üstteki çalışmazsa, proje yapınıza göre şunları deneyin:
 // import { FlatComment } from "@/types/types"; 
 // import { FlatComment } from "../../types/types";

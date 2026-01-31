@@ -4,10 +4,10 @@ import { createClient } from "@/utils/supabase/server";
 import { generateAILegalNote, rateUserAnswer } from "@/utils/ai-service";
 import { revalidatePath } from "next/cache";
 
-// 👇 DÜZELTME: Tipi artık ortak dosyadan alıyoruz
-// Eğer dosyanızın yeri farklıysa yolu ona göre düzenleyin (örn: "@/types/index")
-// Klasör adı 'types', dosya adı da 'types' olduğu için böyle yazmalısınız:
-import { FlatComment } from "../types/types";
+// 👇 FIX: Using the absolute path alias (@) is safer than relative paths (../)
+// Ensure your file is located at 'src/types/types.ts' or 'app/types/types.ts'
+import { FlatComment } from "@/app/types";/* ============================================================
+   ========================================================== */
 
 export async function createQuestionAction(formData: FormData) {
   const supabase = await createClient();
@@ -27,7 +27,6 @@ export async function createQuestionAction(formData: FormData) {
 
   if (error || !question) return { error: "Soru kaydedilemedi." };
 
-  // AI Analizini Başlat
   generateAILegalNote(title, content).then(async (aiNote) => {
     await supabase
       .from('questions')
@@ -58,7 +57,6 @@ export async function submitAnswerAction(questionId: string, questionContent: st
 
   if (error || !answer) return { error: "Cevap gönderilemedi." };
 
-  // AI Puanlama
   try {
     const aiReview = await rateUserAnswer(questionContent, answerContent);
     
@@ -83,11 +81,9 @@ export async function submitAnswerAction(questionId: string, questionContent: st
    BÖLÜM 2: MÜZAKERE (COMMENT) SİSTEMİ
    ============================================================ */
 
-// NOT: FlatComment tipi artık "@/types" dosyasından geliyor.
-// Buradaki eski tanımı sildik.
-
 /**
  * Bir postun yorumlarını çeker.
+ * UPDATE (Phase 2): 10 yorum limitini kaldırmak için range() eklendi.
  */
 export async function getPostComments(postId: string) {
   const supabase = await createClient();
@@ -95,7 +91,10 @@ export async function getPostComments(postId: string) {
   const { data, error } = await supabase
     .from("comments_with_stats")
     .select("*")
-    .eq("post_id", postId);
+    // 👇 KRİTİK GÜNCELLEME: Tüm yorumları çekmek için limit artırıldı
+    .eq("post_id", postId)
+    .order('created_at', { ascending: true }) // Ağaç yapısı için kronolojik sıra önemli
+    .range(0, 2000); // 10 yerine 2000 yoruma kadar çek
 
   if (error) {
     console.error("Yorumlar çekilirken hata oluştu:", error);

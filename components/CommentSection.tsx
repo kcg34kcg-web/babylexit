@@ -1,27 +1,16 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { createClient } from "@/utils/supabase/client";
+import { createClient } from "@/utils/supabase/client"; // Eğer bu çalışmazsa "@/app/utils/supabase/client" dene
 import { Send } from "lucide-react";
 import toast from "react-hot-toast";
-import CommentItem from "./CommentItem";
 
-// Define the Data Structure
-export type CommentData = {
-  id: string;
-  parent_id: string | null;
-  content: string;
-  created_at: string;
-  user_id: string;
-  author_name: string;
-  author_avatar: string;
-  woow_count: number;
-  doow_count: number;
-  adil_count: number;
-  reply_count: number;
-  my_reaction?: "woow" | "doow" | "adil" | null;
-  children?: CommentData[]; // For the Tree structure
-};
+// 👇 DÜZELTİLMİŞ İMPORTLAR (Mutlak Yol Kullanıyoruz)
+// Dosyaları app klasörü altına taşıdığımızı varsayıyoruz:
+
+import CommentItem from "./CommentItem"; 
+import { FlatComment } from "@/app/types"; // Dosya artık app/types.ts
+import { buildCommentTree } from "@/utils/commentTree"; // Dosya app/utils/commentTree.ts
 
 interface CommentSectionProps {
   postId: string;
@@ -30,12 +19,13 @@ interface CommentSectionProps {
 
 export default function CommentSection({ postId, postOwnerId }: CommentSectionProps) {
   const supabase = createClient();
-  const [flatComments, setFlatComments] = useState<CommentData[]>([]);
+  
+  const [flatComments, setFlatComments] = useState<FlatComment[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  // 1. Fetch Data
+  // 1. Veri Çekme
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
@@ -44,31 +34,20 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
       const { data, error } = await supabase
         .from("comments_with_stats")
         .select("*")
-        .eq("post_id", postId);
+        .eq("post_id", postId)
+        .order('created_at', { ascending: true }) 
+        .range(0, 2000); 
 
-      if (error) return console.error(error);
-
-      // Load User's reactions
-      let finalData = data as CommentData[];
-      if (user) {
-        const { data: myReactions } = await supabase
-          .from("comment_reactions")
-          .select("comment_id, reaction_type")
-          .eq("user_id", user.id)
-          .in("comment_id", data.map(c => c.id));
-
-        finalData = data.map(c => ({
-          ...c,
-          my_reaction: myReactions?.find(r => r.comment_id === c.id)?.reaction_type as any
-        }));
+      if (error) {
+        console.error(error);
+        return;
       }
 
-      setFlatComments(finalData);
+      setFlatComments(data as FlatComment[]);
     };
 
     init();
 
-    // Realtime Listener
     const channel = supabase.channel(`comments_section:${postId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, init)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comment_reactions' }, init)
@@ -77,47 +56,35 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
     return () => { supabase.removeChannel(channel); };
   }, [postId, supabase]);
 
-  // 2. Tree Builder (Recursive Logic)
-  // We use useMemo to rebuild the tree whenever the flat list changes.
+  // 2. Ağaç Yapısı (Memoized)
   const commentTree = useMemo(() => {
-    const buildTree = (comments: CommentData[], parentId: string | null = null): CommentData[] => {
-      return comments
-        .filter(comment => comment.parent_id === parentId)
-        .map(comment => ({
-          ...comment,
-          children: buildTree(comments, comment.id) // Recursion
-        }))
-        .sort((a, b) => {
-          // Sorting Rule: (Woow - Doow) Descending, then Newest
-          const scoreA = (a.woow_count || 0) - (a.doow_count || 0);
-          const scoreB = (b.woow_count || 0) - (b.doow_count || 0);
-          if (scoreA !== scoreB) return scoreB - scoreA;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        });
-    };
-    return buildTree(flatComments, null); // Start with root comments (parent_id: null)
+    // Import hatası düzelince burası otomatik olarak doğru tipi döndürecek
+    return buildCommentTree(flatComments);
   }, [flatComments]);
 
-  // 3. Main Comment Submit
+  // 3. Ana Yorum Gönderme
   const handleMainSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !currentUserId) return;
     if (currentUserId === postOwnerId) return toast.error("Kendi gönderinize müzakere başlatamazsınız.");
 
     const tempId = crypto.randomUUID();
-    const tempComment: CommentData = {
+    
+    // Optimistic Update
+    const tempComment: FlatComment = {
       id: tempId,
+      post_id: postId,
       parent_id: null,
       content: input,
       created_at: new Date().toISOString(),
       user_id: currentUserId,
-      author_name: "Ben",
+      author_name: "Ben", 
       author_avatar: "",
-      woow_count: 0, doow_count: 0, adil_count: 0, reply_count: 0,
-      children: []
+      woow_count: 0, doow_count: 0, adil_count: 0,
+      my_reaction: null
     };
 
-    setFlatComments(prev => [tempComment, ...prev]); // Optimistic
+    setFlatComments(prev => [tempComment, ...prev]);
     setInput("");
     setSubmitting(true);
 
@@ -131,28 +98,30 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
     setSubmitting(false);
     if (error) {
       toast.error("Hata oluştu");
-      setFlatComments(prev => prev.filter(c => c.id !== tempId)); // Rollback
+      setFlatComments(prev => prev.filter(c => c.id !== tempId)); 
     }
   };
 
-  // 4. Reply Handler (Passed down to children)
+  // 4. Yanıt Gönderme
   const handleReplySubmit = async (parentId: string, content: string) => {
     if (!currentUserId) return;
 
     const tempId = crypto.randomUUID();
-    const tempComment: CommentData = {
+    
+    const tempComment: FlatComment = {
       id: tempId,
+      post_id: postId,
       parent_id: parentId,
       content: content,
       created_at: new Date().toISOString(),
       user_id: currentUserId,
       author_name: "Ben",
       author_avatar: "",
-      woow_count: 0, doow_count: 0, adil_count: 0, reply_count: 0,
-      children: []
+      woow_count: 0, doow_count: 0, adil_count: 0,
+      my_reaction: null
     };
 
-    setFlatComments(prev => [...prev, tempComment]); // Optimistic Add
+    setFlatComments(prev => [...prev, tempComment]);
 
     const { error } = await supabase.from("comments").insert({
       post_id: postId,
@@ -169,7 +138,7 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
 
   return (
     <div className="mt-4 space-y-6">
-      {/* Main Input */}
+      {/* Ana Input Formu */}
       {currentUserId && currentUserId !== postOwnerId && (
         <form onSubmit={handleMainSubmit} className="relative flex items-center mb-6">
           <input
@@ -190,17 +159,24 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
         </form>
       )}
 
-      {/* Recursive List */}
+      {/* Yorum Listesi */}
       <div className="space-y-4">
-        {commentTree.map((comment) => (
+        {/* rootNode hatasını çözmek için burada tip belirtmeye gerek kalmamalı ama garanti olsun: */}
+        {commentTree.map((rootNode) => (
           <CommentItem 
-            key={comment.id} 
-            comment={comment} 
+            key={rootNode.id} 
+            node={rootNode}
             currentUserId={currentUserId}
             onReply={handleReplySubmit}
-            depth={0} // Start at Depth 0
+            depth={0} 
           />
         ))}
+
+        {commentTree.length === 0 && (
+           <p className="text-gray-500 text-center text-sm py-4">
+             Henüz müzakere yok. İlk yorumu sen yap!
+           </p>
+        )}
       </div>
     </div>
   );

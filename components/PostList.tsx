@@ -1,118 +1,153 @@
-"use client";
+'use client';
 
-import { useState, useEffect } from "react";
-import { createClient } from "@/utils/supabase/client";
-import Image from "next/image";
-import ReactionBar from "./ReactionBar";
-import CommentSection from "./CommentSection";
+import { useState, useEffect } from 'react';
+import { Zap, ThumbsDown, Scale, MessageCircle } from 'lucide-react';
+import { createClient } from '@/utils/supabase/client'; 
+import toast from 'react-hot-toast'; 
 
-export default function PostList() {
-  const supabase = createClient();
-  const [posts, setPosts] = useState<any[]>([]);
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+type ReactionType = 'woow' | 'doow' | 'adil';
+
+interface ReactionBarProps {
+  targetId: string;
+  targetType: 'post' | 'comment'; 
+  initialCounts?: { // Soru işareti ekledik (Opsiyonel olabilir)
+    woow: number;
+    doow: number;
+    adil: number;
+    comment_count: number;
+  };
+  initialUserReaction: ReactionType | null;
+  isOwner?: boolean; 
+  onMuzakereClick?: () => void; 
+}
+
+export default function ReactionBar({
+  targetId,
+  targetType,
+  initialCounts,
+  initialUserReaction,
+  isOwner = false, 
+  onMuzakereClick 
+}: ReactionBarProps) {
   
-  // Hangi postların yorumlarının açık olduğunu tutan state
-  const [openCommentSections, setOpenCommentSections] = useState<{ [key: string]: boolean }>({});
+  // 👇 DÜZELTME BURADA: Eğer initialCounts boş gelirse, bu varsayılan nesneyi kullan
+  const [counts, setCounts] = useState(initialCounts || {
+    woow: 0,
+    doow: 0,
+    adil: 0,
+    comment_count: 0
+  });
 
+  const [myReaction, setMyReaction] = useState<ReactionType | null>(initialUserReaction);
+
+  // Veri sonradan yüklenirse state'i güncelle (Opsiyonel güvenlik)
   useEffect(() => {
-    const init = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setCurrentUser(user);
+    if (initialCounts) {
+      setCounts(initialCounts);
+    }
+  }, [initialCounts]);
+  
+  const handleReaction = async (newReaction: ReactionType) => {
+    if (isOwner) {
+       toast.error("Kendi gönderinize oy veremezsiniz.");
+       return;
+    }
 
-      // posts_with_score view'inden verileri çek
-      const { data, error } = await supabase
-        .from("posts_with_score")
-        .select(`
-          *,
-          profiles:user_id ( full_name, avatar_url )
-        `)
-        .order("score", { ascending: false });
+    const prevReaction = myReaction;
+    const prevCounts = { ...counts };
 
-      if (!error) {
-        setPosts(data || []);
+    // Yeni durumu hesaplarken 'counts' nesnesinin var olduğundan emin oluyoruz
+    let newCounts = { ...counts };
+
+    if (prevReaction === newReaction) {
+      setMyReaction(null);
+      newCounts[newReaction] = Math.max(0, newCounts[newReaction] - 1);
+    } else {
+      if (prevReaction) {
+        newCounts[prevReaction] = Math.max(0, newCounts[prevReaction] - 1);
       }
-      setLoading(false);
-    };
-    init();
+      newCounts[newReaction] += 1;
+      setMyReaction(newReaction);
+    }
 
-    // Realtime güncelleme (Yeni post veya reaksiyon gelirse listeyi tazele)
-    const channel = supabase.channel('posts_reactions')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, init)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reactions' }, init)
-      .subscribe();
+    setCounts(newCounts);
 
-    return () => { supabase.removeChannel(channel); };
-  }, [supabase]);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.rpc('handle_reaction', {
+        p_target_id: targetId,
+        p_target_type: targetType, 
+        p_reaction_type: prevReaction === newReaction ? null : newReaction 
+      });
 
-  const toggleComments = (postId: string) => {
-    setOpenCommentSections(prev => ({ ...prev, [postId]: !prev[postId] }));
+      if (error) throw error;
+
+    } catch (error) {
+      console.error('Reaction failed:', error);
+      setMyReaction(prevReaction);
+      setCounts(prevCounts);
+      toast.error('Reaksiyon kaydedilemedi'); 
+    }
   };
 
-  if (loading) return <div className="text-center py-10 text-slate-400 text-xs tracking-widest font-bold uppercase animate-pulse">Kürsü Hazırlanıyor...</div>;
+  const getButtonClass = (type: ReactionType) => {
+    const base = "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-none cursor-pointer select-none";
+    
+    if (myReaction === type) {
+      if (type === 'woow') return `${base} bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-sm`;
+      if (type === 'doow') return `${base} bg-red-500 text-white shadow-sm`;
+      if (type === 'adil') return `${base} bg-green-500 text-white shadow-sm`;
+    }
+
+    return `${base} text-gray-500 bg-transparent hover:text-gray-700 active:scale-95`;
+  };
+
+  // Güvenlik kontrolü: Eğer counts hala yoksa render etme (veya 0 göster)
+  if (!counts) return null;
 
   return (
-    <div className="space-y-6">
-      {posts.map((post) => {
-        const isOwner = currentUser?.id === post.user_id;
+    <div className="flex items-center gap-2 mt-2">
+      {/* WOOW BUTTON */}
+      <button 
+        onClick={() => handleReaction('woow')}
+        className={`${getButtonClass('woow')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
+        aria-label="Woow"
+      >
+        <Zap className={`w-4 h-4 ${myReaction === 'woow' ? 'fill-white' : ''}`} />
+        <span>{(counts.woow || 0) > 0 ? counts.woow : ''}</span>
+      </button>
 
-        return (
-          <div key={post.id} className="bg-white border border-slate-200/60 rounded-[2rem] overflow-hidden shadow-sm transition-all hover:shadow-md hover:border-slate-300/50">
-            
-            {/* ÜST KISIM: Profil Bilgisi */}
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl flex items-center justify-center text-sm font-bold shadow-md text-white uppercase">
-                  {post.profiles?.full_name?.charAt(0) || "B"}
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-slate-800">{post.profiles?.full_name || "Meslektaş"}</p>
-                  <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold font-sans">#{post.category || "Genel"}</p>
-                </div>
-              </div>
-              <span className="text-[10px] text-slate-400 font-medium italic">
-                {new Date(post.created_at).toLocaleDateString("tr-TR")}
-              </span>
-            </div>
+      {/* DOOW BUTTON */}
+      <button 
+        onClick={() => handleReaction('doow')}
+        className={`${getButtonClass('doow')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
+        aria-label="Doow"
+      >
+        <ThumbsDown className={`w-4 h-4 ${myReaction === 'doow' ? 'fill-white' : ''}`} />
+        <span>{(counts.doow || 0) > 0 ? counts.doow : ''}</span>
+      </button>
 
-            {/* İÇERİK: Mesaj ve Varsa Resim */}
-            <div className="p-5 space-y-4">
-              <p className="text-slate-700 text-[15px] leading-relaxed whitespace-pre-wrap font-normal">
-                {post.content}
-              </p>
-              
-              {post.image_url && (
-                <div className="relative w-full h-72 rounded-2xl overflow-hidden border border-slate-100 bg-slate-50 shadow-inner">
-                  <Image
-                    src={post.image_url}
-                    alt="Analiz Görseli"
-                    fill
-                    className="object-cover"
-                  />
-                </div>
-              )}
-            </div>
+      {/* ADIL BUTTON */}
+      <button 
+        onClick={() => handleReaction('adil')}
+        className={`${getButtonClass('adil')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
+        aria-label="Adil"
+      >
+        <Scale className={`w-4 h-4 ${myReaction === 'adil' ? 'fill-white' : ''}`} />
+        <span>{(counts.adil || 0) > 0 ? counts.adil : ''}</span>
+      </button>
 
-            {/* Reaksiyon Bar */}
-            <div className="px-5 pb-4">
-              <ReactionBar
-                targetType="post"
-                targetId={post.id}
-                isOwner={isOwner}
-                // Post için müzakere butonuna basılınca toggle çalışır
-                onMuzakereClick={() => toggleComments(post.id)}
-              />
-            </div>
+      {/* AYIRAÇ */}
+      <div className="h-4 w-px bg-gray-200 mx-1"></div>
 
-            {/* Yorum bölümü (Müzakere butonu ile açılır) */}
-            {openCommentSections[post.id] && (
-              <div className="border-t border-slate-100/50 bg-slate-50/30 px-5 pb-5 animate-in slide-in-from-top-2 duration-300">
-                <CommentSection postId={post.id} postOwnerId={post.user_id} />
-              </div>
-            )}
-          </div>
-        );
-      })}
+      {/* MÜZAKERE BUTTON */}
+      <button 
+        onClick={onMuzakereClick}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-blue-500 transition-none active:scale-95"
+      >
+        <MessageCircle className="w-4 h-4" />
+        <span className="text-blue-500">{(counts.comment_count || 0) > 0 ? counts.comment_count : ''}</span>
+      </button>
     </div>
   );
 }

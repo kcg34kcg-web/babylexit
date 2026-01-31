@@ -1,230 +1,139 @@
-"use client";
+'use client';
 
-import { motion } from "framer-motion";
-import { Flame, ThumbsDown, Scale, MessageSquare } from "lucide-react";
-import { createClient } from "@/utils/supabase/client";
-import { useState, useEffect } from "react";
+import { useState } from 'react';
+import { Zap, ThumbsDown, Scale, MessageCircle } from 'lucide-react';
+import { createClient } from '@/utils/supabase/client'; 
+import toast from 'react-hot-toast'; // DÜZELTME: sonner yerine react-hot-toast
+
+type ReactionType = 'woow' | 'doow' | 'adil';
 
 interface ReactionBarProps {
-  targetType: "post" | "comment";
-  targetId: string | number;
-  isOwner: boolean;
-  onMuzakereClick: () => void;
+  targetId: string;
+  targetType: 'post' | 'comment'; 
+  initialCounts: {
+    woow: number;
+    doow: number;
+    adil: number;
+    comment_count: number;
+  };
+  initialUserReaction: ReactionType | null;
+  onCommentClick?: () => void; 
 }
 
 export default function ReactionBar({
-  targetType,
   targetId,
-  isOwner,
-  onMuzakereClick,
+  targetType,
+  initialCounts,
+  initialUserReaction,
+  onCommentClick
 }: ReactionBarProps) {
-  const supabase = createClient();
+  // 1. ISOLATION: Yerel state (Anlık UI güncellemesi için)
+  const [counts, setCounts] = useState(initialCounts);
+  const [myReaction, setMyReaction] = useState<ReactionType | null>(initialUserReaction);
+  
+  // 2. LOGIC: Optimistik Güncelleme
+  const handleReaction = async (newReaction: ReactionType) => {
+    // A. Önceki durumu sakla (Hata olursa geri almak için)
+    const prevReaction = myReaction;
+    const prevCounts = { ...counts };
 
-  const [activeReaction, setActiveReaction] = useState<
-    "woow" | "doow" | "adil" | null
-  >(null);
+    // B. Yeni durumu hesapla
+    let newCounts = { ...counts };
 
-  const [counts, setCounts] = useState({
-    woow: 0,
-    doow: 0,
-    adil: 0,
-  });
-
-  useEffect(() => {
-    let mounted = true;
-
-    const fetchData = async () => {
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser();
-
-        if (!mounted) return;
-
-        if (user && !isOwner) {
-          const { data } = await supabase
-            .from("reactions")
-            .select("type")
-            .eq("target_type", targetType)
-            .eq("target_id", targetId)
-            .eq("user_id", user.id)
-            .single();
-
-          if (!mounted) return;
-          setActiveReaction((data?.type as any) || null);
-        }
-
-        const { data: reactionData } = await supabase
-          .from("reactions")
-          .select("type")
-          .eq("target_type", targetType)
-          .eq("target_id", targetId);
-
-        if (!mounted) return;
-
-        const countMap = { woow: 0, doow: 0, adil: 0 };
-        reactionData?.forEach(
-          (r) => (countMap[r.type as keyof typeof countMap] += 1)
-        );
-
-        setCounts(countMap);
-      } catch {
-        // abort edilen istekler sessizce yutulur
+    if (prevReaction === newReaction) {
+      // Reaksiyonu geri çekme (Toggle Off)
+      setMyReaction(null);
+      newCounts[newReaction] -= 1;
+    } else {
+      // Yeni reaksiyon ekleme veya değiştirme
+      if (prevReaction) {
+        newCounts[prevReaction] -= 1; // Eskisini azalt
       }
-    };
+      newCounts[newReaction] += 1; // Yenisini artır
+      setMyReaction(newReaction);
+    }
 
-    fetchData();
+    // C. UI'ı anında güncelle
+    setCounts(newCounts);
 
-    return () => {
-      mounted = false;
-    };
-  }, [supabase, targetType, targetId, isOwner]);
-
-  const handleReaction = async (type: "woow" | "doow" | "adil") => {
-    if (isOwner) return;
-
-    let user;
+    // D. Supabase'e gönder (Arka planda)
     try {
-      const res = await supabase.auth.getUser();
-      user = res.data.user;
-    } catch {
-      return;
-    }
-
-    if (!user) return;
-
-    if (activeReaction) {
-      await supabase
-        .from("reactions")
-        .delete()
-        .eq("target_type", targetType)
-        .eq("target_id", targetId)
-        .eq("user_id", user.id);
-
-      setCounts((prev) => ({
-        ...prev,
-        [activeReaction]: prev[activeReaction] - 1,
-      }));
-    }
-
-    if (activeReaction !== type) {
-      await supabase.from("reactions").insert({
-        target_type: targetType,
-        target_id: targetId,
-        type,
-        user_id: user.id,
+      const supabase = createClient();
+      
+      const { error } = await supabase.rpc('handle_reaction', {
+        p_target_id: targetId,
+        p_target_type: targetType, 
+        p_reaction_type: prevReaction === newReaction ? null : newReaction 
       });
 
-      setCounts((prev) => ({
-        ...prev,
-        [type]: prev[type] + 1,
-      }));
+      if (error) throw error;
 
-      setActiveReaction(type);
-    } else {
-      setActiveReaction(null);
+    } catch (error) {
+      console.error('Reaction failed:', error);
+      // Hata durumunda geri al (Rollback)
+      setMyReaction(prevReaction);
+      setCounts(prevCounts);
+      toast.error('Reaksiyon kaydedilemedi'); // react-hot-toast kullanımı
     }
   };
 
-  const ReactionButton = ({
-    type,
-    label,
-    icon,
-    activeBg,
-  }: {
-    type: "woow" | "doow" | "adil";
-    label: string;
-    icon: React.ReactNode;
-    activeBg: string;
-  }) => (
-    <button
-      onClick={() => handleReaction(type)}
-      disabled={isOwner}
-      className="flex flex-col items-center gap-1 group"
-    >
-      <motion.div
-        whileTap={
-          isOwner
-            ? { scale: 1 }
-            : { scale: 0.94, transition: { duration: 0.08 } }
-        }
-        animate={{
-          scale: activeReaction === type ? 1.06 : 1,
-          transition: { duration: 0.16, ease: [0.2, 0, 0, 1] },
-        }}
-        className={`p-3 rounded-full transition-colors ${
-          activeReaction === type ? activeBg : ""
-        }`}
-      >
-        {icon}
-      </motion.div>
+  // 3. GÖRSEL AYARLAR (Renkler ve Stil)
+  const getButtonClass = (type: ReactionType) => {
+    const base = "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-none cursor-pointer select-none";
+    
+    // Aktif Durumlar (Phase 1 Kuralları)
+    if (myReaction === type) {
+      if (type === 'woow') return `${base} bg-gradient-to-r from-pink-500 to-purple-500 text-white shadow-sm`;
+      if (type === 'doow') return `${base} bg-red-500 text-white shadow-sm`;
+      if (type === 'adil') return `${base} bg-green-500 text-white shadow-sm`;
+    }
 
-      <span className="text-[9px] uppercase font-black tracking-tighter text-slate-400">
-        {label} {counts[type] > 0 && `(${counts[type]})`}
-      </span>
-    </button>
-  );
+    // Pasif Durumlar (Yazısız, sadece ikon ve sayı)
+    return `${base} text-gray-500 bg-transparent hover:text-gray-700 active:scale-95`;
+  };
 
   return (
-    <div className="px-2 py-3 bg-slate-50/50 flex items-center justify-around border-t border-slate-100/50">
-      <ReactionButton
-        type="woow"
-        label="Woow"
-        activeBg="bg-amber-500/10"
-        icon={
-          <Flame
-            size={22}
-            className={
-              activeReaction === "woow"
-                ? "text-amber-500"
-                : "text-slate-400 group-hover:text-amber-500"
-            }
-          />
-        }
-      />
-
-      <ReactionButton
-        type="doow"
-        label="Doow"
-        activeBg="bg-red-500/10"
-        icon={
-          <ThumbsDown
-            size={22}
-            className={
-              activeReaction === "doow"
-                ? "text-red-500"
-                : "text-slate-400 group-hover:text-red-500"
-            }
-          />
-        }
-      />
-
-      <ReactionButton
-        type="adil"
-        label="Adil"
-        activeBg="bg-blue-500/10"
-        icon={
-          <Scale
-            size={22}
-            className={
-              activeReaction === "adil"
-                ? "text-blue-500"
-                : "text-slate-400 group-hover:text-blue-500"
-            }
-          />
-        }
-      />
-
-      <button
-        onClick={onMuzakereClick}
-        className="flex flex-col items-center gap-1 group"
+    <div className="flex items-center gap-2 mt-2">
+      {/* WOOW BUTTON */}
+      <button 
+        onClick={() => handleReaction('woow')}
+        className={getButtonClass('woow')}
+        aria-label="Woow"
       >
-        <div className="p-3 rounded-full group-hover:bg-slate-200/60">
-          <MessageSquare size={22} className="text-slate-400" />
-        </div>
-        <span className="text-[9px] uppercase font-black tracking-tighter text-slate-400">
-          Müzakere
-        </span>
+        <Zap className={`w-4 h-4 ${myReaction === 'woow' ? 'fill-white' : ''}`} />
+        <span>{counts.woow > 0 ? counts.woow : ''}</span>
+      </button>
+
+      {/* DOOW BUTTON */}
+      <button 
+        onClick={() => handleReaction('doow')}
+        className={getButtonClass('doow')}
+        aria-label="Doow"
+      >
+        <ThumbsDown className={`w-4 h-4 ${myReaction === 'doow' ? 'fill-white' : ''}`} />
+        <span>{counts.doow > 0 ? counts.doow : ''}</span>
+      </button>
+
+      {/* ADIL BUTTON */}
+      <button 
+        onClick={() => handleReaction('adil')}
+        className={getButtonClass('adil')}
+        aria-label="Adil"
+      >
+        <Scale className={`w-4 h-4 ${myReaction === 'adil' ? 'fill-white' : ''}`} />
+        <span>{counts.adil > 0 ? counts.adil : ''}</span>
+      </button>
+
+      {/* AYIRAÇ */}
+      <div className="h-4 w-px bg-gray-200 mx-1"></div>
+
+      {/* MÜZAKERE (YORUM) BUTTON */}
+      <button 
+        onClick={onCommentClick}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-500 hover:text-blue-500 transition-none active:scale-95"
+      >
+        <MessageCircle className="w-4 h-4" />
+        <span className="text-blue-500">{counts.comment_count > 0 ? counts.comment_count : ''}</span>
       </button>
     </div>
   );
