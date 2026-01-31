@@ -3,12 +3,11 @@
 import { useEffect, useState } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import ReactionBar from './ReactionBar';
+import CommentSection from './CommentSection'; // 👇 Yorum bileşenini geri çağırdık
 import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { MessageCircle } from 'lucide-react';
 
-// Post verisi için Tip Tanımı
 interface Post {
   id: string;
   user_id: string;
@@ -27,21 +26,23 @@ interface Post {
 export default function PostList() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // 👇 Hangi postun yorumlarının açık olduğunu tutan state
+  const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
+  
   const supabase = createClient();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Mevcut kullanıcıyı al (isOwner kontrolü için)
     const getUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUserId(user?.id || null);
     };
     getUser();
 
-    // Postları Çek
     const fetchPosts = async () => {
       const { data, error } = await supabase
-        .from('posts_with_stats') // Oluşturduğumuz SQL View'dan çekiyoruz
+        .from('posts_with_stats')
         .select('*');
 
       if (error) {
@@ -54,7 +55,6 @@ export default function PostList() {
 
     fetchPosts();
 
-    // Gerçek Zamanlı Güncelleme (Yeni post gelince listeyi yenile)
     const channel = supabase.channel('realtime_posts')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, () => {
         fetchPosts();
@@ -66,21 +66,13 @@ export default function PostList() {
     };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="flex justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
+  // 👇 Yorumları açıp kapatan fonksiyon (Toggle)
+  const handleToggleComments = (postId: string) => {
+    setExpandedPostId(prev => prev === postId ? null : postId);
+  };
 
-  if (posts.length === 0) {
-    return (
-      <div className="text-center p-8 text-slate-500">
-        <p>Henüz kürsüde ses yok. İlk sen ol!</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="p-8 text-center text-slate-400">Yükleniyor...</div>;
+  if (posts.length === 0) return <div className="p-8 text-center text-slate-500">Kürsüde henüz ses yok.</div>;
 
   return (
     <div className="space-y-6">
@@ -89,41 +81,26 @@ export default function PostList() {
           
           {/* Header */}
           <div className="p-4 flex items-center gap-3">
-            <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold text-lg overflow-hidden">
-              {post.author_avatar ? (
-                 <img src={post.author_avatar} alt={post.author_name} className="w-full h-full object-cover" />
-              ) : (
-                 post.author_name?.[0] || "?"
-              )}
+            <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold overflow-hidden">
+              {post.author_avatar ? <img src={post.author_avatar} alt="" className="w-full h-full object-cover" /> : post.author_name?.[0]}
             </div>
             <div>
               <h3 className="font-semibold text-slate-900">{post.author_name}</h3>
-              <p className="text-xs text-slate-500">
-                {formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}
-              </p>
+              <p className="text-xs text-slate-500">{formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}</p>
             </div>
           </div>
 
           {/* İçerik */}
           <div className="px-4 pb-2">
-            <p className="text-slate-700 whitespace-pre-wrap leading-relaxed mb-3">
-              {post.content}
-            </p>
-            
-            {/* Varsa Görsel */}
+            <p className="text-slate-700 whitespace-pre-wrap mb-3">{post.content}</p>
             {post.image_url && (
-              <div className="relative w-full h-64 mb-3 rounded-lg overflow-hidden bg-slate-50 border border-slate-100">
-                <Image 
-                  src={post.image_url} 
-                  alt="Post görseli" 
-                  fill 
-                  className="object-cover"
-                />
+              <div className="relative w-full h-64 mb-3 rounded-lg overflow-hidden border border-slate-100">
+                <Image src={post.image_url} alt="Post" fill className="object-cover" />
               </div>
             )}
           </div>
 
-          {/* Alt Bar: Reaksiyonlar */}
+          {/* Reaksiyon Barı */}
           <div className="px-4 pb-4 border-t border-slate-50 pt-2 bg-slate-50/50">
             <ReactionBar 
               targetId={post.id}
@@ -136,13 +113,18 @@ export default function PostList() {
               }}
               initialUserReaction={post.my_reaction}
               isOwner={currentUserId === post.user_id}
-              onMuzakereClick={() => {
-                // Detay sayfasına yönlendirme veya yorumları açma mantığı buraya
-                console.log("Müzakere tıklandı:", post.id);
-                // Örnek: router.push(`/posts/${post.id}`)
-              }}
+              
+              // 👇 DÜZELTİLDİ: Yönlendirme yok, Yorumları Aç/Kapa var.
+              onMuzakereClick={() => handleToggleComments(post.id)}
             />
           </div>
+
+          {/* 👇 Yorum Alanı (Sadece buton tıklandıysa açılır) */}
+          {expandedPostId === post.id && (
+            <div className="border-t border-slate-100 bg-slate-50/30 px-4 py-4 animate-in slide-in-from-top-2">
+              <CommentSection postId={post.id} postOwnerId={post.user_id} />
+            </div>
+          )}
         </div>
       ))}
     </div>

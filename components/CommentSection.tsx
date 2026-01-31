@@ -1,16 +1,12 @@
-"use client";
+'use client';
 
 import { useState, useEffect, useMemo } from "react";
-import { createClient } from "@/utils/supabase/client"; // Eğer bu çalışmazsa "@/app/utils/supabase/client" dene
+import { createClient } from "@/utils/supabase/client";
 import { Send } from "lucide-react";
 import toast from "react-hot-toast";
-
-// 👇 DÜZELTİLMİŞ İMPORTLAR (Mutlak Yol Kullanıyoruz)
-// Dosyaları app klasörü altına taşıdığımızı varsayıyoruz:
-
-import CommentItem from "./CommentItem"; 
-import { FlatComment } from "@/app/types"; // Dosya artık app/types.ts
-import { buildCommentTree } from "@/utils/commentTree"; // Dosya app/utils/commentTree.ts
+import CommentItem from "./CommentItem";
+import { FlatComment } from "@/app/types";
+import { buildCommentTree } from "@/utils/commentTree";
 
 interface CommentSectionProps {
   postId: string;
@@ -31,12 +27,12 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUserId(user?.id || null);
 
+      // Veriyi yeni view'dan çekiyoruz (Score var)
       const { data, error } = await supabase
         .from("comments_with_stats")
         .select("*")
         .eq("post_id", postId)
-        .order('created_at', { ascending: true }) 
-        .range(0, 2000); 
+        .limit(1000); // Makul bir sınır
 
       if (error) {
         console.error(error);
@@ -48,80 +44,47 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
 
     init();
 
+    // Realtime Dinleme (Yorum gelince güncelle)
     const channel = supabase.channel(`comments_section:${postId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, init)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comment_reactions' }, init)
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [postId, supabase]);
 
-  // 2. Ağaç Yapısı (Memoized)
+  // 2. Tree Builder (Sıralama mantığı utils içinde yapılıyor)
   const commentTree = useMemo(() => {
-    // Import hatası düzelince burası otomatik olarak doğru tipi döndürecek
     return buildCommentTree(flatComments);
   }, [flatComments]);
 
-  // 3. Ana Yorum Gönderme
+  // 3. Ana Yorum Gönderme (Posta Yorum)
   const handleMainSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !currentUserId) return;
-    if (currentUserId === postOwnerId) return toast.error("Kendi gönderinize müzakere başlatamazsınız.");
-
-    const tempId = crypto.randomUUID();
     
-    // Optimistic Update
-    const tempComment: FlatComment = {
-      id: tempId,
-      post_id: postId,
-      parent_id: null,
-      content: input,
-      created_at: new Date().toISOString(),
-      user_id: currentUserId,
-      author_name: "Ben", 
-      author_avatar: "",
-      woow_count: 0, doow_count: 0, adil_count: 0,
-      my_reaction: null
-    };
-
-    setFlatComments(prev => [tempComment, ...prev]);
-    setInput("");
+    // Optimistic Update için geçici obje oluşturabiliriz ama
+    // karmaşıklığı artırmamak için Realtime'a güveniyoruz.
     setSubmitting(true);
 
     const { error } = await supabase.from("comments").insert({
       post_id: postId,
       user_id: currentUserId,
-      content: tempComment.content,
+      content: input,
       parent_id: null
     });
 
     setSubmitting(false);
     if (error) {
       toast.error("Hata oluştu");
-      setFlatComments(prev => prev.filter(c => c.id !== tempId)); 
+    } else {
+      setInput("");
+      toast.success("Müzakere başlatıldı!");
     }
   };
 
-  // 4. Yanıt Gönderme
+  // 4. Yanıt Gönderme (Çocuklardan gelen istek)
   const handleReplySubmit = async (parentId: string, content: string) => {
     if (!currentUserId) return;
-
-    const tempId = crypto.randomUUID();
-    
-    const tempComment: FlatComment = {
-      id: tempId,
-      post_id: postId,
-      parent_id: parentId,
-      content: content,
-      created_at: new Date().toISOString(),
-      user_id: currentUserId,
-      author_name: "Ben",
-      author_avatar: "",
-      woow_count: 0, doow_count: 0, adil_count: 0,
-      my_reaction: null
-    };
-
-    setFlatComments(prev => [...prev, tempComment]);
 
     const { error } = await supabase.from("comments").insert({
       post_id: postId,
@@ -131,37 +94,36 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
     });
 
     if (error) {
-      toast.error("Yanıt gönderilemedi");
-      setFlatComments(prev => prev.filter(c => c.id !== tempId));
+      throw error; // Hatayı CommentItem yakalasın
     }
   };
 
   return (
-    <div className="mt-4 space-y-6">
-      {/* Ana Input Formu */}
-      {currentUserId && currentUserId !== postOwnerId && (
+    <div className="mt-2 space-y-8">
+      
+      {/* ANA GİRİŞ ALANI (Postun Altındaki İlk Input) */}
+      {currentUserId && (
         <form onSubmit={handleMainSubmit} className="relative flex items-center mb-6">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Müzakereye katıl..."
+            placeholder="Müzakereyi başlat..."
             disabled={submitting}
-            className="w-full bg-white border border-slate-200 rounded-full py-3 pl-5 pr-12 text-sm text-slate-700 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 shadow-sm"
+            className="w-full bg-white border border-slate-200 rounded-full py-3 pl-5 pr-12 text-sm text-slate-700 focus:outline-none focus:border-purple-400 focus:ring-1 focus:ring-purple-400 shadow-sm transition-all"
           />
           <button 
             type="submit" 
             disabled={!input.trim() || submitting}
-            className="absolute right-2 p-2 text-white bg-amber-500 rounded-full hover:bg-amber-600 disabled:opacity-50 transition-colors"
+            className="absolute right-2 p-2 text-white bg-slate-900 rounded-full hover:bg-black disabled:opacity-50 transition-colors shadow-md"
           >
             <Send size={16} />
           </button>
         </form>
       )}
 
-      {/* Yorum Listesi */}
-      <div className="space-y-4">
-        {/* rootNode hatasını çözmek için burada tip belirtmeye gerek kalmamalı ama garanti olsun: */}
+      {/* YORUM AĞACI */}
+      <div className="space-y-6">
         {commentTree.map((rootNode) => (
           <CommentItem 
             key={rootNode.id} 
@@ -173,8 +135,8 @@ export default function CommentSection({ postId, postOwnerId }: CommentSectionPr
         ))}
 
         {commentTree.length === 0 && (
-           <p className="text-gray-500 text-center text-sm py-4">
-             Henüz müzakere yok. İlk yorumu sen yap!
+           <p className="text-slate-400 text-center text-xs py-2 italic">
+             Henüz ses yok. İlk sen ol.
            </p>
         )}
       </div>

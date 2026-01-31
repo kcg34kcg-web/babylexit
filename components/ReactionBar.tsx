@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-// 👇 İKON GÜNCELLEMESİ: Yıldız (Star) ikonu eklendi
 import { Star, ThumbsDown, Scale, MessageCircle } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client'; 
 import toast from 'react-hot-toast'; 
@@ -88,13 +87,10 @@ export default function ReactionBar({
   };
 
   const getButtonClass = (type: ReactionType) => {
-    // Ortak temel stil (Hızlı tepki için 'duration-200' yapıldı)
     const base = "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-transform duration-200 cursor-pointer select-none active:scale-95";
     
-    // AKTİF DURUMLAR
     if (myReaction === type) {
-      
-      // ⭐ YENİ WOOW STİLİ (Kırmızı-Pembe-Mor Degrade)
+      // ⭐ YENİ PREMİUM WOOW (STAR) STİLİ
       if (type === 'woow') {
         return `
           flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold 
@@ -105,16 +101,10 @@ export default function ReactionBar({
           border border-white/20
         `;
       }
-
-      // Klasik Doow
       if (type === 'doow') return `${base} bg-red-500 text-white shadow-sm hover:bg-red-600`;
-      
-      // Klasik Adil
       if (type === 'adil') return `${base} bg-green-500 text-white shadow-sm hover:bg-green-600`;
     }
 
-    // PASİF DURUMLAR
-    // Woow pasifken pembeleşsin
     if (type === 'woow') return `${base} text-slate-500 hover:text-pink-600 hover:bg-pink-50`;
 
     return `${base} text-slate-500 bg-transparent hover:text-slate-700 hover:bg-slate-100`;
@@ -124,45 +114,33 @@ export default function ReactionBar({
 
   return (
     <div className="flex items-center gap-2 mt-2">
-      {/* ⭐ WOOW (STAR) BUTTON */}
       <button 
         onClick={() => handleReaction('woow')}
         className={`${getButtonClass('woow')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
-        aria-label="Woow"
       >
-        <Star 
-          className={`
-            transition-all duration-200
-            ${myReaction === 'woow' ? 'w-4 h-4 text-white fill-white' : 'w-4 h-4'}
-          `} 
-        />
+        <Star className={`transition-all duration-200 ${myReaction === 'woow' ? 'w-4 h-4 text-white fill-white' : 'w-4 h-4'}`} />
         <span>{(counts.woow || 0) > 0 ? counts.woow : ''}</span>
       </button>
 
-      {/* 👎 DOOW BUTTON */}
       <button 
         onClick={() => handleReaction('doow')}
         className={`${getButtonClass('doow')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
-        aria-label="Doow"
       >
         <ThumbsDown className={`w-4 h-4 ${myReaction === 'doow' ? 'fill-white' : ''}`} />
         <span>{(counts.doow || 0) > 0 ? counts.doow : ''}</span>
       </button>
 
-      {/* ⚖️ ADIL BUTTON */}
       <button 
         onClick={() => handleReaction('adil')}
         className={`${getButtonClass('adil')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
-        aria-label="Adil"
       >
         <Scale className={`w-4 h-4 ${myReaction === 'adil' ? 'fill-white' : ''}`} />
         <span>{(counts.adil || 0) > 0 ? counts.adil : ''}</span>
       </button>
 
-      {/* AYIRAÇ */}
       <div className="h-4 w-px bg-slate-200 mx-1"></div>
 
-      {/* 💬 MÜZAKERE BUTTON */}
+      {/* 🟢 DÜZELTİLEN MÜZAKERE BUTONU */}
       <button 
         onClick={onMuzakereClick}
         className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-transform duration-200 active:scale-95"
