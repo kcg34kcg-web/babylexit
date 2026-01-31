@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { 
   Search, Users, TrendingUp, ArrowLeft, 
   Image as ImageIcon, Send, X, Gavel,
-  Home, ShoppingCart, Calendar, LogOut, Menu
+  Home, ShoppingCart, Calendar, LogOut, Menu,
+  Sparkles, User // Added Sparkles (for Geft-AI) and User (for Profile)
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -24,6 +25,9 @@ export default function LexwoowPage() {
   const [loading, setLoading] = useState(false);
   const [user, setUser] = useState<any>(null);
   const [showTransition, setShowTransition] = useState(true);
+  
+  // STATE: Active Tab Management (WOOW vs Profile)
+  const [activeTab, setActiveTab] = useState<'woow' | 'profile'>('woow');
   
   // Akışı yenilemek için kullanılan anahtar
   const [refreshKey, setRefreshKey] = useState(0);
@@ -66,7 +70,9 @@ export default function LexwoowPage() {
       setFile(null);
       setPreviewUrl(null);
       toast.success("Kürsüde paylaşıldı!");
-      // Post atılınca listeyi yenile
+      
+      // LOGIC UPDATE: Switch to Main Feed and Refresh on successful post
+      setActiveTab('woow');
       setRefreshKey(prev => prev + 1);
 
     } catch (error: any) {
@@ -124,9 +130,30 @@ export default function LexwoowPage() {
 
               {/* Menü Linkleri */}
               <nav className="space-y-2">
-                 <button onClick={() => setRefreshKey(prev => prev + 1)} className="flex items-center gap-4 px-6 py-4 text-xl font-bold text-slate-900 bg-white rounded-full shadow-sm border border-slate-100 hover:bg-slate-50 transition-all w-full text-left">
+                 {/* WOOW BUTTON (Main Feed) */}
+                 <button 
+                    onClick={() => { setActiveTab('woow'); setRefreshKey(prev => prev + 1); }} 
+                    className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'woow' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-slate-100'}`}
+                 >
                     <Home size={26} />
                     <span>WOOW</span>
+                 </button>
+
+                 {/* GEFT-AI BUTTON (New Feature) */}
+                 <button 
+                    className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-purple-600 hover:bg-purple-50 rounded-full transition-all w-full text-left group"
+                 >
+                    <Sparkles size={26} className="group-hover:rotate-12 transition-transform" />
+                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-500 font-bold">Gift-AI</span>
+                 </button>
+
+                 {/* HESABIM BUTTON (Profile Feed) */}
+                 <button 
+                    onClick={() => setActiveTab('profile')} 
+                    className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'profile' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-transparent'}`}
+                 >
+                    <User size={26} />
+                    <span>Hesabım</span>
                  </button>
 
                  <Link href="/market" className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:bg-slate-100 rounded-full transition-all w-full">
@@ -209,18 +236,24 @@ export default function LexwoowPage() {
             </div>
           </div>
 
-          {/* Akış Başlığı */}
+          {/* Akış Başlığı (Dynamic based on Tab) */}
           <div className="flex items-center gap-3 px-2">
              <div className="h-[1px] flex-1 bg-slate-200"></div>
              <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
                <TrendingUp size={14} className="text-amber-500" />
-               <span>Kürsü Akışı</span>
+               <span>
+                 {activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : 'PROFİLİM'}
+               </span>
              </div>
              <div className="h-[1px] flex-1 bg-slate-200"></div>
           </div>
 
-          {/* Post Listesi (Akıllı Feed Entegrasyonu İçin Hazır) */}
-          <PostList key={refreshKey} userId={user?.id} />
+          {/* Post Listesi (Akıllı Feed Entegrasyonu) */}
+          {/* LOGIC: If WOOW tab, send undefined userId (Algorithm). If Profile tab, send user.id. */}
+          <PostList 
+            key={refreshKey} 
+            userId={activeTab === 'woow' ? undefined : user?.id} 
+          />
           
         </div>
 
@@ -280,6 +313,6 @@ export default function LexwoowPage() {
         </div>
 
       </main>
-    </div>
+    </div> 
   );
 }

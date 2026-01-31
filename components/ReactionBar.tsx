@@ -4,13 +4,31 @@ import { useState, useEffect } from 'react';
 import { Star, ThumbsDown, Scale, MessageCircle } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client'; 
 import toast from 'react-hot-toast'; 
+import { motion, AnimatePresence } from 'framer-motion';
+
+// --- PEGASUS ICON (Optimize SVG) ---
+const PegasusIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 100 100" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
+    <path d="M30 60 C30 60, 25 75, 20 85 L25 88 C35 80, 40 65, 40 60 Z" fill="currentColor" /> 
+    <path d="M70 60 C70 60, 75 75, 80 85 L75 88 C65 80, 60 65, 60 60 Z" fill="currentColor" /> 
+    <path d="M20 40 Q35 20 50 30 T80 40 L85 35 L75 25 L85 15 L70 20 Q60 10 50 20 Z" fill="currentColor" /> 
+    <path d="M50 30 Q60 10 80 10 L75 20 Z" fill="#FFD700" />
+    <path d="M35 35 Q15 15 5 25 Q20 35 35 40 Z" fill="url(#pegasusWingGradient)" opacity="0.9" /> 
+    <defs>
+      <linearGradient id="pegasusWingGradient" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#db2777" /> 
+        <stop offset="100%" stopColor="#9333ea" /> 
+      </linearGradient>
+    </defs>
+  </svg>
+);
 
 type ReactionType = 'woow' | 'doow' | 'adil';
 
 interface ReactionBarProps {
   targetId: string;
   targetType: 'post' | 'comment'; 
-  initialCounts?: {
+  initialCounts: {
     woow: number;
     doow: number;
     adil: number;
@@ -18,7 +36,8 @@ interface ReactionBarProps {
   };
   initialUserReaction: ReactionType | null;
   isOwner?: boolean;
-  onMuzakereClick?: () => void; 
+  onMuzakereClick?: () => void;
+  onTriggerPhysics?: () => void; 
 }
 
 export default function ReactionBar({
@@ -27,17 +46,15 @@ export default function ReactionBar({
   initialCounts,
   initialUserReaction,
   isOwner = false,
-  onMuzakereClick
+  onMuzakereClick,
+  onTriggerPhysics
 }: ReactionBarProps) {
   
-  const [counts, setCounts] = useState(initialCounts || {
-    woow: 0,
-    doow: 0,
-    adil: 0,
-    comment_count: 0
-  });
-
+  const [counts, setCounts] = useState(initialCounts);
   const [myReaction, setMyReaction] = useState<ReactionType | null>(initialUserReaction);
+  
+  // Animasyon State'i (Sadece buton içi görsel efekt için)
+  const [isKicking, setIsKicking] = useState(false);
 
   useEffect(() => {
     if (initialCounts) {
@@ -51,10 +68,19 @@ export default function ReactionBar({
        return;
     }
 
+    // --- ANIMASYON TETİKLEME (Sadece Woow ve Yeni Seçimse) ---
+    if (newReaction === 'woow' && myReaction !== 'woow') {
+        setIsKicking(true);
+        if (onTriggerPhysics) onTriggerPhysics(); // Üst karta fizik gönder
+        setTimeout(() => setIsKicking(false), 600); // 600ms sonra resetle
+    }
+    // --------------------------------------------------------
+
     const prevReaction = myReaction;
     const prevCounts = { ...counts };
     let newCounts = { ...counts };
 
+    // Toggle (Aç/Kapa) Mantığı
     if (prevReaction === newReaction) {
       setMyReaction(null);
       newCounts[newReaction] = Math.max(0, newCounts[newReaction] - 1);
@@ -82,71 +108,125 @@ export default function ReactionBar({
       console.error('Reaction failed:', error);
       setMyReaction(prevReaction);
       setCounts(prevCounts);
-      toast.error('Reaksiyon kaydedilemedi'); 
+      toast.error('Oylama sırasında hata oluştu.'); 
     }
-  };
-
-  const getButtonClass = (type: ReactionType) => {
-    const base = "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-transform duration-200 cursor-pointer select-none active:scale-95";
-    
-    if (myReaction === type) {
-      // ⭐ YENİ PREMİUM WOOW (STAR) STİLİ
-      if (type === 'woow') {
-        return `
-          flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-bold 
-          transition-transform duration-200 active:scale-90
-          text-white
-          bg-gradient-to-r from-red-500 via-pink-500 to-purple-600
-          shadow-lg shadow-pink-500/30
-          border border-white/20
-        `;
-      }
-      if (type === 'doow') return `${base} bg-red-500 text-white shadow-sm hover:bg-red-600`;
-      if (type === 'adil') return `${base} bg-green-500 text-white shadow-sm hover:bg-green-600`;
-    }
-
-    if (type === 'woow') return `${base} text-slate-500 hover:text-pink-600 hover:bg-pink-50`;
-
-    return `${base} text-slate-500 bg-transparent hover:text-slate-700 hover:bg-slate-100`;
   };
 
   if (!counts) return null;
 
   return (
-    <div className="flex items-center gap-2 mt-2">
-      <button 
+    <div className="flex items-center gap-3 mt-2 w-full select-none">
+      
+      {/* --- BUTTON 1: WOOW (PEGASUS) --- */}
+      <motion.button 
+        // whileTap={ isOwner ? {} : { scale: 0.92 }} // Çok sert küçülme olmasın
         onClick={() => handleReaction('woow')}
-        className={`${getButtonClass('woow')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`
+            relative group flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-300
+            ${myReaction === 'woow' 
+                ? 'bg-gradient-to-r from-purple-600 via-pink-500 to-red-500 text-white shadow-lg shadow-pink-500/30 ring-1 ring-white/20' 
+                : 'text-slate-500 hover:text-purple-600 hover:bg-purple-50'
+            }
+            ${isOwner ? 'opacity-50 cursor-not-allowed grayscale' : ''}
+        `}
       >
-        <Star className={`transition-all duration-200 ${myReaction === 'woow' ? 'w-4 h-4 text-white fill-white' : 'w-4 h-4'}`} />
-        <span>{(counts.woow || 0) > 0 ? counts.woow : ''}</span>
-      </button>
+        {/* İkon Konteynırı (İzole Animasyon) */}
+        <div className="relative w-5 h-5 flex-shrink-0">
+            <motion.div
+                animate={isKicking ? {
+                    rotate: [0, -15, 10, 0], // Daha doğal bir "şahlanma"
+                    scale: [1, 1.3, 1],
+                    y: [0, -3, 0]
+                } : {}}
+                transition={{ duration: 0.5, ease: "easeOut" }}
+                className="w-full h-full"
+            >
+                {myReaction === 'woow' ? (
+                    <PegasusIcon className="w-full h-full text-white drop-shadow-md" />
+                ) : (
+                    <Star className="w-full h-full transition-colors" />
+                )}
+            </motion.div>
+        </div>
 
-      <button 
+        <span className="relative z-10 font-bold">
+            {(counts.woow || 0) > 0 ? counts.woow : ''}
+            {myReaction === 'woow' && <span className="ml-1 text-xs opacity-90 font-normal hidden sm:inline">Woow</span>}
+        </span>
+
+        {/* Parçacık Efekti (Optimized Particles) */}
+        <AnimatePresence>
+            {isKicking && (
+                <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                    {[...Array(5)].map((_, i) => (
+                        <motion.div
+                            key={i}
+                            initial={{ opacity: 1, scale: 0, x: 0, y: 0 }}
+                            animate={{ 
+                                opacity: 0, 
+                                scale: 1.2, 
+                                x: (Math.random() - 0.5) * 60, 
+                                y: (Math.random() - 0.5) * 40 - 10 // Yukarı doğru patlama
+                            }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                            className="absolute w-1.5 h-1.5 rounded-full"
+                            style={{ 
+                                backgroundColor: i % 2 === 0 ? '#e879f9' : '#c084fc', // Pink & Purple
+                                left: '50%', 
+                                top: '50%' 
+                            }} 
+                        />
+                    ))}
+                </div>
+            )}
+        </AnimatePresence>
+      </motion.button>
+
+      {/* --- BUTTON 2: DOOW --- */}
+      <motion.button 
+        whileTap={ isOwner ? {} : { scale: 0.95 }}
         onClick={() => handleReaction('doow')}
-        className={`${getButtonClass('doow')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`
+            flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors duration-200
+            ${myReaction === 'doow' 
+                ? 'bg-red-500 text-white shadow-md shadow-red-500/20' 
+                : 'text-slate-500 hover:text-red-500 hover:bg-red-50'
+            }
+            ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}
+        `}
       >
         <ThumbsDown className={`w-4 h-4 ${myReaction === 'doow' ? 'fill-white' : ''}`} />
-        <span>{(counts.doow || 0) > 0 ? counts.doow : ''}</span>
-      </button>
+        <span className="font-bold">{(counts.doow || 0) > 0 ? counts.doow : ''}</span>
+      </motion.button>
 
-      <button 
+      {/* --- BUTTON 3: ADIL --- */}
+      <motion.button 
+        whileTap={ isOwner ? {} : { scale: 0.95 }}
         onClick={() => handleReaction('adil')}
-        className={`${getButtonClass('adil')} ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}`}
+        className={`
+            flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition-colors duration-200
+            ${myReaction === 'adil' 
+                ? 'bg-teal-500 text-white shadow-md shadow-teal-500/20' 
+                : 'text-slate-500 hover:text-teal-600 hover:bg-teal-50'
+            }
+            ${isOwner ? 'opacity-50 cursor-not-allowed' : ''}
+        `}
       >
         <Scale className={`w-4 h-4 ${myReaction === 'adil' ? 'fill-white' : ''}`} />
-        <span>{(counts.adil || 0) > 0 ? counts.adil : ''}</span>
-      </button>
+        <span className="font-bold">{(counts.adil || 0) > 0 ? counts.adil : ''}</span>
+      </motion.button>
 
-      <div className="h-4 w-px bg-slate-200 mx-1"></div>
+      <div className="h-5 w-px bg-slate-200 mx-1"></div>
 
-      {/* 🟢 DÜZELTİLEN MÜZAKERE BUTONU */}
+      {/* --- BUTTON 4: MÜZAKERE --- */}
       <button 
         onClick={onMuzakereClick}
-        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-blue-500 hover:bg-blue-50 rounded-full transition-transform duration-200 active:scale-95"
+        className="group flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
       >
-        <MessageCircle className="w-4 h-4" />
-        <span className="text-blue-500">{(counts.comment_count || 0) > 0 ? counts.comment_count : ''}</span>
+        <MessageCircle className="w-4 h-4 group-hover:scale-110 transition-transform duration-200" />
+        <span className="text-blue-500 font-bold">{(counts.comment_count || 0) > 0 ? counts.comment_count : ''}</span>
+        <span className="hidden sm:inline text-xs text-slate-400 group-hover:text-blue-400 transition-colors">Yorum</span>
       </button>
     </div>
   );

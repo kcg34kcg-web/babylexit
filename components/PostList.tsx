@@ -11,9 +11,20 @@ import { useRouter } from 'next/navigation';
 import { Sparkles, TrendingUp } from 'lucide-react'; 
 import Link from 'next/link';
 
+// FİZİK MOTORU (PHASE 1 - JOLT EFFECT)
+import { motion, useAnimation } from 'framer-motion';
+
 // YENİ ÖZELLİKLER:
 import { fetchFeed } from '@/app/actions/feed'; // Algoritma
 import WiltedRoseMenu from './WiltedRoseMenu';  // Menü
+
+// --- PEGASUS ICON (Golden Ticket Banner İçin) ---
+const PegasusIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
+     <path d="M12 2C8 2 6 4 6 6V8H5C3.3 8 2 9.3 2 11V14C2 15.7 3.3 17 5 17H6V20C6 21.1 6.9 22 8 22H16C17.1 22 18 21.1 18 20V17H19C20.7 17 22 15.7 22 14V11C22 9.3 20.7 8 19 8H18V6C18 4 16 2 12 2ZM8 18H16V20H8V18ZM18 15H6V11C6 10.4 6.4 10 7 10H17C17.6 10 18 10.4 18 11V15ZM10 6C10 5.4 10.4 5 11 5H13C13.6 5 14 5.4 14 6V8H10V6Z" />
+     <path d="M4 12L2 10M20 12L22 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);
 
 // Tip Tanımları
 interface Post {
@@ -32,7 +43,7 @@ interface Post {
   score?: number; // Algoritma puanı
 }
 
-// --- 1. PARÇA: POST KARTI (Eski PostItem + Yeni Menü) ---
+// --- 1. PARÇA: POST KARTI (Fizik Motorlu) ---
 const PostItem = ({ 
   post, 
   currentUserId, 
@@ -52,6 +63,19 @@ const PostItem = ({
   
   // ESKİ: İçerik genişletme state'i
   const [isContentExpanded, setIsContentExpanded] = useState(false);
+
+  // --- PHASE 1: PHYSICS ENGINE ---
+  const controls = useAnimation();
+
+  // SARSINTI EFEKTİ (ReactionBar'dan tetiklenir)
+  const triggerPhysics = () => {
+    controls.start({
+      x: [0, -3, 3, -2, 2, 0], // Profesyonel mikro sarsıntı
+      scale: [1, 1.015, 1],    // Hafif "nefes alma" etkisi
+      transition: { duration: 0.35, ease: "easeOut" }
+    });
+  };
+  // -------------------------------
   
   const MAX_LENGTH = 280;
   const isTooLong = post.content.length > MAX_LENGTH;
@@ -62,7 +86,6 @@ const PostItem = ({
   // Eğer kullanıcı "İlgilenmiyorum" dediyse kartı DOM'dan sil
   if (!isVisible) return null;
 
-  // ESKİ: Görünürlük izleme (Okundu bilgisi için)
   /* eslint-disable react-hooks/rules-of-hooks */
   useEffect(() => {
     if (!isExpanded || !cardRef.current) return;
@@ -86,11 +109,15 @@ const PostItem = ({
   };
 
   return (
-    <div ref={cardRef} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group animate-in fade-in slide-in-from-bottom-4">
+    // DEĞİŞİKLİK: div -> motion.div
+    <motion.div 
+      ref={cardRef} 
+      animate={controls} // Fizik kontrolcüsünü bağladık
+      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group animate-in fade-in slide-in-from-bottom-4"
+    >
       
       {/* --- HEADER --- */}
       <div className="p-4 flex items-center justify-between">
-        {/* Sol Taraf: Avatar ve İsim */}
         <div className="flex items-center gap-3 cursor-pointer" onClick={goToFullView}>
             <div 
               className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold overflow-hidden border border-slate-100 transition-transform hover:scale-105"
@@ -111,14 +138,11 @@ const PostItem = ({
               </h3>
               <div className="flex items-center gap-2 text-xs text-slate-500">
                  <span>{formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}</span>
-                 {/* Debug için skoru göstermek isterseniz açabilirsiniz */}
-                 {/* {post.score && <span className="text-slate-300">• Skor: {post.score.toFixed(1)}</span>} */}
               </div>
             </div>
         </div>
 
-        {/* Sağ Taraf: YENİ WILTED ROSE MENÜSÜ */}
-        {/* Mobilde görünür, Masaüstünde hover olunca görünür */}
+        {/* WILTED ROSE MENÜSÜ */}
         <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
             <WiltedRoseMenu 
                 postId={post.id} 
@@ -161,14 +185,17 @@ const PostItem = ({
           targetId={post.id}
           targetType="post"
           initialCounts={{
-            woow: post.woow_count,
-            doow: post.doow_count,
-            adil: post.adil_count,
-            comment_count: post.comment_count
+            woow: post.woow_count || 0,
+            doow: post.doow_count || 0,
+            adil: post.adil_count || 0,
+            comment_count: post.comment_count || 0
           }}
           initialUserReaction={post.my_reaction}
           isOwner={currentUserId === post.user_id}
           onMuzakereClick={onToggle} 
+          
+          // EKLENDİ: Fizik motoru tetikleyicisi
+          onTriggerPhysics={triggerPhysics}
         />
       </div>
 
@@ -178,7 +205,7 @@ const PostItem = ({
           <CommentSection postId={post.id} postOwnerId={post.user_id} />
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };
 
@@ -204,10 +231,10 @@ export default function PostList({ userId }: { userId?: string }) {
       // 2. VERİ ÇEKME İŞLEMİ
       if (cUserId) {
          
-         // A) Eğer profil sayfasındaysak (userId var), sadece o kişinin postlarını çek (ESKİ YÖNTEM)
+         // A) PROFİL GÖRÜNÜMÜ
          if (userId) {
             const { data } = await supabase
-                .from('posts_with_stats') // View adınızın bu olduğunu varsayıyorum
+                .from('posts_with_stats') 
                 .select('*')
                 .eq('user_id', userId)
                 .order('created_at', { ascending: false });
@@ -215,25 +242,25 @@ export default function PostList({ userId }: { userId?: string }) {
             if (data) setPosts(data as any[]); 
          } 
          
-         // B) Eğer ana sayfadaysak (userId yok), YENİ AKILLI ALGORİTMAYI kullan
+         // B) AKILLI FEED
          else {
             try {
-                // Server Action çağrısı
+                // Server Action (SQL'i çağıran fonksiyon)
                 const { posts: smartPosts, spotlight: smartSpotlight } = await fetchFeed(cUserId);
                 
-                // Gelen veriyi arayüz tipine dönüştür (Mapping)
+                // Mapper
                 const mappedPosts = smartPosts.map((p: any) => ({
                     id: p.id,
-                    user_id: p.author_id, // SQL'den author_id geliyor olabilir
+                    user_id: p.author_id, 
                     content: p.content,
                     created_at: p.created_at,
                     author_name: p.author_username || p.username || "Gizli Üye",
                     author_avatar: p.author_avatar,
                     woow_count: p.woow_count,
                     doow_count: p.doow_count,
-                    adil_count: 0, 
-                    comment_count: 0,
-                    my_reaction: null, // İlk yüklemede boş
+                    adil_count: p.adil_count, // Düzeltildi
+                    comment_count: p.comment_count,
+                    my_reaction: p.my_reaction, // SQL'den gelen kendi oyun
                     image_url: p.image_url,
                     score: p.score
                 }));
@@ -277,29 +304,38 @@ export default function PostList({ userId }: { userId?: string }) {
   return (
     <div className="space-y-6">
       
-      {/* --- YENİ: SPOTLIGHT (ALTIN BİLET) ALANI --- */}
+      {/* --- GOLDEN TICKET (PEGASUS EDITION) --- */}
       {/* Sadece ana akışta (userId yoksa) ve spotlight verisi varsa göster */}
       {!userId && spotlight && (
-        <div className="bg-gradient-to-r from-purple-900 to-slate-900 border border-purple-500/30 rounded-xl p-4 flex items-center gap-4 relative overflow-hidden group shadow-lg shadow-purple-900/20 animate-in fade-in slide-in-from-top-4">
-            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-                <Sparkles size={100} />
-            </div>
-            <div className="bg-purple-500/20 p-3 rounded-full text-purple-400 shrink-0">
-                <Sparkles size={24} />
-            </div>
-            <div className="relative z-10">
-                <h4 className="text-purple-300 font-bold text-[10px] uppercase tracking-wider mb-1">
-                    Spotlight: 15 Dakikanın Yıldızı
-                </h4>
-                <div className="flex items-center gap-2">
-                   <div className="w-6 h-6 rounded-full bg-purple-500 flex items-center justify-center text-xs font-bold text-white overflow-hidden border border-purple-400">
-                      {spotlight.avatar_url ? <img src={spotlight.avatar_url} className="w-full h-full object-cover" /> : spotlight.username?.[0]}
-                   </div>
-                   <p className="text-white text-sm">
-                      <Link href={`/profile/${spotlight.id}`} className="font-bold hover:underline text-purple-200">
-                          @{spotlight.username}
-                      </Link> profili şu an vitrinde!
-                   </p>
+        <div className="relative overflow-hidden rounded-xl p-0.5 bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-600 shadow-lg shadow-amber-500/20 group animate-in fade-in slide-in-from-top-4">
+            {/* Hover Shine Effect */}
+            <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
+            
+            <div className="bg-slate-900 rounded-[10px] p-4 flex items-center gap-4 relative">
+                {/* Background Icon Effect */}
+                <div className="absolute top-0 right-0 p-4 opacity-20 text-yellow-300 animate-pulse">
+                    <PegasusIcon className="w-24 h-24 rotate-12" />
+                </div>
+                
+                {/* Main Icon */}
+                <div className="bg-gradient-to-br from-amber-300 to-yellow-600 p-3 rounded-full text-slate-900 shrink-0 shadow-lg shadow-amber-500/40 z-10">
+                    <PegasusIcon className="w-6 h-6" />
+                </div>
+                
+                <div className="relative z-10">
+                    <h4 className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-yellow-400 font-black text-[11px] uppercase tracking-widest mb-1 flex items-center gap-2">
+                        GOLDEN TICKET <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping"/>
+                    </h4>
+                    <div className="flex items-center gap-2">
+                       <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center text-xs font-bold text-slate-900 overflow-hidden border border-yellow-300">
+                          {spotlight.avatar_url ? <img src={spotlight.avatar_url} className="w-full h-full object-cover" /> : spotlight.username?.[0]}
+                       </div>
+                       <p className="text-slate-200 text-sm">
+                          <Link href={`/profile/${spotlight.id}`} className="font-bold hover:text-amber-400 transition-colors text-white">
+                              @{spotlight.username}
+                          </Link> 15 dakikalığına vitrinde!
+                       </p>
+                    </div>
                 </div>
             </div>
         </div>
