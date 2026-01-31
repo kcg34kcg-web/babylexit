@@ -1,10 +1,27 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { createClient } from "@/utils/supabase/client";
-import ReactionBar from "./ReactionBar";
 import { Send } from "lucide-react";
 import toast from "react-hot-toast";
+import CommentItem from "./CommentItem";
+
+// Define the Data Structure
+export type CommentData = {
+  id: string;
+  parent_id: string | null;
+  content: string;
+  created_at: string;
+  user_id: string;
+  author_name: string;
+  author_avatar: string;
+  woow_count: number;
+  doow_count: number;
+  adil_count: number;
+  reply_count: number;
+  my_reaction?: "woow" | "doow" | "adil" | null;
+  children?: CommentData[]; // For the Tree structure
+};
 
 interface CommentSectionProps {
   postId: string;
@@ -13,139 +30,178 @@ interface CommentSectionProps {
 
 export default function CommentSection({ postId, postOwnerId }: CommentSectionProps) {
   const supabase = createClient();
-  const [comments, setComments] = useState<any[]>([]);
-  const [newComment, setNewComment] = useState("");
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const [flatComments, setFlatComments] = useState<CommentData[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  // Yorumları çekme fonksiyonu
-  const fetchComments = useCallback(async () => {
-    // Skor (Woow-Doow) farkına göre azalan sırada çekiyoruz
-    const { data, error } = await supabase
-      .from("comments_with_score")
-      .select("*, profiles:user_id ( full_name )")
-      .eq("post_id", postId)
-      .order("score", { ascending: false })
-      .order("created_at", { ascending: true });
-
-    if (error) console.error("Yorum çekme hatası:", error);
-    setComments(data || []);
-  }, [postId, supabase]);
-
+  // 1. Fetch Data
   useEffect(() => {
     const init = async () => {
       const { data: { user } } = await supabase.auth.getUser();
-      setCurrentUser(user);
-      fetchComments();
+      setCurrentUserId(user?.id || null);
+
+      const { data, error } = await supabase
+        .from("comments_with_stats")
+        .select("*")
+        .eq("post_id", postId);
+
+      if (error) return console.error(error);
+
+      // Load User's reactions
+      let finalData = data as CommentData[];
+      if (user) {
+        const { data: myReactions } = await supabase
+          .from("comment_reactions")
+          .select("comment_id, reaction_type")
+          .eq("user_id", user.id)
+          .in("comment_id", data.map(c => c.id));
+
+        finalData = data.map(c => ({
+          ...c,
+          my_reaction: myReactions?.find(r => r.comment_id === c.id)?.reaction_type as any
+        }));
+      }
+
+      setFlatComments(finalData);
     };
+
     init();
 
-    // Realtime: Bu postun yorumları veya o yorumların reaksiyonları değiştiğinde
-    const channel = supabase.channel(`sync_comments_${postId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments', filter: `post_id=eq.${postId}` }, fetchComments)
-      // Reaksiyon tablosunu dinleyip listeyi güncellemek (score değişimi için) biraz maliyetlidir, 
-      // ancak listenin canlı yeniden sıralanması isteniyorsa gereklidir.
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'reactions' }, fetchComments) 
+    // Realtime Listener
+    const channel = supabase.channel(`comments_section:${postId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comments' }, init)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'comment_reactions' }, init)
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [postId, supabase, fetchComments]);
+  }, [postId, supabase]);
 
-  const handleSendComment = async () => {
-    if (!currentUser) {
-        toast.error("Müzakereye katılmak için giriş yapmalısın.");
-        return;
-    }
-    if (!newComment.trim()) return;
-    
-    // Opsiyonel: Post sahibi kendi postuna yorum yapamaz kuralı (İstekte bu vardı, korunuyor)
-    if (currentUser.id === postOwnerId) {
-        toast.error("Kendi paylaşımına müzakere başlatamazsın, ancak cevap verebilirsin.");
-        // Not: Kullanıcı isteğinde "Kendi paylaşımına müzakere açamazsın" disabled durumu vardı.
-        // Eğer cevap hakkı isteniyorsa bu kontrol kaldırılabilir. Mevcut mantığı koruyoruz.
-        return;
-    }
+  // 2. Tree Builder (Recursive Logic)
+  // We use useMemo to rebuild the tree whenever the flat list changes.
+  const commentTree = useMemo(() => {
+    const buildTree = (comments: CommentData[], parentId: string | null = null): CommentData[] => {
+      return comments
+        .filter(comment => comment.parent_id === parentId)
+        .map(comment => ({
+          ...comment,
+          children: buildTree(comments, comment.id) // Recursion
+        }))
+        .sort((a, b) => {
+          // Sorting Rule: (Woow - Doow) Descending, then Newest
+          const scoreA = (a.woow_count || 0) - (a.doow_count || 0);
+          const scoreB = (b.woow_count || 0) - (b.doow_count || 0);
+          if (scoreA !== scoreB) return scoreB - scoreA;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        });
+    };
+    return buildTree(flatComments, null); // Start with root comments (parent_id: null)
+  }, [flatComments]);
 
-    setLoading(true);
+  // 3. Main Comment Submit
+  const handleMainSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!input.trim() || !currentUserId) return;
+    if (currentUserId === postOwnerId) return toast.error("Kendi gönderinize müzakere başlatamazsınız.");
+
+    const tempId = crypto.randomUUID();
+    const tempComment: CommentData = {
+      id: tempId,
+      parent_id: null,
+      content: input,
+      created_at: new Date().toISOString(),
+      user_id: currentUserId,
+      author_name: "Ben",
+      author_avatar: "",
+      woow_count: 0, doow_count: 0, adil_count: 0, reply_count: 0,
+      children: []
+    };
+
+    setFlatComments(prev => [tempComment, ...prev]); // Optimistic
+    setInput("");
+    setSubmitting(true);
 
     const { error } = await supabase.from("comments").insert({
       post_id: postId,
-      user_id: currentUser.id,
-      content: newComment
+      user_id: currentUserId,
+      content: tempComment.content,
+      parent_id: null
     });
 
-    if (!error) {
-      setNewComment("");
-      toast.success("Müzakere notun eklendi.");
-      fetchComments();
-    } else {
-        toast.error("Yorum gönderilemedi.");
+    setSubmitting(false);
+    if (error) {
+      toast.error("Hata oluştu");
+      setFlatComments(prev => prev.filter(c => c.id !== tempId)); // Rollback
     }
-    setLoading(false);
   };
 
-  const isPostOwner = currentUser?.id === postOwnerId;
+  // 4. Reply Handler (Passed down to children)
+  const handleReplySubmit = async (parentId: string, content: string) => {
+    if (!currentUserId) return;
+
+    const tempId = crypto.randomUUID();
+    const tempComment: CommentData = {
+      id: tempId,
+      parent_id: parentId,
+      content: content,
+      created_at: new Date().toISOString(),
+      user_id: currentUserId,
+      author_name: "Ben",
+      author_avatar: "",
+      woow_count: 0, doow_count: 0, adil_count: 0, reply_count: 0,
+      children: []
+    };
+
+    setFlatComments(prev => [...prev, tempComment]); // Optimistic Add
+
+    const { error } = await supabase.from("comments").insert({
+      post_id: postId,
+      user_id: currentUserId,
+      content: content,
+      parent_id: parentId
+    });
+
+    if (error) {
+      toast.error("Yanıt gönderilemedi");
+      setFlatComments(prev => prev.filter(c => c.id !== tempId));
+    }
+  };
 
   return (
-    <div className="pt-4 space-y-5">
-      {/* Yorum Yazma Alanı */}
-      <div className="flex gap-3 items-end">
-        <textarea
-          value={newComment}
-          onChange={(e) => setNewComment(e.target.value)}
-          placeholder={isPostOwner ? "Kendi paylaşımına müzakere açamazsın" : "Müzakereye katıl..."}
-          disabled={isPostOwner || loading}
-          className="flex-1 bg-white border border-slate-200 rounded-[1.2rem] px-4 py-3 text-sm outline-none resize-none focus:ring-2 focus:ring-amber-500/10 focus:border-amber-500/50 transition-all disabled:opacity-50 disabled:bg-slate-50 text-slate-700 placeholder:text-slate-400"
-          rows={2}
-        />
-        <button 
-          onClick={handleSendComment} 
-          disabled={loading || !newComment.trim() || isPostOwner}
-          className="bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 text-white p-3 rounded-xl transition-all active:scale-90 shadow-md shadow-amber-500/20"
-        >
-          {loading ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <Send size={18} />}
-        </button>
-      </div>
+    <div className="mt-4 space-y-6">
+      {/* Main Input */}
+      {currentUserId && currentUserId !== postOwnerId && (
+        <form onSubmit={handleMainSubmit} className="relative flex items-center mb-6">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Müzakereye katıl..."
+            disabled={submitting}
+            className="w-full bg-white border border-slate-200 rounded-full py-3 pl-5 pr-12 text-sm text-slate-700 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 shadow-sm"
+          />
+          <button 
+            type="submit" 
+            disabled={!input.trim() || submitting}
+            className="absolute right-2 p-2 text-white bg-amber-500 rounded-full hover:bg-amber-600 disabled:opacity-50 transition-colors"
+          >
+            <Send size={16} />
+          </button>
+        </form>
+      )}
 
-      {/* Yorum Listesi */}
+      {/* Recursive List */}
       <div className="space-y-4">
-        {comments.length === 0 && (
-            <p className="text-center text-xs text-slate-400 py-2 italic">Henüz müzakere başlatılmamış.</p>
-        )}
-        {comments.map((comment) => {
-          const isCommentOwner = currentUser?.id === comment.user_id;
-
-          return (
-            <div key={comment.id} className="bg-white border border-slate-100 rounded-[1.5rem] p-4 shadow-sm transition-all duration-300 hover:border-slate-200">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-6 h-6 bg-slate-100 rounded-lg flex items-center justify-center text-[10px] font-bold text-slate-500 uppercase">
-                    {comment.profiles?.full_name?.charAt(0) || "M"}
-                  </div>
-                  <span className="font-bold text-slate-800 text-xs">
-                    {comment.profiles?.full_name || "Meslektaş"}
-                  </span>
-                </div>
-                <span className="text-[9px] text-slate-400 font-medium">
-                  {new Date(comment.created_at).toLocaleDateString("tr-TR", { day: 'numeric', month: 'short' })}
-                </span>
-              </div>
-              
-              <p className="text-slate-600 text-[13px] leading-relaxed mb-3 px-1">
-                {comment.content}
-              </p>
-
-              {/* Yorumlar için ReactionBar */}
-              <ReactionBar
-                targetType="comment"
-                targetId={comment.id}
-                isOwner={isCommentOwner}
-                // Yorum içinde yorum (nested) olmadığı için onMuzakereClick sadece sayaç arttırır (ReactionBar içinde handle edilir)
-              />
-            </div>
-          );
-        })}
+        {commentTree.map((comment) => (
+          <CommentItem 
+            key={comment.id} 
+            comment={comment} 
+            currentUserId={currentUserId}
+            onReply={handleReplySubmit}
+            depth={0} // Start at Depth 0
+          />
+        ))}
       </div>
     </div>
   );
-}a
+}
