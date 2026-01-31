@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Star, ThumbsDown, Scale, MessageCircle } from 'lucide-react';
+import { Star, ThumbsDown, Scale, Feather } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client'; 
 import toast from 'react-hot-toast'; 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -53,7 +53,6 @@ export default function ReactionBar({
   const [counts, setCounts] = useState(initialCounts);
   const [myReaction, setMyReaction] = useState<ReactionType | null>(initialUserReaction);
   
-  // Animasyon State'i (Sadece buton içi görsel efekt için)
   const [isKicking, setIsKicking] = useState(false);
 
   useEffect(() => {
@@ -61,6 +60,10 @@ export default function ReactionBar({
       setCounts(initialCounts);
     }
   }, [initialCounts]);
+
+  useEffect(() => {
+    setMyReaction(initialUserReaction);
+  }, [initialUserReaction]);
   
   const handleReaction = async (newReaction: ReactionType) => {
     if (isOwner) {
@@ -68,19 +71,16 @@ export default function ReactionBar({
        return;
     }
 
-    // --- ANIMASYON TETİKLEME (Sadece Woow ve Yeni Seçimse) ---
     if (newReaction === 'woow' && myReaction !== 'woow') {
         setIsKicking(true);
-        if (onTriggerPhysics) onTriggerPhysics(); // Üst karta fizik gönder
-        setTimeout(() => setIsKicking(false), 600); // 600ms sonra resetle
+        if (onTriggerPhysics) onTriggerPhysics();
+        setTimeout(() => setIsKicking(false), 600);
     }
-    // --------------------------------------------------------
 
     const prevReaction = myReaction;
     const prevCounts = { ...counts };
     let newCounts = { ...counts };
 
-    // Toggle (Aç/Kapa) Mantığı
     if (prevReaction === newReaction) {
       setMyReaction(null);
       newCounts[newReaction] = Math.max(0, newCounts[newReaction] - 1);
@@ -119,7 +119,6 @@ export default function ReactionBar({
       
       {/* --- BUTTON 1: WOOW (PEGASUS) --- */}
       <motion.button 
-        // whileTap={ isOwner ? {} : { scale: 0.92 }} // Çok sert küçülme olmasın
         onClick={() => handleReaction('woow')}
         className={`
             relative group flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-300
@@ -130,11 +129,10 @@ export default function ReactionBar({
             ${isOwner ? 'opacity-50 cursor-not-allowed grayscale' : ''}
         `}
       >
-        {/* İkon Konteynırı (İzole Animasyon) */}
         <div className="relative w-5 h-5 flex-shrink-0">
             <motion.div
                 animate={isKicking ? {
-                    rotate: [0, -15, 10, 0], // Daha doğal bir "şahlanma"
+                    rotate: [0, -15, 10, 0],
                     scale: [1, 1.3, 1],
                     y: [0, -3, 0]
                 } : {}}
@@ -151,10 +149,11 @@ export default function ReactionBar({
 
         <span className="relative z-10 font-bold">
             {(counts.woow || 0) > 0 ? counts.woow : ''}
-            {myReaction === 'woow' && <span className="ml-1 text-xs opacity-90 font-normal hidden sm:inline">Woow</span>}
+            {myReaction === 'woow' && (
+              <span className="ml-1 text-xs opacity-90 font-normal hidden sm:inline">Woow</span>
+            )}
         </span>
 
-        {/* Parçacık Efekti (Optimized Particles) */}
         <AnimatePresence>
             {isKicking && (
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
@@ -166,13 +165,13 @@ export default function ReactionBar({
                                 opacity: 0, 
                                 scale: 1.2, 
                                 x: (Math.random() - 0.5) * 60, 
-                                y: (Math.random() - 0.5) * 40 - 10 // Yukarı doğru patlama
+                                y: (Math.random() - 0.5) * 40 - 10
                             }}
                             exit={{ opacity: 0 }}
                             transition={{ duration: 0.5, ease: "easeOut" }}
                             className="absolute w-1.5 h-1.5 rounded-full"
                             style={{ 
-                                backgroundColor: i % 2 === 0 ? '#e879f9' : '#c084fc', // Pink & Purple
+                                backgroundColor: i % 2 === 0 ? '#e879f9' : '#c084fc',
                                 left: '50%', 
                                 top: '50%' 
                             }} 
@@ -219,14 +218,13 @@ export default function ReactionBar({
 
       <div className="h-5 w-px bg-slate-200 mx-1"></div>
 
-      {/* --- BUTTON 4: MÜZAKERE --- */}
+      {/* --- BUTTON 4: MÜZAKERE (YAZI KALDIRILDI) --- */}
       <button 
         onClick={onMuzakereClick}
         className="group flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"
       >
-        <MessageCircle className="w-4 h-4 group-hover:scale-110 transition-transform duration-200" />
+        <Feather className="w-4 h-4 group-hover:rotate-12 transition-transform duration-200" />
         <span className="text-blue-500 font-bold">{(counts.comment_count || 0) > 0 ? counts.comment_count : ''}</span>
-        <span className="hidden sm:inline text-xs text-slate-400 group-hover:text-blue-400 transition-colors">Yorum</span>
       </button>
     </div>
   );
