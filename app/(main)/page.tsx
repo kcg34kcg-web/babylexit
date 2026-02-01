@@ -4,13 +4,11 @@ import { createClient } from '@/utils/supabase/client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import moment from 'moment';
-import 'moment/locale/tr'; // Türkçe tarih formatı
+import 'moment/locale/tr';
 import { useRouter } from 'next/navigation';
-// YENİ: QuickAccessFolders import edildi
-import QuickAccessFolders from '@/components/QuickAccessFolders';
+// Favori aksiyonunu daha sonra bağlayacağız, şimdilik UI odaklıyız
 import { 
   Search, 
-  PenTool, 
   TrendingUp, 
   MessageSquare, 
   Plus, 
@@ -20,9 +18,14 @@ import {
   Eye,
   Loader2,
   BookOpen,    
-  PlayCircle   
+  PlayCircle,
+  Heart,       // YENİ: Favori ikonu
+  Zap,         // YENİ: Lexwoow ikonu
+  FileText,    // YENİ: Sorularım/Cevaplarım için
+  Star         // YENİ: Yıldız ikonu
 } from 'lucide-react';
 
+// Tip Tanımlamaları (Mevcut yapıyı koruyoruz)
 interface Profile {
   id: string;
   full_name: string;
@@ -47,17 +50,19 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState(''); // Arama için State
+  const [searchTerm, setSearchTerm] = useState('');
   
+  // Favori state'i (Şimdilik lokal simülasyon, Step 3'te veritabanına bağlayacağız)
+  const [favorites, setFavorites] = useState<string[]>([]);
+
   const supabase = createClient();
   const router = useRouter();
 
-  // Verileri Çek
+  // Veri Çekme İşlemleri (Mevcut kod aynen korunuyor)
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       
-      // 1. Kullanıcı Kontrolü
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
         router.push('/login');
@@ -65,16 +70,13 @@ export default function DashboardPage() {
       }
       setUser(user);
 
-      // 2. Profil Bilgileri
       const { data: profileData } = await supabase
         .from('profiles')
         .select('id, full_name, reputation, credits')
         .eq('id', user.id)
         .single();
-      
       if (profileData) setProfile(profileData);
 
-      // 3. Soruları Çek
       const { data: questionsData } = await supabase
         .from('questions')
         .select(`
@@ -82,7 +84,7 @@ export default function DashboardPage() {
           profiles (full_name)
         `)
         .order('created_at', { ascending: false })
-        .limit(10); // Son 10 soru
+        .limit(10);
 
       if (questionsData) setQuestions(questionsData as any);      
       setLoading(false);
@@ -92,7 +94,15 @@ export default function DashboardPage() {
     moment.locale('tr');
   }, [supabase, router]);
 
-  // ARAMA FİLTRESİ (Client-Side)
+  const toggleFavorite = (id: string) => {
+    // UI Simülasyonu - Step 3'te backend'e bağlanacak
+    if (favorites.includes(id)) {
+      setFavorites(favorites.filter(favId => favId !== id));
+    } else {
+      setFavorites([...favorites, id]);
+    }
+  };
+
   const filteredQuestions = questions.filter((q) => 
     q.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
     q.content.toLowerCase().includes(searchTerm.toLowerCase())
@@ -107,18 +117,17 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-8 max-w-7xl mx-auto pb-24">
+    <div className="p-4 md:p-8 space-y-6 max-w-7xl mx-auto pb-24">
       
-      {/* KARŞILAMA BÖLÜMÜ */}
+      {/* 1. KARŞILAMA ve İSTATİSTİKLER (Mevcut Yapı) */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white">
             Merhaba, {profile?.full_name || user?.email?.split('@')[0]} 👋
           </h1>
-          <p className="text-slate-400">Bugün hukuki araştırmalarında neye ihtiyacın var?</p>
+          <p className="text-slate-400">Hukuk dünyasında bugün neler oluyor?</p>
         </div>
         
-        {/* İstatistikler */}
         <div className="flex gap-4 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto">
           <div className="bg-slate-900 border border-amber-500/30 px-6 py-3 rounded-xl min-w-[140px] shadow-lg">
             <span className="text-slate-400 text-xs uppercase tracking-wider font-bold">Reputasyon</span>
@@ -135,101 +144,129 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* --- YENİ EKLENDİ: HIZLI ERİŞİM KLASÖRLERİ --- */}
-      <QuickAccessFolders />
-      {/* ------------------------------------------- */}
-
-      {/* HIZLI AKSİYONLAR - GÜNCELLENDİ: 3 SÜTUN YAPILDI */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {/* 1. SORU SOR */}
-        <Link 
-          href="/ask" 
-          className="bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 p-6 rounded-2xl flex items-center justify-between group transition-all shadow-lg shadow-amber-900/20"
-        >
-          <div>
-            <h3 className="text-slate-950 font-bold text-xl mb-1">Soru Sor</h3>
-            <p className="text-slate-900/80 text-sm">Yapay zeka ve topluluktan görüş al.</p>
+      {/* 2. YENİ NAVİGASYON GRİDİ (İstediğin Sıralama) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        
+        {/* A. Soru Sor */}
+        <Link href="/ask" className="bg-gradient-to-br from-amber-600 to-amber-500 p-5 rounded-2xl flex flex-col justify-between group shadow-lg shadow-amber-900/20 hover:scale-[1.02] transition-transform">
+          <div className="bg-white/20 w-10 h-10 rounded-full flex items-center justify-center text-white mb-3">
+            <Plus size={24} />
           </div>
-          <div className="bg-white/20 p-3 rounded-full group-hover:scale-110 transition-transform text-slate-950">
-            <Plus size={28} />
+          <div>
+            <h3 className="text-white font-bold text-lg">Soru Sor</h3>
+            <p className="text-white/80 text-xs">Topluluktan destek al</p>
           </div>
         </Link>
 
-        {/* 2. MARKET */}
-        <Link 
-          href="/market" 
-          className="bg-slate-900 border border-slate-800 hover:border-slate-600 p-6 rounded-2xl flex items-center justify-between group transition-all"
-        >
-          <div>
-            <h3 className="text-white font-bold text-xl mb-1">Market</h3>
-            <p className="text-slate-400 text-sm">Kredi satın al ve özelliklerin kilidini aç.</p>
+        {/* B. Sorularım / Cevaplarım (YENİ - Cevapla yerine geldi) */}
+        <Link href="/my-content" className="bg-slate-800 border border-slate-700 p-5 rounded-2xl flex flex-col justify-between group hover:border-indigo-500/50 hover:bg-slate-800/80 transition-all">
+          <div className="bg-indigo-500/10 w-10 h-10 rounded-full flex items-center justify-center text-indigo-400 mb-3 group-hover:bg-indigo-500 group-hover:text-white transition-colors">
+            <FileText size={24} />
           </div>
-          <div className="bg-slate-800 p-3 rounded-full text-slate-400 group-hover:text-white transition-colors">
-            <ShoppingCart size={28} />
+          <div>
+            <h3 className="text-white font-bold text-lg leading-tight">Sorularım &<br/>Cevaplarım</h3>
+            <p className="text-slate-400 text-xs mt-1">İçeriklerini yönet</p>
           </div>
         </Link>
 
-        {/* 3. YAYINLAR (YENİ EKLENEN KISIM) */}
-        <Link 
-          href="/publications" 
-          className="bg-slate-900 border border-slate-800 hover:border-indigo-500/50 p-6 rounded-2xl flex items-center justify-between group transition-all relative overflow-hidden"
-        >
-          <div className="z-10">
-            <h3 className="text-white font-bold text-xl mb-1">Yayınlar</h3>
-            <div className="flex gap-2 mt-1.5">
-              {/* Makale Badge */}
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-400 font-medium">
-                <BookOpen size={10} /> Makale
-              </span>
-              {/* Video Badge */}
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] text-emerald-400 font-medium">
-                <PlayCircle size={10} /> Video
-              </span>
-            </div>
+        {/* C. Favorilerim (YENİ KONUM) */}
+        <Link href="/favorites" className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between group hover:border-pink-500/50 transition-all">
+          <div className="bg-pink-500/10 w-10 h-10 rounded-full flex items-center justify-center text-pink-500 mb-3 group-hover:scale-110 transition-transform">
+            <Heart size={24} />
           </div>
-          <div className="bg-slate-800 p-3 rounded-full text-slate-400 group-hover:text-indigo-400 transition-colors z-10">
-            <BookOpen size={28} />
+          <div>
+            <h3 className="text-white font-bold text-lg">Favorilerim</h3>
+            <p className="text-slate-400 text-xs">Kaydettiklerin</p>
           </div>
-          {/* Hafif arka plan efekti */}
-          <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-indigo-500/5 blur-2xl group-hover:bg-indigo-500/10 transition-all"></div>
+        </Link>
+
+        {/* D. Market (Mevcut) */}
+        <Link href="/market" className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col justify-between group hover:border-emerald-500/50 transition-all">
+          <div className="bg-emerald-500/10 w-10 h-10 rounded-full flex items-center justify-center text-emerald-500 mb-3">
+            <ShoppingCart size={24} />
+          </div>
+          <div>
+            <h3 className="text-white font-bold text-lg">Market</h3>
+            <p className="text-slate-400 text-xs">Kredi satın al</p>
+          </div>
         </Link>
       </div>
 
-      {/* GÜNDEM AKIŞI ve ARAMA */}
-      <div>
+      {/* 3. ANA AKIŞ ve LEXWOOW BÖLÜMÜ */}
+      <div className="mt-8">
+        
+        {/* Başlık ve Arama */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
           <h2 className="text-2xl font-bold text-white flex items-center gap-2 self-start md:self-auto">
             <MessageSquare className="text-amber-500" />
-            Gündemdeki Tartışmalar
+            Ana Akış
           </h2>
-
-          {/* ARAMA ÇUBUĞU */}
-          <div className="relative w-full md:w-80">
+          
+          <div className="relative w-full md:w-72">
             <input 
               type="text" 
-              placeholder="Soru veya konu ara..." 
+              placeholder="Ara..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-full py-2.5 pl-10 pr-4 text-slate-200 focus:ring-2 focus:ring-amber-500 focus:border-transparent outline-none transition-all placeholder:text-slate-600"
+              className="w-full bg-slate-900 border border-slate-700 rounded-full py-2 pl-10 pr-4 text-slate-200 focus:ring-2 focus:ring-amber-500 outline-none text-sm"
             />
-            <Search className="absolute left-3.5 top-3 text-slate-500" size={18} />
+            <Search className="absolute left-3.5 top-2.5 text-slate-500" size={16} />
           </div>
         </div>
 
-        {/* SORU LİSTESİ */}
+        {/* YENİ LEXWOOW ALANI (Başlığın hemen altında) */}
+        <Link href="/lexwoow" className="block mb-8 group">
+          <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-violet-600 via-fuchsia-600 to-amber-500 p-[1px] shadow-2xl shadow-fuchsia-900/20">
+            <div className="relative bg-slate-950/90 rounded-[23px] p-6 flex items-center justify-between overflow-hidden group-hover:bg-slate-950/80 transition-colors">
+              
+              {/* Arka plan efektleri */}
+              <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-500/20 blur-[80px] rounded-full group-hover:bg-fuchsia-500/30 transition-all"></div>
+              
+              <div className="z-10 flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="bg-gradient-to-r from-amber-400 to-orange-500 text-transparent bg-clip-text font-black text-3xl tracking-tight">Lexwoow</span>
+                  <span className="bg-white/10 border border-white/20 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-widest font-bold">AI Asistan</span>
+                </div>
+                <p className="text-slate-300 text-sm font-medium max-w-md">
+                  Hukuki sorularını yapay zekaya sor, saniyeler içinde analiz al. 
+                  <span className="text-amber-400 ml-1 underline cursor-pointer">Şimdi dene →</span>
+                </p>
+              </div>
+
+              {/* Eğlenceli İkon Animasyonu */}
+              <div className="hidden md:flex items-center justify-center w-16 h-16 bg-gradient-to-tr from-violet-500 to-fuchsia-500 rounded-2xl shadow-lg transform group-hover:rotate-12 group-hover:scale-110 transition-all duration-300">
+                <Zap className="text-white fill-white" size={32} />
+              </div>
+            </div>
+          </div>
+        </Link>
+
+        {/* FEED LISTESI (Kalp İkonlu) */}
         <div className="space-y-4">
           {filteredQuestions.length > 0 ? (
             filteredQuestions.map((q) => (
-              <div key={q.id} className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-amber-500/30 transition-all group shadow-md">
-                <div className="flex justify-between items-start mb-2">
+              <div key={q.id} className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-slate-700 transition-all group relative">
+                
+                {/* Kalp İkonu (Sağ Üst) */}
+                <button 
+                  onClick={(e) => {
+                    e.preventDefault();
+                    toggleFavorite(q.id);
+                  }}
+                  className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-800 transition-colors z-20"
+                >
+                  <Heart 
+                    size={20} 
+                    className={`transition-all ${favorites.includes(q.id) ? 'fill-pink-500 text-pink-500 scale-110' : 'text-slate-600 hover:text-pink-400'}`}
+                  />
+                </button>
+
+                <div className="flex justify-between items-start mb-2 pr-10">
                   <h3 className="text-lg font-bold text-white group-hover:text-amber-500 transition-colors line-clamp-1">
                     <Link href={`/questions/${q.id}`}>
                       {q.title}
                     </Link>
                   </h3>
-                  <span className="text-xs text-slate-500 whitespace-nowrap ml-4 flex items-center gap-1">
-                    <Calendar size={12}/> {moment(q.created_at).fromNow()}
-                  </span>
                 </div>
                 
                 <p className="text-slate-400 text-sm line-clamp-2 mb-4">
@@ -240,11 +277,13 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2 text-xs text-slate-500">
                     <User size={14} />
                     {q.profiles?.full_name || 'Gizli Üye'}
+                    <span className="w-1 h-1 rounded-full bg-slate-700 mx-1"></span>
+                    <Calendar size={12}/> {moment(q.created_at).fromNow()}
                   </div>
                   
                   <Link 
                     href={`/questions/${q.id}`}
-                    className="text-sm font-bold text-amber-500 hover:text-amber-400 flex items-center gap-1 bg-slate-800 py-2 px-4 rounded-lg hover:bg-slate-700 transition-colors"
+                    className="text-sm font-bold text-slate-300 hover:text-white flex items-center gap-2 bg-slate-800 hover:bg-slate-700 py-2 px-4 rounded-lg transition-colors border border-slate-700"
                   >
                     <Eye size={16} /> İncele / Cevapla
                   </Link>

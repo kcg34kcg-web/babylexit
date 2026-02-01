@@ -1,6 +1,6 @@
 import { createClient } from '@/utils/supabase/server';
 import Link from 'next/link';
-import { PenTool, TrendingUp, MessageSquare, Plus, ShoppingCart, User } from 'lucide-react';
+import { PenTool, TrendingUp, MessageSquare, Plus, ShoppingCart, User, Heart } from 'lucide-react'; // Heart Eklendi
 import moment from 'moment';
 import 'moment/locale/tr';
 
@@ -26,7 +26,7 @@ export default async function DashboardPage() {
   moment.locale('tr');
 
   return (
-    <div className="p-4 md:p-8 space-y-8">
+    <div className="p-4 md:p-8 space-y-8 max-w-7xl mx-auto">
       
       {/* KARŞILAMA BÖLÜMÜ */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -37,7 +37,7 @@ export default async function DashboardPage() {
           <p className="text-slate-400">Bugün hukuki araştırmalarında neye ihtiyacın var?</p>
         </div>
         
-        {/* İstatistik Kartları (Mobil Uyumlu) */}
+        {/* İstatistik Kartları */}
         <div className="flex gap-4 w-full md:w-auto overflow-x-auto pb-2 md:pb-0">
           <div className="bg-slate-900 border border-amber-500/30 px-6 py-3 rounded-xl min-w-[140px]">
             <span className="text-slate-400 text-xs uppercase tracking-wider font-bold">Reputasyon</span>
@@ -98,8 +98,16 @@ export default async function DashboardPage() {
         <div className="space-y-4">
           {recentQuestions && recentQuestions.length > 0 ? (
             recentQuestions.map((q) => (
-              <div key={q.id} className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-amber-500/30 transition-all group">
-                <div className="flex justify-between items-start mb-2">
+              <div key={q.id} className="bg-slate-900 border border-slate-800 rounded-xl p-6 hover:border-amber-500/30 transition-all group relative">
+                
+                {/* --- FAVORİ BUTONU (YENİ EKLENDİ) --- */}
+                {/* Gerçek işlevsellik için buraya Client Component (FavoriteButton) gelecek */}
+                <button className="absolute top-6 right-6 text-slate-600 hover:text-pink-500 transition-colors z-10">
+                   <Heart size={20} />
+                </button>
+                {/* ------------------------------------ */}
+
+                <div className="flex justify-between items-start mb-2 pr-10">
                   <h3 className="text-lg font-bold text-white group-hover:text-amber-500 transition-colors line-clamp-1">
                     <Link href={`/questions/${q.id}`}>
                       {q.title}
@@ -120,7 +128,6 @@ export default async function DashboardPage() {
                     {q.profiles?.full_name || 'Gizli Üye'}
                   </div>
                   
-                  {/* İŞTE BURASI DÜZELDİ: ARTIK 404 VERMEYECEK */}
                   <Link 
                     href={`/questions/${q.id}`}
                     className="text-sm font-bold text-amber-500 hover:text-amber-400 flex items-center gap-1"

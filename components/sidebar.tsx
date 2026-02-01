@@ -2,123 +2,126 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-// BookOpen ikonunu buraya ekledik
-import { Home, PlusCircle, ShoppingCart, User, Book, BookOpen } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { 
+  Home, 
+  Search, 
+  PlusCircle, 
+  MessageSquare, 
+  BookOpen, 
+  ShoppingCart, 
+  User, 
+  LogOut,
+  Zap,
+  Heart,      // Favoriler için
+  FileText,   // Sorularım/Cevaplarım için
+  Settings
+} from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
-import { twMerge } from 'tailwind-merge';
-import clsx from 'clsx';
+import { useRouter } from 'next/navigation';
+import { cn } from '@/utils/cn';
 
-interface SidebarProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-export default function Sidebar({ isOpen, onClose }: SidebarProps) {
+export default function Sidebar() {
   const pathname = usePathname();
-  const [user, setUser] = useState<any>(null);
+  const router = useRouter();
   const supabase = createClient();
-
-  useEffect(() => {
-    const getUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
-    };
-    getUser();
-
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
-    });
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
-  }, [supabase]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    onClose();
+    router.push('/login');
   };
 
-  // MENÜ ÖĞELERİNİ BURADA DÜZENLEDİK
   const navItems = [
-    { href: '/', icon: Home, label: 'Ana Akış' },
-    { href: '/ask', icon: PlusCircle, label: 'Soru Sor' },
-    { href: '/questions', icon: Book, label: 'Cevapla' },
-    { href: '/market', icon: ShoppingCart, label: 'Market', badge: 'Beta' },
+    { label: 'Ana Akış', href: '/main', icon: Home },
+    { label: 'Keşfet', href: '/social', icon: Search },
     
-    // --- YENİ EKLENEN KISIM BAŞLANGIÇ ---
-    { href: '/publications', icon: BookOpen, label: 'Yayınlar', badge: 'Yeni' },
-    // --- YENİ EKLENEN KISIM BİTİŞ ---
-    
-    { href: '/profile', icon: User, label: 'Hesabım' },
+    // --- YENİ EKLENENLER (Senin İstediğin Yer) ---
+    { label: 'Sorularım & Cevaplarım', href: '/my-content', icon: FileText },
+    { label: 'Favoriler', href: '/favorites', icon: Heart },
+    // ---------------------------------------------
+
+    { label: 'Yayınlar', href: '/publications', icon: BookOpen },
+    { label: 'Market', href: '/market', icon: ShoppingCart },
+    { label: 'Profil', href: '/profile', icon: User },
   ];
 
   return (
-    <aside
-      className={clsx(
-        "fixed md:relative inset-y-0 left-0 transform md:translate-x-0 transition-transform duration-200 ease-in-out",
-        "w-64 bg-slate-900 text-slate-200 p-4 flex flex-col z-40",
-        isOpen ? 'translate-x-0' : '-translate-x-full'
-      )}
-    >
-      <div className="text-3xl font-bold text-amber-500 mb-8 text-center">
-        Babylexit
+    <div className="hidden md:flex flex-col w-64 h-screen bg-slate-950 border-r border-slate-800 fixed left-0 top-0">
+      
+      {/* LOGO ALANI */}
+      <div className="p-6">
+        <h1 className="text-2xl font-black bg-gradient-to-r from-amber-500 to-orange-600 text-transparent bg-clip-text">
+          babylexit
+        </h1>
       </div>
-      <nav className="flex-1">
-        <ul>
-          {navItems.map((item) => (
-            <li key={item.href} className="mb-4">
-              <Link
-                href={item.href}
-                className={twMerge(
-                  "flex items-center p-3 rounded-lg hover:bg-slate-700 transition-colors",
-                  pathname === item.href && 'bg-amber-500 text-slate-900 font-medium shadow-md shadow-amber-500/20'
-                )}
-                onClick={onClose}
-              >
-                <item.icon size={20} className="mr-3" />
-                <span className="text-lg">{item.label}</span>
-                {item.badge && (
-                  <span className={clsx(
-                    "ml-auto text-xs font-semibold px-2.5 py-0.5 rounded-full",
-                    // Aktifse koyu yazı, pasifse amber yazı
-                    pathname === item.href 
-                      ? "bg-slate-900 text-amber-500" 
-                      : "bg-amber-500 text-slate-900"
-                  )}>
-                    {item.badge}
-                  </span>
-                )}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
 
-      <div className="mt-auto p-4 border-t border-slate-700">
-        {user ? (
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <img
-                src={user.user_metadata?.avatar_url || `https://ui-avatars.com/api/?name=${user.user_metadata?.full_name || user.email}`}
-                alt="User Avatar"
-                className="w-10 h-10 rounded-full mr-3 bg-slate-700 object-cover"
-              />
-              <span className="text-slate-200 text-sm truncate max-w-[100px]" title={user.user_metadata?.full_name || user.email}>
-                {user.user_metadata?.full_name || user.email?.split('@')[0]}
-              </span>
-            </div>
-            <button onClick={handleLogout} className="text-amber-500 hover:text-amber-400 text-xs font-bold ml-2">
-              Çıkış
-            </button>
+      {/* NAVİGASYON LİSTESİ */}
+      <div className="flex-1 px-4 space-y-2 overflow-y-auto">
+        
+        {/* LEXWOOW ÖZEL BUTONU (Canlı ve Renkli) */}
+        <Link 
+          href="/lexwoow"
+          className={cn(
+            "flex items-center gap-3 px-4 py-3.5 rounded-xl transition-all duration-300 group mb-6 relative overflow-hidden",
+            pathname === '/lexwoow' 
+              ? "bg-gradient-to-r from-fuchsia-600 to-purple-600 text-white shadow-lg shadow-purple-900/50" 
+              : "bg-slate-900/50 text-slate-300 hover:text-white hover:bg-slate-900 border border-slate-800 hover:border-fuchsia-500/50"
+          )}
+        >
+          {/* Arka plan hover efekti */}
+          <div className="absolute inset-0 bg-gradient-to-r from-fuchsia-600/20 to-purple-600/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+          
+          <div className={cn(
+            "p-1.5 rounded-lg transition-colors",
+            pathname === '/lexwoow' ? "bg-white/20" : "bg-slate-800 group-hover:bg-fuchsia-500 group-hover:text-white"
+          )}>
+            <Zap size={20} className={pathname === '/lexwoow' ? "text-white fill-white" : ""} />
           </div>
-        ) : (
-          <Link href="/login" className="text-amber-500 hover:text-amber-400 text-sm flex justify-center w-full font-bold">
-            Giriş Yap
-          </Link>
-        )}
+          <span className="font-bold tracking-wide relative z-10">Lexwoow AI</span>
+          
+          {/* New Badge */}
+          <span className="absolute right-2 top-3 w-2 h-2 rounded-full bg-fuchsia-500 animate-pulse"></span>
+        </Link>
+
+
+        {/* DİĞER LİNKLER */}
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname === item.href;
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
+                isActive 
+                  ? "bg-amber-500/10 text-amber-500 font-bold" 
+                  : "text-slate-400 hover:bg-slate-900 hover:text-slate-100"
+              )}
+            >
+              <Icon 
+                size={20} 
+                className={cn(
+                  "transition-colors",
+                  isActive ? "text-amber-500" : "text-slate-500 group-hover:text-amber-500"
+                )} 
+              />
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
       </div>
-    </aside>
+
+      {/* ALT KISIM (Ayarlar & Çıkış) */}
+      <div className="p-4 border-t border-slate-800 space-y-2">
+        <button 
+          onClick={handleLogout}
+          className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-slate-400 hover:bg-red-500/10 hover:text-red-500 transition-all"
+        >
+          <LogOut size={20} />
+          <span>Çıkış Yap</span>
+        </button>
+      </div>
+    </div>
   );
 }
