@@ -71,6 +71,7 @@ export default function ReactionBar({
        return;
     }
 
+    // Woow animasyon tetikleyicisi
     if (newReaction === 'woow' && myReaction !== 'woow') {
         setIsKicking(true);
         if (onTriggerPhysics) onTriggerPhysics();
@@ -79,15 +80,26 @@ export default function ReactionBar({
 
     const prevReaction = myReaction;
     const prevCounts = { ...counts };
+    
+    // --- GÜNCELLENMİŞ OPTIMISTIC LOGIC ---
     let newCounts = { ...counts };
+    
+    // Kullanıcı aynı butona bastıysa "Toggle Off" (Geri çekme) demektir.
+    const isTogglingOff = prevReaction === newReaction;
+    // Backend'e gidecek veri: Geri çekiliyorsa NULL, yoksa yeni reaksiyon tipi
+    const effectiveReaction = isTogglingOff ? null : newReaction;
 
-    if (prevReaction === newReaction) {
+    if (isTogglingOff) {
+      // Reaksiyonu kaldır
       setMyReaction(null);
       newCounts[newReaction] = Math.max(0, newCounts[newReaction] - 1);
     } else {
+      // Reaksiyonu değiştir veya ekle
       if (prevReaction) {
+        // Varsa eski reaksiyonu düşür
         newCounts[prevReaction] = Math.max(0, newCounts[prevReaction] - 1);
       }
+      // Yeni reaksiyonu artır
       newCounts[newReaction] += 1;
       setMyReaction(newReaction);
     }
@@ -96,20 +108,32 @@ export default function ReactionBar({
 
     try {
       const supabase = createClient();
+      
+      // Backend RPC çağrısı
       const { error } = await supabase.rpc('handle_reaction', {
         p_target_id: targetId,
         p_target_type: targetType, 
-        p_reaction_type: prevReaction === newReaction ? null : newReaction 
+        p_reaction_type: effectiveReaction 
       });
 
       if (error) throw error;
+    } catch (error: any) {
+      // Hatayı konsolda gizleme, detaylarını dök ki ne olduğunu anlayalım
+      console.error('Reaksiyon Hatası Detaylı:', {
+        mesaj: error.message,
+        detay: error.details,
+        ipucu: error.hint,
+        kod: error.code
+      });
 
-    } catch (error) {
-      console.error('Reaction failed:', error);
+      // Rollback (Eski hale dönüş) - Bu kısım kalmalı, çok önemli!
       setMyReaction(prevReaction);
       setCounts(prevCounts);
-      toast.error('Oylama sırasında hata oluştu.'); 
+      
+      // Kullanıcıya daha açıklayıcı bir mesaj
+      toast.error(error.message || 'Oylama sırasında bir hata oluştu.'); 
     }
+    
   };
 
   if (!counts) return null;
@@ -218,7 +242,7 @@ export default function ReactionBar({
 
       <div className="h-5 w-px bg-slate-200 mx-1"></div>
 
-      {/* --- BUTTON 4: MÜZAKERE (YAZI KALDIRILDI) --- */}
+      {/* --- BUTTON 4: MÜZAKERE --- */}
       <button 
         onClick={onMuzakereClick}
         className="group flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-colors duration-200"

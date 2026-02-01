@@ -18,7 +18,6 @@ import { motion, useAnimation } from 'framer-motion';
 import { fetchFeed } from '@/app/actions/feed'; // Algoritma
 import WiltedRoseMenu from './WiltedRoseMenu';  // Menü
 
-// --- PEGASUS ICON (Golden Ticket Banner İçin) ---
 const PegasusIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
      <path d="M12 2C8 2 6 4 6 6V8H5C3.3 8 2 9.3 2 11V14C2 15.7 3.3 17 5 17H6V20C6 21.1 6.9 22 8 22H16C17.1 22 18 21.1 18 20V17H19C20.7 17 22 15.7 22 14V11C22 9.3 20.7 8 19 8H18V6C18 4 16 2 12 2ZM8 18H16V20H8V18ZM18 15H6V11C6 10.4 6.4 10 7 10H17C17.6 10 18 10.4 18 11V15ZM10 6C10 5.4 10.4 5 11 5H13C13.6 5 14 5.4 14 6V8H10V6Z" />
@@ -303,7 +302,6 @@ export default function PostList({ userId }: { userId?: string }) {
   return (
     <div className="space-y-6">
       
-      {/* --- GOLDEN TICKET (PEGASUS EDITION) --- */}
       {/* Sadece ana akışta (userId yoksa) ve spotlight verisi varsa göster */}
       {!userId && spotlight && (
         <div className="relative overflow-hidden rounded-xl p-0.5 bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-600 shadow-lg shadow-amber-500/20 group animate-in fade-in slide-in-from-top-4">
