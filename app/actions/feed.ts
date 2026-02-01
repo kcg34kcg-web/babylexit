@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server';
 import { redis } from '@/lib/redis'; 
 import { BabylexitRecommender } from '@/lib/recommender';
+import { differenceInHours, isPast, isToday, parseISO } from 'date-fns'; // Added for Event Logic
 
 // Spotlight Cache (Aynen korundu)
 async function getSpotlightUser() {
@@ -48,7 +49,7 @@ export async function fetchFeed(userId: string) {
 
     // 3. Fallback Mekanizması
     if (rpcError || !rpcData || rpcData.length === 0) {
-        // Not: Fallback sorgusuna comments(count) eklendi, ancak aşağıda birleşik bir çözüm uygulayacağız.
+        // Fallback sorgusuna comments(count) eklendi
         const { data: fallbackData } = await supabase
             .from('posts')
             .select(`*, profiles!inner(full_name, username, avatar_url, reputation), my_reaction_data:post_reactions(reaction_type)`)
@@ -73,28 +74,22 @@ export async function fetchFeed(userId: string) {
     }
 
     // --- FIX: COMMENT COUNT FETCHING ---
-    // RPC verisinde comment_count eksik olduğu için, ve fallback verisinde de netleştirmek için
-    // tüm postlar için yorum sayılarını verimli bir şekilde çekiyoruz.
     const postIds = rawPosts.map((p: any) => p.id);
     
-    // 'comments' tablosundaki ilişkisel sayıyı (count) 'posts' tablosu üzerinden çekiyoruz
     const { data: countData } = await supabase
         .from('posts')
         .select('id, comments(count)')
         .in('id', postIds);
 
-    // ID -> Comment Count haritası oluştur
     const commentCountMap = new Map();
     if (countData) {
         countData.forEach((item: any) => {
-            // comments: [{ count: 5 }] şeklinde döner
             const count = item.comments?.[0]?.count || 0;
             commentCountMap.set(item.id, count);
         });
     }
 
     // --- VERİ ZENGİNLEŞTİRME ---
-    // User ID vs Author ID çakışması için önceki fix korundu: author_id öncelikli.
     const authorIds = Array.from(new Set(rawPosts.map((p: any) => p.author_id || p.user_id))).filter(Boolean);
     
     const { data: authorsData } = await supabase
@@ -104,15 +99,12 @@ export async function fetchFeed(userId: string) {
 
     const authorMap = new Map(authorsData?.map((a: any) => [a.id, a]) || []);
 
-    // 4. PUANLAMA VE VERİ BİRLEŞTİRME
+    // 4. PUANLAMA VE VERİ BİRLEŞTİRME (ALGORİTMA BURADA GÜNCELLENDİ)
     const scoredPosts = rawPosts.map((post: any) => {
         const authorId = post.author_id || post.user_id;
         const authorProfile = authorMap.get(authorId);
         
-        // Yorum sayısını haritadan al, yoksa 0 (veya mevcutsa onu koru)
         const commentCount = commentCountMap.get(post.id) ?? post.comment_count ?? 0;
-
-        // Post Sahibi Kontrolü
         const isOwner = userId === authorId;
 
         let finalName = "İsimsiz Kullanıcı";
@@ -122,20 +114,15 @@ export async function fetchFeed(userId: string) {
         let isPrivate = false;
 
         if (isOwner && viewerProfile) {
-            // DÜZELTME BURADA:
-            // Eğer viewerProfile'dan gelen username boşsa, post'un içindeki veya fallback verisindeki username'i koru.
             finalName = viewerProfile.full_name || post.author_name || "Ben";
             finalUsername = viewerProfile.username || post.author_username || post.username; 
             finalAvatar = viewerProfile.avatar_url || post.author_avatar;
-            // Reputation 0 olabilir, o yüzden undefined kontrolü yapıyoruz
             finalReputation = (viewerProfile.reputation !== undefined && viewerProfile.reputation !== null) 
                 ? viewerProfile.reputation 
                 : (post.author_reputation || 0);
-                
             isPrivate = false; 
         } else if (authorProfile) {
             isPrivate = authorProfile.is_private || false;
-            
             if (isPrivate) {
                 finalName = "Gizli Üye";
                 finalUsername = null; 
@@ -148,11 +135,50 @@ export async function fetchFeed(userId: string) {
                 finalReputation = authorProfile.reputation || 0;
             }
         } else {
-            // Profil bulunamadıysa post verisini kullan
             finalName = post.author_name || post.full_name || finalName;
             finalUsername = post.author_username || post.username;
             finalAvatar = post.author_avatar;
             finalReputation = post.reputation || 0;
+        }
+
+        // --- HYPE & URGENCY ALGORITHM (PHASE 3) ---
+        let finalScore = 0;
+        const baseScore = BabylexitRecommender.calculateScore({
+            ...post,
+            comment_count: commentCount,
+            is_following_author: post.is_following || false
+        });
+
+        if (post.is_event && post.event_date) {
+            const eventDate = parseISO(post.event_date);
+            const now = new Date();
+            const hypeScore = ((post.woow_count || 0) * 2) + (commentCount * 3);
+            
+            // 1. URGENCY CHECK
+            if (isToday(eventDate)) {
+                // BUGÜNSE: Massive Boost (5x) + Hype
+                finalScore = (baseScore + hypeScore) * 5.0;
+            } else if (isPast(eventDate)) {
+                // GEÇMİŞSE: Burial Protocol (0.05x) - Feed'in dibine
+                finalScore = (baseScore + hypeScore) * 0.05;
+            } else {
+                // GELECEKTE:
+                const hoursUntil = differenceInHours(eventDate, now);
+                
+                if (hoursUntil <= 24) {
+                    // YARINSA: High Priority (3x)
+                    finalScore = (baseScore + hypeScore) * 3.0;
+                } else if (hoursUntil <= 72) {
+                    // BU HAFTAYSA: Medium Priority (1.5x)
+                    finalScore = (baseScore + hypeScore) * 1.5;
+                } else {
+                    // DAHA UZAKSA: Standard Score
+                    finalScore = baseScore + hypeScore;
+                }
+            }
+        } else {
+            // Standart Post
+            finalScore = baseScore;
         }
 
         return {
@@ -165,25 +191,21 @@ export async function fetchFeed(userId: string) {
             is_private: isPrivate,
             my_reaction: post.my_reaction,
             
-            // Counts (Ensure they are numbers)
             woow_count: post.woow_count || 0,
             doow_count: post.doow_count || 0,
             adil_count: post.adil_count || 0,
-            comment_count: commentCount, // Enjected fix
+            comment_count: commentCount,
 
             is_following_author: post.is_following || false, 
-            score: BabylexitRecommender.calculateScore({
-                ...post,
-                comment_count: commentCount, // Skora da dahil ettik
-                is_following_author: post.is_following || false
-            })
+            score: finalScore // Updated Score
         };
     });
 
-    // 5. SIRALAMA
+    // 5. SIRALAMA (Yüksek skor en üstte)
     scoredPosts.sort((a: any, b: any) => b.score - a.score);
 
     // 6. KATEGORİLER VE MERGE
+    // Kişisel feed artık event puanlarını da içeriyor
     const personal = scoredPosts.filter((p: any) => p.is_following_author || p.user_id === userId);
     const global = scoredPosts.slice(0, 50);
     const wildcard = scoredPosts.filter((p: any) => (p.woow_count || 0) > 2); 

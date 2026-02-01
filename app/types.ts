@@ -1,34 +1,45 @@
 // app/types.ts
 
-// --- 1. POST VERİ YAPISI (YENİ EKLENDİ) ---
+// --- 1. POST VERİ YAPISI (GÜNCELLENDİ) ---
 // FeedPost ve Feed akışında kullanılan standart yapı
 export interface PostData {
+  // --- MEVCUT ALANLAR (KORUNDU) ---
   id: string;
   user_id: string; 
   content: string;
   image_url?: string;
   created_at: string;
   
-  // Profil Bilgileri (Zenginleştirilmiş)
+  // CreatePost.tsx içinde kullanılıyor, buraya ekledik (Geriye uyumluluk)
+  category?: string; 
+
+  // --- YENİ LIVING TICKET / EVENT ALANLARI (EKLEME) ---
+  is_event?: boolean;
+  event_date?: string | null;
+  // JSONB Desteği: Hem düz metin (legacy) hem de koordinat objesi (yeni) kabul eder
+  event_location?: { name: string; lat?: number; lng?: number } | string | null;
+  event_status?: 'upcoming' | 'live' | 'archived';
+
+  // --- MEVCUT PROFİL BİLGİLERİ (KORUNDU) ---
   author_name: string;
   author_username?: string;
   author_avatar: string;
   author_reputation?: number; // Rozetler için kritik alan
   
-  // Etkileşim Sayaçları
+  // --- MEVCUT ETKİLEŞİM SAYAÇLARI (KORUNDU) ---
   woow_count: number;
   doow_count: number;
   adil_count: number;
   comment_count: number;
   
-  // Kullanıcı Durumu
+  // --- MEVCUT KULLANICI DURUMU (KORUNDU) ---
   my_reaction: 'woow' | 'doow' | 'adil' | null;
   score?: number; 
   is_private?: boolean;
   is_following_author?: boolean;
 }
 
-// --- 2. YORUM YAPISI ---
+// --- 2. YORUM YAPISI (DEĞİŞMEDİ) ---
 export interface FlatComment {
   id: string;
   post_id: string;
@@ -52,7 +63,7 @@ export interface FlatComment {
   score: number;
 }
 
-// --- 3. PROFİL TİPLERİ ---
+// --- 3. PROFİL TİPLERİ (DEĞİŞMEDİ) ---
 export interface UserProfile {
   id: string;
   full_name: string | null;
