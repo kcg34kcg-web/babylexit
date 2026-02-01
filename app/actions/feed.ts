@@ -33,7 +33,7 @@ async function getSpotlightUser() {
 export async function fetchFeed(userId: string) {
     const supabase = await createClient();
     
-    // 1. Görüntüleyen kullanıcının (SİZİN) profilini çekiyoruz (Gizlilik Bug'ı Fix için)
+    // 1. Görüntüleyen kullanıcının (SİZİN) profilini çekiyoruz
     const { data: viewerProfile } = await supabase
         .from('profiles')
         .select('id, full_name, username, avatar_url, reputation')
@@ -56,7 +56,7 @@ export async function fetchFeed(userId: string) {
             
         rawPosts = fallbackData?.map((post: any) => ({
             ...post,
-            author_id: post.user_id, // Standartlaştırma
+            author_id: post.user_id, 
             author_name: post.profiles?.full_name,
             author_username: post.profiles?.username, 
             author_avatar: post.profiles?.avatar_url,
@@ -71,10 +71,9 @@ export async function fetchFeed(userId: string) {
         return { posts: [], spotlight: null };
     }
 
-    // --- KRİTİK ADIM: VERİ ZENGİNLEŞTİRME (ENRICHMENT) ---
-    // RPC genellikle 'reputation' veya 'is_private' bilgisini eksik getirir.
-    // Postların yazar ID'lerini toplayıp güncel profil verilerini çekiyoruz.
-    const authorIds = Array.from(new Set(rawPosts.map((p: any) => p.user_id || p.author_id))).filter(Boolean);
+    // --- VERİ ZENGİNLEŞTİRME ---
+    // User ID vs Author ID çakışması için önceki fix korundu: author_id öncelikli.
+    const authorIds = Array.from(new Set(rawPosts.map((p: any) => p.author_id || p.user_id))).filter(Boolean);
     
     const { data: authorsData } = await supabase
         .from('profiles')
@@ -85,39 +84,38 @@ export async function fetchFeed(userId: string) {
 
     // 4. PUANLAMA VE VERİ BİRLEŞTİRME
     const scoredPosts = rawPosts.map((post: any) => {
-        const authorId = post.user_id || post.author_id;
+        const authorId = post.author_id || post.user_id;
         const authorProfile = authorMap.get(authorId);
         
-        // Post Sahibi Kontrolü (Siz misiniz?)
+        // Post Sahibi Kontrolü
         const isOwner = userId === authorId;
 
-        // Varsayılan Değerler
         let finalName = "İsimsiz Kullanıcı";
         let finalUsername = null;
         let finalAvatar = null;
         let finalReputation = 0;
         let isPrivate = false;
 
-        // Veri Önceliği: 
-        // 1. Eğer post sahibiysek -> ViewerProfile (Kesin doğru veri)
-        // 2. Değilsek -> AuthorProfile (Veritabanından taze veri)
-        // 3. O da yoksa -> Post içindeki mevcut veri (RPC verisi)
-        
         if (isOwner && viewerProfile) {
-            finalName = viewerProfile.full_name || "Ben";
-            finalUsername = viewerProfile.username;
-            finalAvatar = viewerProfile.avatar_url;
-            finalReputation = viewerProfile.reputation || 0;
-            isPrivate = false; // Kendi postumuzu gizli görmemeliyiz
+            // DÜZELTME BURADA:
+            // Eğer viewerProfile'dan gelen username boşsa, post'un içindeki veya fallback verisindeki username'i koru.
+            finalName = viewerProfile.full_name || post.author_name || "Ben";
+            finalUsername = viewerProfile.username || post.author_username || post.username; 
+            finalAvatar = viewerProfile.avatar_url || post.author_avatar;
+            // Reputation 0 olabilir, o yüzden undefined kontrolü yapıyoruz
+            finalReputation = (viewerProfile.reputation !== undefined && viewerProfile.reputation !== null) 
+                ? viewerProfile.reputation 
+                : (post.author_reputation || 0);
+                
+            isPrivate = false; 
         } else if (authorProfile) {
             isPrivate = authorProfile.is_private || false;
             
-            // Gizlilik Kontrolü: Gizliyse maskele, değilse göster
             if (isPrivate) {
                 finalName = "Gizli Üye";
-                finalUsername = null; // Gizli üyenin @kullaniciadi görünmez
-                finalAvatar = null;   // Avatar görünmez
-                finalReputation = 0;  // Puan görünmez (kimliği ele vermesin diye)
+                finalUsername = null; 
+                finalAvatar = null;   
+                finalReputation = 0;  
             } else {
                 finalName = authorProfile.full_name || finalName;
                 finalUsername = authorProfile.username;
@@ -134,19 +132,14 @@ export async function fetchFeed(userId: string) {
 
         return {
             ...post,
-            // ID düzeltmeleri
             user_id: authorId,
-            
-            // UI Verileri
             author_name: finalName,
             author_username: finalUsername,
             author_avatar: finalAvatar,
-            author_reputation: finalReputation, // Rozet için kritik veri artık dolu!
-            
+            author_reputation: finalReputation,
             is_private: isPrivate,
             my_reaction: post.my_reaction,
             is_following_author: post.is_following || false, 
-
             score: BabylexitRecommender.calculateScore({
                 ...post,
                 is_following_author: post.is_following || false
