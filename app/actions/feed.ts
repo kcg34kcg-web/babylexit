@@ -18,7 +18,6 @@ async function getSpotlightUser() {
     const supabase = await createClient();
     const { data: user } = await supabase
       .from('profiles')
-      // GÜNCELLEME: Hem ismi hem kullanıcı adını çekiyoruz
       .select('id, full_name, username, avatar_url, reputation')
       .order('reputation', { ascending: false })
       .limit(1)
@@ -40,17 +39,14 @@ export async function fetchFeed(userId: string) {
     
     let rawPosts: any[] = [];
     
-    // 1. ÖNCE RPC'Yİ DENE (AYNI KALIYOR)
+    // 1. ÖNCE RPC'Yİ DENE
     const { data: rpcData, error: rpcError } = await supabase
         .rpc('fetch_feed_candidates', { viewer_id: userId });
 
-    // 2. RPC HATALIYSA VEYA BOŞSA YEDEK PLAN (GÜNCELLENDİ)
+    // 2. RPC HATALIYSA VEYA BOŞSA YEDEK PLAN
     if (rpcError || !rpcData || rpcData.length === 0) {
         console.warn("RPC başarısız, Fallback çalışıyor...", rpcError);
         
-        // GÜNCELLEME:
-        // posts + profiles + post_reactions birleşimi
-        // my_reaction verisi burada kesinleşiyor
         const { data: fallbackData, error: fallbackError } = await supabase
             .from('posts')
             .select(`
@@ -75,14 +71,14 @@ export async function fetchFeed(userId: string) {
         rawPosts = fallbackData.map((post: any) => ({
             ...post,
 
-            // Profil eşleştirmeleri - GÜNCELLENDİ
-            // full_name'i isme, username'i kullanıcı adına atıyoruz
+            // Profil eşleştirmeleri
+            // Rozetler için 'reputation' ve @handle için 'username' kritik
             author_name: post.profiles?.full_name || "İsimsiz Kullanıcı",
             author_username: post.profiles?.username || null, 
             author_avatar: post.profiles?.avatar_url,
-            author_reputation: post.profiles?.reputation || 0,
+            author_reputation: post.profiles?.reputation || 0, // ROZET İÇİN EKLENDİ
 
-            // Reaksiyon hafızası (KRİTİK)
+            // Reaksiyon hafızası
             my_reaction: post.my_reaction_data?.[0]?.reaction_type || null,
 
             // Sayaç güvenliği
@@ -90,7 +86,6 @@ export async function fetchFeed(userId: string) {
             doow_count: post.doow_count || 0,
             adil_count: post.adil_count || 0,
 
-            // Fallback’te following bilgisi yok
             is_following: false
         }));
     } else {
@@ -101,20 +96,24 @@ export async function fetchFeed(userId: string) {
         return { posts: [], spotlight: null };
     }
 
-    // 3. PUANLAMA VE VERİ EŞLEŞTİRME (AYNI, DOKUNULMADI)
+    // 3. PUANLAMA VE VERİ EŞLEŞTİRME
     const scoredPosts = rawPosts.map((post: any) => ({
         ...post,
 
-        // İsim standardizasyonu - GÜNCELLENDİ
-        // Öncelik: Kendi adı > Tam adı > Kullanıcı adı > Bilinmeyen
+        // İsim ve Kullanıcı Adı Standardizasyonu
+        // Öncelik: Post içindeki author_name > Profil Adı > Kullanıcı Adı
         author_name: post.author_name || post.full_name || post.username || "İsimsiz Üye",
-        // Kullanıcı adını (username) ayrıca taşıyoruz ki frontend'de gösterebilelim
-        author_username: post.author_username || post.username,
+        
+        // Kullanıcı adını (@username) ayrıca taşıyoruz
+        author_username: post.author_username || post.username || null,
+
+        // Rozet sistemi için itibar puanını taşıyoruz
+        author_reputation: post.author_reputation || post.reputation || 0,
 
         // Gizlilik
         is_private: post.is_private,
 
-        // Reaksiyon hafızası (RPC veya Fallback fark etmez)
+        // Reaksiyon hafızası
         my_reaction: post.my_reaction,
 
         // Following bilgisi yoksa false
