@@ -113,8 +113,8 @@ export default function DashboardPage() {
   return (
     <div className="p-4 md:p-8 space-y-8 max-w-7xl mx-auto pb-24 bg-slate-50 min-h-screen">
       
-      {/* Özel Animasyon Stilleri - Düzeltilmiş Versiyon */}
-      <style dangerouslySetInnerHTML={{__html: `
+      {/* Özel Animasyon Stilleri */}
+      <style jsx global>{`
         @keyframes border-flow {
           0% { background-position: 0% 50%; }
           50% { background-position: 100% 50%; }
@@ -124,13 +124,13 @@ export default function DashboardPage() {
           background-size: 200% 200%;
           animation: border-flow 3s ease infinite;
         }
-      `}} />
+      `}</style>
 
       {/* 1. KARŞILAMA ve İSTATİSTİKLER */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight">
-            Merhaba, {profile?.full_name || user?.email?.split('@')[0]} 👋
+            Merhaba, {profile?.full_name || user?.email?.split('@')[0]} 
           </h1>
           <p className="text-slate-600 font-medium mt-1">Bugün hukuki araştırmalarında neye ihtiyacın var?</p>
         </div>
@@ -180,16 +180,16 @@ export default function DashboardPage() {
           </div>
         </Link>
       </div>
-
-      {/* 3. YAYINLAR BANNER (ARKAPLAN DÜZELTİLDİ: AÇIK LACİVERT GRADYAN) */}
-      <Link href="/publications" className="block mt-6 group">
+{/* 3. YAYINLAR BANNER (TAM İSTEDİĞİN GİBİ) */}
+<Link href="/publications" className="block mt-6 group">
+        {/* Yuvarlak Köşeler (rounded-3xl) ve Neon Efekt */}
         <div className="relative p-[3px] rounded-3xl overflow-hidden shadow-2xl shadow-indigo-900/10 hover:shadow-amber-500/20 transition-shadow duration-300">
           
           {/* Neon Arkaplan Animasyonu */}
-          <div className="absolute inset-0 bg-gradient-to-r from-amber-300 via-indigo-300 to-amber-400 animate-border-flow"></div>
+          <div className="absolute inset-0 bg-gradient-to-r from-amber-500 via-indigo-400 to-amber-500 animate-border-flow"></div>
           
-          {/* İçerik Kartı: ARTIK DAHA YUMUŞAK, AÇIK LACİVERT */}
-          <div className="relative bg-gradient-to-br from-indigo-900 to-blue-900 rounded-[21px] p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between overflow-hidden">
+          {/* İçerik Kartı: LACİVERT ZEMİN (Turuncu değil) */}
+          <div className="relative bg-slate-00 rounded-[21px] p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between overflow-hidden">
             
             {/* Hafif Desen */}
             <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#fb923c 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
@@ -201,35 +201,34 @@ export default function DashboardPage() {
                   <span className="bg-amber-500 text-slate-900 text-xs px-3 py-1 rounded-lg flex items-center gap-1.5 font-extrabold shadow-lg uppercase tracking-wide">
                     <BookOpen size={14} /> Makale
                   </span>
-                  <span className="bg-indigo-600 text-white text-xs px-3 py-1 rounded-lg flex items-center gap-1.5 font-extrabold shadow-lg uppercase tracking-wide border border-white/10">
+                  <span className="bg-indigo-600 text-white text-xs px-3 py-1 rounded-lg flex items-center gap-1.5 font-extrabold shadow-lg uppercase tracking-wide">
                     <PlayCircle size={14} /> Video
                   </span>
               </div>
 
-              {/* ANA METİN */}
+              {/* ANA METİN: Beyaz */}
               <div>
                 <h2 className="text-3xl sm:text-4xl font-black text-white leading-tight mb-2 drop-shadow-md">
                   Bilgi birikimini artır.
                 </h2>
-                <p className="text-indigo-100 text-sm sm:text-base font-medium leading-relaxed opacity-95">
-                  Bilimsel makaleler, içtihat analizleri ve eğitici hukuk videoları ile uzmanlaş.
+                <p className="text-slate-300 text-sm sm:text-base font-medium leading-relaxed opacity-95">
+                  Bilimsel makaleler, içtihat analizleri ve eğitici videolar ile uzmanlaş.
                 </p>
               </div>
               
-              {/* BUTTON */}
+              {/* BUTTON: Turuncu Zemin -> Lacivert Yazı */}
               <div className="mt-1 inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-900 px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl hover:scale-105 transition-transform w-fit cursor-pointer">
                 Hemen İncele <ArrowRight size={18} />
               </div>
             </div>
 
             {/* Dekoratif İkon */}
-            <div className="hidden md:flex items-center justify-center w-28 h-28 bg-white/10 rounded-full shadow-2xl backdrop-blur-sm border border-white/10 group-hover:rotate-12 transition-transform duration-500">
-              <BookOpen className="text-amber-400 drop-shadow-[0_0_15px_rgba(253,224,71,0.3)]" size={48} />
+            <div className="hidden md:flex items-center justify-center w-28 h-28 bg-white/5 rounded-full shadow-2xl backdrop-blur-sm border border-white/10 group-hover:rotate-12 transition-transform duration-500">
+              <BookOpen className="text-amber-500 drop-shadow-[0_0_15px_rgba(249,115,22,0.5)]" size={48} />
             </div>
           </div>
         </div>
       </Link>
-
       {/* 4. GÜNDEM AKIŞI ALANI */}
       <div className="mt-10">
         
@@ -288,19 +287,19 @@ export default function DashboardPage() {
                   
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                     
-                    {/* FAVORİ BUTONU: Belirgin Hale Getirildi (Dolu İkon + Glow) */}
+                    {/* FAVORİ BUTONU: Belirgin Hale Getirildi */}
                     <button 
                       onClick={(e) => toggleFavorite(e, q.id)}
-                      className={`p-2.5 rounded-full transition-all duration-200 active:scale-95 border shadow-sm ${
+                      className={`p-2.5 rounded-full transition-all duration-200 active:scale-90 border shadow-sm ${
                         favorites.includes(q.id) 
-                          ? 'bg-amber-500 border-amber-600 text-white shadow-md shadow-amber-200 ring-2 ring-amber-100' 
+                          ? 'bg-amber-500 border-amber-600 text-white shadow-amber-200 shadow-md' 
                           : 'bg-white border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'
                       }`}
                       title="Favorile"
                     >
                       <Heart 
                         size={20} 
-                        className={favorites.includes(q.id) ? 'fill-white' : ''}
+                        className={favorites.includes(q.id) ? 'fill-current' : ''}
                       />
                     </button>
 

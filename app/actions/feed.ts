@@ -18,7 +18,8 @@ async function getSpotlightUser() {
     const supabase = await createClient();
     const { data: user } = await supabase
       .from('profiles')
-      .select('id, username:full_name, avatar_url, reputation')
+      // GÜNCELLEME: Hem ismi hem kullanıcı adını çekiyoruz
+      .select('id, full_name, username, avatar_url, reputation')
       .order('reputation', { ascending: false })
       .limit(1)
       .single();
@@ -55,7 +56,8 @@ export async function fetchFeed(userId: string) {
             .select(`
                 *,
                 profiles!inner (
-                    username:full_name,
+                    full_name,   
+                    username,    
                     avatar_url,
                     reputation
                 ),
@@ -73,8 +75,10 @@ export async function fetchFeed(userId: string) {
         rawPosts = fallbackData.map((post: any) => ({
             ...post,
 
-            // Profil eşleştirmeleri
-            author_name: post.profiles?.username || "Bilinmeyen",
+            // Profil eşleştirmeleri - GÜNCELLENDİ
+            // full_name'i isme, username'i kullanıcı adına atıyoruz
+            author_name: post.profiles?.full_name || "İsimsiz Kullanıcı",
+            author_username: post.profiles?.username || null, 
             author_avatar: post.profiles?.avatar_url,
             author_reputation: post.profiles?.reputation || 0,
 
@@ -101,8 +105,11 @@ export async function fetchFeed(userId: string) {
     const scoredPosts = rawPosts.map((post: any) => ({
         ...post,
 
-        // İsim standardizasyonu
-        author_name: post.author_username || post.author_name || post.full_name || "Bilinmeyen Üye",
+        // İsim standardizasyonu - GÜNCELLENDİ
+        // Öncelik: Kendi adı > Tam adı > Kullanıcı adı > Bilinmeyen
+        author_name: post.author_name || post.full_name || post.username || "İsimsiz Üye",
+        // Kullanıcı adını (username) ayrıca taşıyoruz ki frontend'de gösterebilelim
+        author_username: post.author_username || post.username,
 
         // Gizlilik
         is_private: post.is_private,

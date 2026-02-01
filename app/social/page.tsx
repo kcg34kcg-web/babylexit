@@ -23,21 +23,34 @@ export default function LexwoowPage() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  
+  // STATE GÜNCELLEMESİ: Hem Auth User hem Profil Verisi
   const [user, setUser] = useState<any>(null);
+  const [profile, setProfile] = useState<any>(null); // Profil verisi eklendi
+  
   const [showTransition, setShowTransition] = useState(true);
-  
-  // STATE: Tab Yönetimi (WOOW vs Profil)
   const [activeTab, setActiveTab] = useState<'woow' | 'profile'>('woow');
-  
-  // Akışı yenilemek için kullanılan anahtar
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    const getUser = async () => {
-      const { data } = await supabase.auth.getUser();
-      setUser(data.user);
+    const getUserAndProfile = async () => {
+      // 1. Auth Kullanıcısını Çek
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      setUser(authUser);
+
+      if (authUser) {
+        // 2. Profil Verisini Çek (İsim ve Avatar için)
+        const { data: profileData } = await supabase
+            .from('profiles')
+            .select('full_name, username, avatar_url')
+            .eq('id', authUser.id)
+            .single();
+        
+        setProfile(profileData);
+      }
     };
-    getUser();
+
+    getUserAndProfile();
     const timer = setTimeout(() => setShowTransition(false), 1200);
     return () => clearTimeout(timer);
   }, [supabase]);
@@ -62,6 +75,7 @@ export default function LexwoowPage() {
         content: content,
         image_url: imageUrl,
         category: "teori"
+        // Not: Backend trigger'ları profil tablosundan ismi otomatik alacaktır.
       });
 
       if (error) throw error;
@@ -71,7 +85,6 @@ export default function LexwoowPage() {
       setPreviewUrl(null);
       toast.success("Kürsüde paylaşıldı!");
       
-      // MANTIK GÜNCELLEMESİ: Post atılınca Ana Akışa geç ve Yenile
       setActiveTab('woow');
       setRefreshKey(prev => prev + 1);
 
@@ -129,8 +142,8 @@ export default function LexwoowPage() {
 
               <nav className="space-y-2">
                  <button 
-                    onClick={() => { setActiveTab('woow'); setRefreshKey(prev => prev + 1); }} 
-                    className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'woow' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-slate-100'}`}
+                   onClick={() => { setActiveTab('woow'); setRefreshKey(prev => prev + 1); }} 
+                   className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'woow' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-slate-100'}`}
                  >
                     <Home size={26} />
                     <span>WOOW</span>
@@ -144,8 +157,8 @@ export default function LexwoowPage() {
                  </button>
 
                  <button 
-                    onClick={() => setActiveTab('profile')} 
-                    className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'profile' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-transparent'}`}
+                   onClick={() => setActiveTab('profile')} 
+                   className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'profile' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-transparent'}`}
                  >
                     <User size={26} />
                     <span>Hesabım</span>
@@ -182,14 +195,23 @@ export default function LexwoowPage() {
           {/* Post Paylaşım Alanı */}
           <div className="bg-white border border-slate-200/80 rounded-[2rem] p-6 shadow-sm shadow-slate-200/50">
             <div className="flex gap-4">
-              <div className="w-12 h-12 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl flex-shrink-0 flex items-center justify-center font-bold text-white uppercase text-lg shadow-lg shadow-amber-500/20">
-                {user?.email?.charAt(0) || "K"}
+              
+              {/* --- GÜNCELLENEN AVATAR ALANI --- */}
+              <div className="w-12 h-12 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl flex-shrink-0 flex items-center justify-center font-bold text-white uppercase text-lg shadow-lg shadow-amber-500/20 overflow-hidden relative">
+                 {/* Profil resmi varsa onu, yoksa ismin baş harfini, o da yoksa mail baş harfini göster */}
+                 {profile?.avatar_url ? (
+                    <img src={profile.avatar_url} alt="Profil" className="w-full h-full object-cover" />
+                 ) : (
+                    <span>{profile?.full_name?.charAt(0) || user?.email?.charAt(0) || "K"}</span>
+                 )}
               </div>
+              
               <div className="flex-1 space-y-4">
                 <textarea 
                   value={content} 
                   onChange={(e) => setContent(e.target.value)} 
-                  placeholder="Hukuki bir analiz paylaş veya bir mesele ortaya at..." 
+                  // Placeholder'da isimle hitap etme (Opsiyonel Güzellik)
+                  placeholder={`${profile?.full_name ? `Selam ${profile.full_name}, ` : ''}Hukuki bir analiz paylaş veya bir mesele ortaya at...`} 
                   className="w-full bg-transparent border-none outline-none resize-none text-slate-700 placeholder:text-slate-400 min-h-[100px] text-[16px] leading-relaxed pt-2" 
                 />
                 

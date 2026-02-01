@@ -1,17 +1,25 @@
 'use client';
 
 import { useOptimistic, startTransition } from 'react';
-import { createClient } from '@/utils/supabase/client'; // Adjust path if using a different client creator
+import { createClient } from '@/utils/supabase/client'; 
 import { ChevronUp, ChevronDown, CheckCircle2, Bot } from 'lucide-react';
-import { cn } from '@/utils/cn';interface AnswerCardProps {
+import { cn } from '@/utils/cn';
+
+interface AnswerCardProps {
   answer: {
     id: string;
     content: string;
     is_ai_generated: boolean;
     created_at: string;
-    user_id: string; // To check if user is voting on own answer
+    user_id: string;
+    // GÜNCELLEME: Profil bilgilerini buraya ekledik
+    profiles?: {
+        full_name: string;
+        username?: string;
+        avatar_url?: string;
+    };
   };
-  currentUserVote?: number; // 1, -1, or null
+  currentUserVote?: number;
   initialNetScore: number;
   currentUserId?: string;
 }
@@ -22,12 +30,8 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
   const [optimisticVote, addOptimisticVote] = useOptimistic(
     { vote: currentUserVote || 0, score: initialNetScore },
     (state, newVote: number) => {
-      // Toggle logic: If clicking the same button, remove vote (0). Else, set to new vote.
       const finalVote = state.vote === newVote ? 0 : newVote;
-      
-      // Calculate score difference
       const diff = finalVote - state.vote;
-      
       return {
         vote: finalVote,
         score: state.score + diff,
@@ -36,7 +40,7 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
   );
 
   const handleVote = async (voteType: number) => {
-    if (!currentUserId) return; // Prompt login in real app
+    if (!currentUserId) return; 
 
     startTransition(() => {
       addOptimisticVote(voteType);
@@ -46,13 +50,11 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
       const finalVote = optimisticVote.vote === voteType ? 0 : voteType;
 
       if (finalVote === 0) {
-        // Remove vote
         await supabase
           .from('votes')
           .delete()
           .match({ user_id: currentUserId, answer_id: answer.id });
       } else {
-        // Upsert vote (handle constraints)
         await supabase
           .from('votes')
           .upsert(
@@ -62,12 +64,15 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
       }
     } catch (error) {
       console.error("Voting failed", error);
-      // Ideally revert optimistic state here via a toast or state rollback
     }
   };
 
-  // Determine Styles based on is_ai_generated
   const isAI = answer.is_ai_generated;
+
+  // GÜNCELLEME: İsim ve Avatar Hazırlığı
+  const authorName = answer.profiles?.full_name || "İsimsiz Kullanıcı";
+  const authorUsername = answer.profiles?.username;
+  const authorAvatar = answer.profiles?.avatar_url;
 
   return (
     <div className={cn(
@@ -121,6 +126,33 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
 
         {/* Content Area */}
         <div className="flex-1 space-y-3">
+          
+          {/* GÜNCELLEME: Kullanıcı Bilgisi (Başlık) */}
+          {!isAI && (
+             <div className="flex items-center gap-2 mb-2">
+                {/* Avatar */}
+                <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center border border-slate-200 text-xs font-bold text-slate-500">
+                    {authorAvatar ? (
+                        <img src={authorAvatar} alt={authorName} className="w-full h-full object-cover" />
+                    ) : (
+                        authorName.charAt(0).toUpperCase()
+                    )}
+                </div>
+                
+                {/* İsim ve Kullanıcı Adı */}
+                <div className="flex flex-col leading-tight">
+                    <span className="text-sm font-semibold text-slate-900">
+                        {authorName}
+                    </span>
+                    {authorUsername && (
+                        <span className="text-xs text-slate-500 font-medium">
+                            @{authorUsername}
+                        </span>
+                    )}
+                </div>
+             </div>
+          )}
+
           <div className={cn(
             "prose prose-slate max-w-none text-slate-800 leading-relaxed",
             isAI && "text-sm font-medium"
@@ -139,7 +171,8 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
                     Babylexit AI tarafından oluşturuldu
                   </span>
                 ) : (
-                  <span>Kullanıcı yanıtı • {new Date(answer.created_at).toLocaleDateString('tr-TR')}</span>
+                  // "Kullanıcı yanıtı" yazısını sildik, sadece tarihi bıraktık
+                  <span>{new Date(answer.created_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', hour: '2-digit', minute:'2-digit' })}</span>
                 )}
              </div>
           </div>

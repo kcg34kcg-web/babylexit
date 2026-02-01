@@ -13,18 +13,19 @@ import WiltedRoseMenu from './WiltedRoseMenu';
 interface PostProps {
   post: {
     id: string;
-    user_id: string; // View'dan 'author_id' olarak gelebilir, mapper ile düzeltiyoruz
+    user_id: string; 
     content: string;
     image_url?: string;
     created_at: string;
     author_name: string;
+    author_username?: string; // YENİ EKLENDİ: Kullanıcı adı alanı
     author_avatar: string;
     woow_count: number;
     doow_count: number;
     adil_count: number;
     comment_count: number;
     my_reaction: 'woow' | 'doow' | 'adil' | null;
-    score?: number; // Algoritma puanı
+    score?: number; 
   };
   currentUserId: string | null;
   isExpanded: boolean;
@@ -54,7 +55,6 @@ export default function FeedPost({
   // Gizlendiyse hiçbir şey render etme (DOM'dan silinmiş gibi görünür)
   if (!isVisible) return null;
 
-  // Okundu bilgisi veya scroll takibi için Observer (Opsiyonel, eski kodunuzda varsa kalmalı)
   /* eslint-disable react-hooks/rules-of-hooks */
   useEffect(() => {
     if (!isExpanded || !cardRef.current) return;
@@ -95,28 +95,35 @@ export default function FeedPost({
                   className="object-cover w-full h-full"
                 />
               ) : (
-                post.author_name?.[0] || '?'
+                post.author_name?.[0]?.toUpperCase() || 'U'
               )}
             </div>
 
-            {/* İsim ve Tarih */}
-            <div>
+            {/* İsim, Kullanıcı Adı ve Tarih - GÜNCELLENEN KISIM */}
+            <div className="flex flex-col justify-center">
               <h3 
-                  className="font-semibold text-slate-900 hover:underline hover:text-amber-600 transition-colors"
+                  className="font-semibold text-slate-900 text-[15px] leading-tight hover:underline hover:text-amber-600 transition-colors"
                   onClick={goToProfile}
               >
-                  {post.author_name || "Gizli Üye"}
+                  {/* Gizli Üye yerine isim veya İsimsiz */}
+                  {post.author_name || "İsimsiz Kullanıcı"}
               </h3>
-              <div className="text-xs text-slate-500 flex gap-1">
+              
+              {/* Varsa Kullanıcı Adını Göster (@username) */}
+              {post.author_username && (
+                 <span className="text-xs text-slate-500 font-medium -mt-0.5 mb-0.5">
+                    @{post.author_username}
+                 </span>
+              )}
+
+              <div className="text-xs text-slate-400 flex gap-1 items-center">
                  <span>{formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}</span>
-                 {/* Debug için skoru görebiliriz */}
                  {post.score && <span className="text-slate-300">• Skor: {post.score.toFixed(1)}</span>}
               </div>
             </div>
         </div>
 
         {/* WILTED ROSE MENU (Sağ Üst Köşe) */}
-        {/* Mobilde hep görünür, Desktopta hover olunca görünür */}
         <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
             <WiltedRoseMenu 
                 postId={post.id} 
@@ -170,7 +177,7 @@ export default function FeedPost({
         />
       </div>
 
-      {/* YORUMLAR (Genişletildiyse açılır) */}
+      {/* YORUMLAR */}
       {isExpanded && (
         <div className="border-t border-slate-100 bg-slate-50/30 px-4 py-4 animate-in slide-in-from-top-2">
           <CommentSection postId={post.id} postOwnerId={post.user_id} />
