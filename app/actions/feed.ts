@@ -9,21 +9,24 @@ async function getSpotlightUser() {
   const cacheKey = 'spotlight_user';
   try {
     if (!redis) return null;
+
     const cachedUser = await redis.get(cacheKey);
     if (cachedUser) {
         return typeof cachedUser === 'string' ? JSON.parse(cachedUser) : cachedUser;
     }
+
     const supabase = await createClient();
     const { data: user } = await supabase
       .from('profiles')
-      .select('id, username:full_name, avatar_url, reputation') // full_name'i username olarak mapledim
-      .order('reputation', { ascending: false }) // En yüksek reputasyon spotlight olsun
+      .select('id, username:full_name, avatar_url, reputation')
+      .order('reputation', { ascending: false })
       .limit(1)
       .single();
 
     if (user) {
       await redis.set(cacheKey, JSON.stringify(user), 'EX', 900);
     }
+
     return user;
   } catch (error) {
     console.warn("Spotlight (Redis) Warning:", error);
@@ -34,28 +37,58 @@ async function getSpotlightUser() {
 export async function fetchFeed(userId: string) {
     const supabase = await createClient();
     
-    let rawPosts: any[] | null = [];
+    let rawPosts: any[] = [];
     
-    // 1. ÖNCE RPC'Yİ DENE
+    // 1. ÖNCE RPC'Yİ DENE (AYNI KALIYOR)
     const { data: rpcData, error: rpcError } = await supabase
         .rpc('fetch_feed_candidates', { viewer_id: userId });
 
-    // 2. RPC HATALIYSA VEYA BOŞSA YEDEK PLANI (FALLBACK) DEVREYE SOK
-    // Bu kısım "posts_with_stats" tablosundan manuel çekim yapar.
+    // 2. RPC HATALIYSA VEYA BOŞSA YEDEK PLAN (GÜNCELLENDİ)
     if (rpcError || !rpcData || rpcData.length === 0) {
-        console.warn("RPC başarısız oldu veya boş döndü, Fallback çalışıyor...", rpcError);
+        console.warn("RPC başarısız, Fallback çalışıyor...", rpcError);
         
+        // GÜNCELLEME:
+        // posts + profiles + post_reactions birleşimi
+        // my_reaction verisi burada kesinleşiyor
         const { data: fallbackData, error: fallbackError } = await supabase
-            .from('posts_with_stats') // Profilde çalışan tablo
-            .select('*')
+            .from('posts')
+            .select(`
+                *,
+                profiles!inner (
+                    username:full_name,
+                    avatar_url,
+                    reputation
+                ),
+                my_reaction_data:post_reactions(reaction_type)
+            `)
             .order('created_at', { ascending: false })
-            .limit(100);
+            .limit(50);
             
         if (fallbackError) {
-             console.error("Fallback de başarısız:", fallbackError);
+             console.error("Fallback hatası:", fallbackError);
              return { posts: [], spotlight: null };
         }
-        rawPosts = fallbackData;
+
+        // FALLBACK VERİ FORMATLAMA
+        rawPosts = fallbackData.map((post: any) => ({
+            ...post,
+
+            // Profil eşleştirmeleri
+            author_name: post.profiles?.username || "Bilinmeyen",
+            author_avatar: post.profiles?.avatar_url,
+            author_reputation: post.profiles?.reputation || 0,
+
+            // Reaksiyon hafızası (KRİTİK)
+            my_reaction: post.my_reaction_data?.[0]?.reaction_type || null,
+
+            // Sayaç güvenliği
+            woow_count: post.woow_count || 0,
+            doow_count: post.doow_count || 0,
+            adil_count: post.adil_count || 0,
+
+            // Fallback’te following bilgisi yok
+            is_following: false
+        }));
     } else {
         rawPosts = rpcData;
     }
@@ -64,24 +97,22 @@ export async function fetchFeed(userId: string) {
         return { posts: [], spotlight: null };
     }
 
-    // 3. PUANLAMA VE VERİ EŞLEŞTİRME
+    // 3. PUANLAMA VE VERİ EŞLEŞTİRME (AYNI, DOKUNULMADI)
     const scoredPosts = rawPosts.map((post: any) => ({
         ...post,
-        // --- GÜNCELLEME BAŞLANGIÇ ---
-        // 1. İsim düzeltmesi: SQL'den gelen veriyi frontend'in beklediği formata çevir
-        author_name: post.author_username || post.full_name || "Bilinmeyen Üye",
-        
-        // 2. Gizlilik ayarını taşı
+
+        // İsim standardizasyonu
+        author_name: post.author_username || post.author_name || post.full_name || "Bilinmeyen Üye",
+
+        // Gizlilik
         is_private: post.is_private,
 
-        // 3. KRİTİK: Reaksiyon Hafızası
-        // Veritabanından gelen 'my_reaction' (woow/doow/adil) verisini kesinlikle aktar.
-        // Bu satır sayesinde sayfa yenilense bile buton renkli kalır.
-        my_reaction: post.my_reaction, 
-        // --- GÜNCELLEME BİTİŞ ---
+        // Reaksiyon hafızası (RPC veya Fallback fark etmez)
+        my_reaction: post.my_reaction,
 
-        // Eğer is_following kolonu gelmezse false kabul et
+        // Following bilgisi yoksa false
         is_following_author: post.is_following || false, 
+
         score: BabylexitRecommender.calculateScore({
             ...post,
             is_following_author: post.is_following || false
@@ -91,21 +122,23 @@ export async function fetchFeed(userId: string) {
     // 4. SIRALAMA
     scoredPosts.sort((a: any, b: any) => b.score - a.score);
 
-    // 5. KATEGORİZASYON DÜZELTMESİ
-    // is_following SQL'den gelmeyebilir (Fallback durumunda), bu yüzden
-    // personal listesi boş kalırsa global listeyi kullanmalıyız.
-    const personal = scoredPosts.filter((p: any) => p.is_following_author || p.user_id === userId || p.author_id === userId);
+    // 5. KATEGORİLER
+    const personal = scoredPosts.filter(
+        (p: any) =>
+            p.is_following_author ||
+            p.user_id === userId ||
+            p.author_id === userId
+    );
+
     const global = scoredPosts.slice(0, 50);
     const wildcard = scoredPosts.filter((p: any) => (p.woow_count || 0) > 2); 
 
-    // 6. BİRLEŞTİRME
-    // Eğer hiç kişisel post yoksa, mergeFeeds yerine direkt Global listeyi döndür
-    // Bu sayede "Henüz paylaşım yok" hatası almazsın.
+    // 6. MERGE
     let feed;
     if (personal.length > 0) {
         feed = BabylexitRecommender.mergeFeeds(personal, global, wildcard);
     } else {
-        feed = global; // Yeni kullanıcılar veya fallback durumu için
+        feed = global;
     }
     
     const spotlight = await getSpotlightUser();

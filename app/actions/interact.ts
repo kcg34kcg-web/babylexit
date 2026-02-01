@@ -3,6 +3,7 @@
 import { createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
 
+// Mevcut fonksiyonun (Dokunmuyoruz, aynen kalıyor)
 export async function handleInteraction(
   postId: string, 
   authorId: string, 
@@ -13,11 +14,6 @@ export async function handleInteraction(
   if (!user) throw new Error("Unauthorized");
 
   if (action === 'not_interested') {
-    // ATOMIC VECTOR UPDATE
-    // Logic: We want to find the tags associated with this post and DECREMENT 
-    // the user's interest in those tags.
-    
-    // 1. Get post tags/category (assuming 'category' column exists)
     const { data: post } = await supabase
         .from('posts')
         .select('category')
@@ -25,16 +21,12 @@ export async function handleInteraction(
         .single();
         
     if (post?.category) {
-        // 2. RPC Call for Atomic JSON Update
-        // We call a Postgres function to safely decrement JSON value
         await supabase.rpc('decrement_interest_vector', {
             user_id: user.id,
             category_key: post.category,
-            amount: 2 // Strong penalty
+            amount: 2 
         });
     }
-    
-    // Also record the "Doow" (Downvote/Dislike)
     await supabase.rpc('increment_doow', { post_id: postId });
   }
 
@@ -46,12 +38,58 @@ export async function handleInteraction(
   }
 
   if (action === 'mute') {
-    // Similar to block, simplified for brevity
      await supabase.from('mutes').insert({
         muter_id: user.id,
         muted_id: authorId
     });
   }
+}
 
-  // No revalidatePath needed immediately if UI is Optimistic
+// --- YENİ EKLENEN REAKSİYON FONKSİYONU ---
+// Woow, Doow, Adil reaksiyonlarını yönetir ve sayfayı yenileyince silinmemesini sağlar.
+export async function toggleReaction(postId: string, reactionType: 'woow' | 'doow' | 'adil') {
+  const supabase = await createClient(); // Senin server.ts dosyana göre await ŞARTTIR.
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Giriş yapmalısınız" };
+
+  try {
+    // 1. Önce bu kullanıcı bu posta daha önce reaksiyon vermiş mi bakalım
+    const { data: existing } = await supabase
+      .from('post_reactions')
+      .select('id, reaction_type')
+      .eq('user_id', user.id)
+      .eq('post_id', postId)
+      .single();
+
+    if (existing) {
+      if (existing.reaction_type === reactionType) {
+        // A) Aynı tuşa tekrar bastı -> Geri al (Sil)
+        await supabase.from('post_reactions').delete().eq('id', existing.id);
+      } else {
+        // B) Farklı tuşa bastı -> Güncelle (Örn: Woow idi, Doow yaptı)
+        await supabase
+          .from('post_reactions')
+          .update({ reaction_type: reactionType, created_at: new Date().toISOString() })
+          .eq('id', existing.id);
+      }
+    } else {
+      // C) Hiç reaksiyonu yok -> Yeni ekle
+      await supabase.from('post_reactions').insert({
+        user_id: user.id,
+        post_id: postId,
+        reaction_type: reactionType
+      });
+    }
+
+    // Cache temizleme: Sayfa yenilendiğinde güncel veriyi görsün diye
+    // Eğer bu yollar projenizde yoksa hata vermez, sadece cache yenilenmez.
+    revalidatePath('/main'); 
+    revalidatePath(`/questions/${postId}`); 
+    
+    return { success: true };
+  } catch (error) {
+    console.error("Reaction Error:", error);
+    return { error: "İşlem başarısız" };
+  }
 }
