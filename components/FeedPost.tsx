@@ -1,13 +1,13 @@
-'use client'
+'use client';
 
-import EventLifecycle from './EventLifecycle'; // <--- YENİ (Kullanılıyor)
+import EventLifecycle from './EventLifecycle';
 import { useState, useRef, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow, format, isPast, isToday } from 'date-fns';
 import { tr } from 'date-fns/locale';
 // ICONS
-import { BadgeCheck, ShieldCheck, Zap, MapPin, Ticket } from 'lucide-react'; 
+import { BadgeCheck, ShieldCheck, Zap, MapPin, Ticket, MoreHorizontal } from 'lucide-react'; 
 import ReactionBar from './ReactionBar';
 import CommentSection from './CommentSection';
 import WiltedRoseMenu from './WiltedRoseMenu';
@@ -42,8 +42,9 @@ export default function FeedPost({
   // --- EVENT / TICKET LOGIC ---
   const isEvent = post.is_event && post.event_date;
   const eventDate = post.event_date ? new Date(post.event_date) : null;
-  const isLive = eventDate && isToday(eventDate);
-  const isArchived = eventDate && isPast(eventDate) && !isToday(eventDate);
+  // Canlı kontrolünü güvenli hale getirdik
+  const isLive = eventDate ? isToday(eventDate) : false;
+  const isArchived = eventDate ? (isPast(eventDate) && !isToday(eventDate)) : false;
   
   // Safe JSONB location parsing
   const locationName = typeof post.event_location === 'object' && post.event_location !== null
@@ -53,8 +54,6 @@ export default function FeedPost({
   // ROZET RENDER MANTIĞI
   const renderBadge = () => {
     const rep = post.author_reputation || 0;
-    
-    // Rozet stilleri
     if (rep >= 5000) return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block align-text-bottom" />;
     if (rep >= 1000) return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block align-text-bottom" />;
     if (rep >= 100) return <BadgeCheck size={16} className="text-blue-500 fill-blue-50 ml-1 inline-block align-text-bottom" />;
@@ -63,6 +62,7 @@ export default function FeedPost({
 
   if (!isVisible) return null;
 
+  // Intersection Observer (Lazy Load / Auto Toggle Logic) - KORUNDU
   useEffect(() => {
     if (!isExpanded || !cardRef.current) return;
     const observer = new IntersectionObserver(
@@ -82,7 +82,7 @@ export default function FeedPost({
     router.push(`/profile/${post.user_id}`);
   };
 
-  // --- TICKET STUB COMPONENT ---
+  // --- TICKET STUB COMPONENT (Bilet Koçanı) ---
   const TicketStub = () => {
     if (!eventDate) return null;
     
@@ -90,14 +90,22 @@ export default function FeedPost({
       <div 
         onClick={goToFullView}
         className={cn(
-          "relative group/stub w-full md:w-36 flex-shrink-0 flex md:flex-col items-center justify-center p-4 border-t md:border-t-0 md:border-l border-dashed border-slate-300 bg-slate-50 transition-colors cursor-pointer",
+          "relative group/stub w-full md:w-40 flex-shrink-0 flex md:flex-col items-center justify-center p-4 bg-slate-50 transition-colors cursor-pointer overflow-hidden",
+          // Kenarlıklar: Mobilde üstte, Masaüstünde solda kesik çizgi
+          "border-t md:border-t-0 md:border-l border-dashed border-slate-300",
+          // Duruma göre renkler
           isLive ? "bg-red-50/50 border-red-200" : "",
           isArchived ? "bg-slate-100 grayscale" : ""
         )}
       >
-        {/* Decorative Perforations */}
-        <div className="absolute -left-1.5 top-[-6px] w-3 h-3 rounded-full bg-white border border-slate-200 hidden md:block" />
-        <div className="absolute -left-1.5 bottom-[-6px] w-3 h-3 rounded-full bg-white border border-slate-200 hidden md:block" />
+        {/* --- PERFORATION DOTS (Delik Efekti) --- */}
+        {/* Masaüstü için Sol Üst ve Alt Çentikler */}
+        <div className="hidden md:block absolute -left-1.5 top-[-6px] w-3 h-3 rounded-full bg-[#f8fafc] shadow-inner z-10" />
+        <div className="hidden md:block absolute -left-1.5 bottom-[-6px] w-3 h-3 rounded-full bg-[#f8fafc] shadow-inner z-10" />
+        
+        {/* Mobil için Sol ve Sağ Çentikler (Ayraç hizasında) */}
+        <div className="md:hidden absolute -left-1.5 top-[-6px] w-3 h-3 rounded-full bg-[#f8fafc] shadow-inner z-10" />
+        <div className="md:hidden absolute -right-1.5 top-[-6px] w-3 h-3 rounded-full bg-[#f8fafc] shadow-inner z-10" />
 
         {/* Date Display */}
         <div className="text-center flex flex-row md:flex-col items-baseline md:items-center gap-2 md:gap-0">
@@ -110,22 +118,22 @@ export default function FeedPost({
           )}>
             {format(eventDate, 'dd')}
           </span>
-          <span className="text-xs text-slate-500">
-            {format(eventDate, 'yyyy')}
+          <span className="text-xs text-slate-500 font-medium">
+            {format(eventDate, 'HH:mm')}
           </span>
         </div>
 
-        {/* Location & Status (UPDATED for PHASE 4) */}
-        <div className="mt-0 md:mt-4 ml-auto md:ml-0 flex flex-col items-end md:items-center w-full">
+        {/* Location & Status */}
+        <div className="mt-0 md:mt-4 ml-auto md:ml-0 flex flex-col items-end md:items-center w-full gap-2">
           {locationName && (
-            <div className="flex items-center gap-1 text-[10px] text-slate-500 font-medium max-w-[100px] truncate mb-1">
-              <MapPin size={12} className={isLive ? "text-red-500" : ""} />
+            <div className="flex items-center gap-1 text-[10px] text-slate-500 font-medium max-w-[100px] truncate">
+              <MapPin size={12} className={isLive ? "text-red-500" : "text-slate-400"} />
               <span className="truncate">{locationName}</span>
             </div>
           )}
           
-          {/* FAZ 4: Statik Rozet Yerine 'EventLifecycle' Butonu Geldi */}
-          <div className="w-full md:w-auto">
+          {/* EventLifecycle - Özellik Korundu */}
+          <div className="w-full md:w-auto flex justify-center scale-90">
              <EventLifecycle eventDate={post.event_date!} locationName={locationName} />
           </div>
 
@@ -137,14 +145,18 @@ export default function FeedPost({
   return (
     <div 
       ref={cardRef} 
-      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group animate-in fade-in slide-in-from-bottom-4"
+      className={cn(
+        "bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-all relative group animate-in fade-in slide-in-from-bottom-4",
+        // Eğer Etkinlik ise ve arşivlenmişse biraz soluk göster
+        isArchived && "opacity-75 grayscale-[0.5]"
+      )}
     >
       
       {/* MAIN WRAPPER: Handles Flex Row for Tickets */}
       <div className={cn("flex flex-col", isEvent && "md:flex-row")}>
         
         {/* LEFT SIDE: MAIN CONTENT */}
-        <div className="flex-1 min-w-0 flex flex-col">
+        <div className="flex-1 min-w-0 flex flex-col relative">
           
           {/* HEADER SECTION */}
           <div className="p-4 flex items-center justify-between">
@@ -181,18 +193,18 @@ export default function FeedPost({
                   </div>
                   
                   {post.author_username && (
-                     <span className="text-sm text-slate-500 font-medium block -mt-0.5">
+                      <span className="text-sm text-slate-500 font-medium block -mt-0.5">
                         @{post.author_username}
-                     </span>
+                      </span>
                   )}
 
                   <div className="text-[11px] text-slate-400 flex gap-1 items-center mt-0.5">
-                     <span>{formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}</span>
+                      <span>{formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}</span>
                   </div>
                 </div>
             </div>
 
-            {/* WILTED ROSE MENU */}
+            {/* WILTED ROSE MENU - Özellik Korundu */}
             <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                 <WiltedRoseMenu 
                     postId={post.id} 
@@ -205,15 +217,15 @@ export default function FeedPost({
           {/* CONTENT SECTION */}
           <div className="px-4 pb-2">
             
-            {/* Mobile Event Badge */}
+            {/* Mobile Event Badge (Sadece mobilde görünür) */}
             {isEvent && (
-              <div className="mb-2 inline-flex items-center gap-1.5 px-2 py-1 bg-slate-50 border border-slate-200 rounded-md text-xs font-medium text-slate-600 md:hidden">
+              <div className="mb-2 inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-100 rounded-md text-xs font-bold text-blue-600 md:hidden">
                 <Ticket size={12} />
                 <span>Etkinlik</span>
               </div>
             )}
 
-            <p className="text-slate-700 whitespace-pre-wrap mb-3 leading-relaxed text-[15px]">
+            <p className="text-slate-800 whitespace-pre-wrap mb-3 leading-relaxed text-[15px]">
               {displayContent}
               {isTooLong && !isContentExpanded && (
                 <button 
@@ -230,7 +242,7 @@ export default function FeedPost({
 
             {post.image_url && (
               <div 
-                className="relative w-full h-72 mb-3 rounded-xl overflow-hidden border border-slate-100 cursor-pointer shadow-sm"
+                className="relative w-full h-72 mb-3 rounded-xl overflow-hidden border border-slate-100 cursor-pointer shadow-sm group-hover:shadow-md transition-all"
                 onClick={goToFullView}
               >
                 <Image src={post.image_url} alt="Post Görseli" fill className="object-cover" />
@@ -238,7 +250,7 @@ export default function FeedPost({
             )}
           </div>
 
-          {/* FOOTER SECTION */}
+          {/* FOOTER SECTION (ReactionBar) - Özellik Korundu */}
           <div className="px-4 pb-4 border-t border-slate-50 pt-2 bg-slate-50/50 mt-auto">
             <ReactionBar 
               targetId={post.id}
@@ -256,12 +268,12 @@ export default function FeedPost({
           </div>
         </div>
 
-        {/* RIGHT SIDE: TICKET STUB (Rendered only if Event) */}
+        {/* RIGHT SIDE: TICKET STUB (Sadece Event ise render edilir) */}
         {isEvent && <TicketStub />}
 
       </div>
 
-      {/* COMMENT SECTION (Outside Flex Row - Full Width) */}
+      {/* COMMENT SECTION (Flex yapısının dışında, tam genişlik) - Özellik Korundu */}
       {isExpanded && (
         <div className="border-t border-slate-100 bg-slate-50/30 px-4 py-4 animate-in slide-in-from-top-2">
           <CommentSection postId={post.id} postOwnerId={post.user_id} />

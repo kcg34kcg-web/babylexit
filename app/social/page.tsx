@@ -2,36 +2,27 @@
 
 import { useState, useEffect } from "react";
 import { 
-  Search, Users, TrendingUp, ArrowLeft, 
-  Image as ImageIcon, Send, X, Gavel,
-  Home, ShoppingCart, Calendar,
-  Sparkles, User, BadgeCheck, ShieldCheck, Zap 
+  Users, TrendingUp, ArrowLeft, 
+  Gavel, Home, ShoppingCart, Calendar,
+  Sparkles, User, BadgeCheck, ShieldCheck, Zap, Search 
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import imageCompression from "browser-image-compression"; // Eski import kalabilir, zararı yok
 import { createClient } from "@/utils/supabase/client";
 import PostList from "@/components/PostList"; 
-import toast, { Toaster } from "react-hot-toast";
+import { Toaster } from "react-hot-toast";
 import Link from "next/link";
 import { UserProfile } from "@/app/types";
-// [YENİ] Takvimli Post Bileşenini Dahil Ettik
 import CreatePost from "@/components/CreatePost";
 
 export default function LexwoowPage() {
   const router = useRouter();
   const supabase = createClient();
   
-  // NOT: content, file, previewUrl, loading state'leri ve handlePost fonksiyonu 
-  // artık 'CreatePost' bileşeni içinde olduğu için buradan kaldırıldı. 
-  // Bu sayede sayfa daha hızlı çalışacak.
-  
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   
   const [showTransition, setShowTransition] = useState(true);
-  
-  // [GÜNCELLEME 1] 'events' sekmesini aktif sekmeler arasına ekledik
   const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events'>('woow');
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -56,7 +47,7 @@ export default function LexwoowPage() {
     return () => clearTimeout(timer);
   }, [supabase]);
 
-  // --- ROZET RENDER MANTIĞI (KORUNDU) ---
+  // --- ROZET RENDER MANTIĞI ---
   const renderBadge = (reputation: number = 0) => {
     if (reputation >= 5000) { 
       return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block" />;
@@ -74,7 +65,7 @@ export default function LexwoowPage() {
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20 selection:bg-amber-100 font-sans">
       <Toaster position="top-center" />
       
-      {/* --- GİRİŞ ANİMASYONU (KORUNDU) --- */}
+      {/* --- GİRİŞ ANİMASYONU --- */}
       <AnimatePresence>
         {showTransition && (
           <motion.div exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center text-white">
@@ -86,7 +77,7 @@ export default function LexwoowPage() {
         )}
       </AnimatePresence>
 
-      {/* --- HEADER (Mobil) (KORUNDU) --- */}
+      {/* --- HEADER (Mobil) --- */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-4 shadow-sm lg:hidden">
         <div className="flex items-center gap-4">
           <button onClick={() => router.push('/')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-all active:scale-90">
@@ -141,10 +132,14 @@ export default function LexwoowPage() {
                     <span>Market</span>
                  </Link>
 
-                 {/* [GÜNCELLEME 2] Etkinlikler Butonu AKTİF EDİLDİ */}
+                 {/* [DÜZELTİLDİ] Etkinlikler Butonu - Ghost Style */}
                  <button 
                    onClick={() => { setActiveTab('events'); setRefreshKey(prev => prev + 1); }}
-                   className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'events' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'}`}
+                   className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${
+                     activeTab === 'events' 
+                       ? 'bg-amber-500/10 text-amber-600' // Aktif Stil (Ghost)
+                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900' // Normal Stil
+                   }`}
                  >
                     <Calendar size={26} />
                     <span>Etkinlikler</span>
@@ -168,7 +163,6 @@ export default function LexwoowPage() {
         {/* 2. ORTA KOLON: AKIŞ */}
         <div className="lg:col-span-2 space-y-8 pb-20">
           
-          {/* [GÜNCELLEME 3] Eski Manuel Form Yerine Yeni Akıllı Bileşen Geldi */}
           {user && (
             <div className="animate-in fade-in slide-in-from-top-4">
               <CreatePost userId={user.id} />
@@ -195,7 +189,7 @@ export default function LexwoowPage() {
           
         </div>
 
-        {/* 3. SAĞ KOLON (TAMAMEN KORUNDU) */}
+        {/* 3. SAĞ KOLON */}
         <div className="hidden lg:block lg:col-span-1">
           <div className="sticky top-8 space-y-6">
              <div className="relative mb-6">

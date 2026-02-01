@@ -4,20 +4,21 @@ import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import ReactionBar from './ReactionBar';
 import CommentSection from './CommentSection';
+import WiltedRoseMenu from './WiltedRoseMenu';
 import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-// İKONLAR
-import { Sparkles, TrendingUp, BadgeCheck, ShieldCheck, Zap } from 'lucide-react'; 
 import Link from 'next/link';
+
+// İKONLAR
+import { Sparkles, TrendingUp, BadgeCheck, ShieldCheck, Zap, Ticket, Calendar, MapPin, Clock } from 'lucide-react'; 
 
 // FİZİK MOTORU
 import { motion, useAnimation } from 'framer-motion';
 
-// ACTIONS & COMPONENTS
+// ACTIONS
 import { fetchFeed } from '@/app/actions/feed'; 
-import WiltedRoseMenu from './WiltedRoseMenu';  
 
 const PegasusIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -44,6 +45,10 @@ interface Post {
   comment_count: number;
   my_reaction: 'woow' | 'doow' | 'adil' | null;
   score?: number;
+  
+  is_event?: boolean;
+  event_date?: string;
+  event_location?: any;
 }
 
 // --- 1. PARÇA: POST KARTI ---
@@ -64,7 +69,6 @@ const PostItem = ({
   const [isVisible, setIsVisible] = useState(true);
   const [isContentExpanded, setIsContentExpanded] = useState(false);
 
-  // Fizik Motoru
   const controls = useAnimation();
   const triggerPhysics = () => {
     controls.start({
@@ -80,7 +84,6 @@ const PostItem = ({
     ? post.content.slice(0, MAX_LENGTH) + "..." 
     : post.content;
 
-  // Rozet Render
   const renderBadge = () => {
     const rep = post.author_reputation || 0;
     if (rep >= 5000) return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block align-text-bottom" />;
@@ -105,7 +108,7 @@ const PostItem = ({
   }, [isExpanded, onToggle]);
 
   const goToFullView = () => {
-    router.push(`/questions/${post.id}`);
+    router.push(`/post/${post.id}`);
   };
 
   const goToProfile = (e: React.MouseEvent) => {
@@ -117,7 +120,9 @@ const PostItem = ({
     <motion.div 
       ref={cardRef} 
       animate={controls} 
-      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group animate-in fade-in slide-in-from-bottom-4"
+      className={`bg-white rounded-2xl border shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group animate-in fade-in slide-in-from-bottom-4 ${
+        post.is_event ? 'border-blue-200 shadow-blue-50' : 'border-slate-200'
+      }`}
     >
       
       {/* --- HEADER --- */}
@@ -138,25 +143,22 @@ const PostItem = ({
 
             {/* KULLANICI BİLGİLERİ */}
             <div className="flex flex-col justify-center">
-              {/* 1. Satır: İsim + Rozet */}
               <div className="flex items-center">
                   <h3 
-                      className="font-semibold text-slate-900 hover:underline hover:text-amber-600 transition-colors mr-1"
-                      onClick={goToProfile}
+                    className="font-semibold text-slate-900 hover:underline hover:text-amber-600 transition-colors mr-1"
+                    onClick={goToProfile}
                   >
                       {post.author_name}
                   </h3>
                   {renderBadge()}
               </div>
               
-              {/* 2. Satır: @kullaniciadi - ARTIK GÖRÜNECEK */}
               {post.author_username && (
                  <span className="text-sm text-slate-500 font-medium block -mt-0.5">
                     @{post.author_username}
                  </span>
               )}
 
-              {/* 3. Satır: Tarih */}
               <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
                  <span>{formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}</span>
               </div>
@@ -164,7 +166,7 @@ const PostItem = ({
         </div>
 
         {/* MENU */}
-        <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+        <div className="text-slate-400 hover:text-slate-600 transition-colors">
             <WiltedRoseMenu 
                 postId={post.id} 
                 authorId={post.user_id} 
@@ -175,6 +177,48 @@ const PostItem = ({
 
       {/* --- CONTENT --- */}
       <div className="px-4 pb-2">
+        
+        {/* --- [YENİ] ETKİNLİK DETAYLARI (ÜST KISIM - HEADER GİBİ) --- */}
+        {post.is_event && (
+           <div className="mb-2 flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-left-2">
+              
+              {/* 1. ANA ETİKET */}
+              <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-100 shadow-sm">
+                 <Ticket size={12} strokeWidth={2.5} />
+                 Etkinlik
+              </div>
+
+              {/* 2. TARİH VARSA */}
+              {post.event_date && (
+                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50/50 border border-blue-100 text-blue-600 text-[11px] font-semibold">
+                  <Calendar size={12} className="shrink-0" />
+                  <span>
+                    {new Date(post.event_date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })}
+                  </span>
+                  {/* Saat */}
+                  {new Date(post.event_date).getHours() !== 0 && (
+                     <>
+                       <span className="opacity-40">|</span>
+                       <span className="opacity-90">
+                         {new Date(post.event_date).toLocaleTimeString('tr-TR', { hour: '2-digit', minute:'2-digit' })}
+                       </span>
+                     </>
+                  )}
+                </div>
+              )}
+
+              {/* 3. KONUM VARSA */}
+              {post.event_location && post.event_location.name && (
+                <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-orange-50/50 border border-orange-100 text-orange-600 text-[11px] font-semibold truncate max-w-[180px]">
+                  <MapPin size={12} className="shrink-0" />
+                  <span className="truncate">{post.event_location.name}</span>
+                </div>
+              )}
+
+           </div>
+        )}
+
+        {/* METİN İÇERİĞİ */}
         <p className="text-slate-700 whitespace-pre-wrap mb-3 leading-relaxed text-[15px]">
           {displayContent}
           {isTooLong && !isContentExpanded && (
@@ -190,6 +234,7 @@ const PostItem = ({
           )}
         </p>
 
+        {/* GÖRSEL */}
         {post.image_url && (
           <div 
             className="relative w-full h-64 mb-3 rounded-xl overflow-hidden border border-slate-100 cursor-pointer shadow-sm"
@@ -211,7 +256,7 @@ const PostItem = ({
             adil: post.adil_count || 0,
             comment_count: post.comment_count || 0
           }}
-          initialUserReaction={post.my_reaction}
+          initialUserReaction={(post.my_reaction as 'woow' | 'doow' | 'adil') || null}
           isOwner={currentUserId === post.user_id}
           onMuzakereClick={onToggle} 
           onTriggerPhysics={triggerPhysics}
@@ -229,8 +274,9 @@ const PostItem = ({
 };
 
 // --- 2. PARÇA: POST LİSTESİ (Ana Motor) ---
-export default function PostList({ userId }: { userId?: string }) {
+export default function PostList({ userId, filter = 'all' }: { userId?: string, filter?: 'all' | 'events' }) {
   const [posts, setPosts] = useState<Post[]>([]);
+  const [newPosts, setNewPosts] = useState<Post[]>([]);
   const [spotlight, setSpotlight] = useState<any>(null); 
   const [loading, setLoading] = useState(true);
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
@@ -239,15 +285,33 @@ export default function PostList({ userId }: { userId?: string }) {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
+    const handleNewPost = (event: CustomEvent) => {
+      const newPost = event.detail;
+      if (newPost) {
+        const formattedNewPost = {
+            ...newPost,
+            author_name: newPost.profiles?.full_name || 'Ben',
+            author_username: newPost.profiles?.username || 'ben',
+            author_avatar: newPost.profiles?.avatar_url,
+            author_reputation: newPost.profiles?.reputation,
+            woow_count: 0, doow_count: 0, adil_count: 0, comment_count: 0,
+            my_reaction: null
+        };
+        setNewPosts(prev => [formattedNewPost, ...prev]);
+      }
+    };
+    window.addEventListener('new-post-created' as any, handleNewPost);
+    return () => window.removeEventListener('new-post-created' as any, handleNewPost);
+  }, []);
+
+  useEffect(() => {
     const init = async () => {
       setLoading(true);
       
-      // 1. Giriş yapan kullanıcıyı Bul
       const { data: { user } } = await supabase.auth.getUser();
       const cUserId = user?.id || null;
       setCurrentUserId(cUserId);
 
-      // 2. Aktif kullanıcının (BENİM) profil detaylarını çek (Fallback için kritik)
       let currentUserProfile: any = null;
       if (cUserId) {
         const { data } = await supabase
@@ -258,15 +322,11 @@ export default function PostList({ userId }: { userId?: string }) {
         currentUserProfile = data;
       }
 
-      // 3. (YENİ EKLEME) EĞER BİR PROFİL SAYFASINDAYSAK: O profilin sahibinin bilgilerini de çek!
-      // Bu adım, "username"in veritabanı view'ında eksik olması durumunu düzeltir.
       let pageOwnerProfile: any = null;
       if (userId) {
-         // Eğer kendi profilimdeysem zaten verim var (currentUserProfile)
          if (userId === cUserId && currentUserProfile) {
              pageOwnerProfile = currentUserProfile;
          } else {
-             // Başkasının profili ise onun verisini çek
              const { data } = await supabase
                .from('profiles')
                .select('username, full_name, avatar_url, reputation')
@@ -276,31 +336,21 @@ export default function PostList({ userId }: { userId?: string }) {
          }
       }
 
-      // --- ORTAK MAPPING FONKSİYONU ---
       const mapToPost = (p: any) => {
-        // Post'un sahibi ID'si
         const ownerId = p.author_id || p.user_id;
         const isMine = ownerId === cUserId;
         
-        // BUG FIX: Veri kaynağı hiyerarşisi
-        // 1. Feed'den gelen hazır author verisi (p.author_username)
-        // 2. Eğer profil sayfasındaysak ve post o sayfa sahibine aitse -> pageOwnerProfile
-        // 3. Eğer post benimse -> currentUserProfile
-        // 4. Post tablosundaki raw veri (p.username)
-        
-        let finalUsername = p.author_username; // Feed'den geliyorsa bunu al
+        let finalUsername = p.author_username; 
         let finalFullName = p.author_name;
         let finalAvatar = p.author_avatar;
         let finalReputation = p.author_reputation;
 
-        // Profil Sayfası Garantisi:
         if (userId && pageOwnerProfile && ownerId === userId) {
-             finalUsername = pageOwnerProfile.username; // Zorla yaz
+             finalUsername = pageOwnerProfile.username; 
              finalFullName = pageOwnerProfile.full_name;
              finalAvatar = pageOwnerProfile.avatar_url;
              finalReputation = pageOwnerProfile.reputation;
         } 
-        // Feed veya diğer durumlarda fallback (Kendi postlarım için)
         else if (isMine && currentUserProfile) {
              if (!finalUsername) finalUsername = currentUserProfile.username;
              if (!finalFullName) finalFullName = currentUserProfile.full_name;
@@ -308,7 +358,6 @@ export default function PostList({ userId }: { userId?: string }) {
              if (finalReputation === undefined) finalReputation = currentUserProfile.reputation;
         }
         
-        // En son çare raw veriler
         if (!finalUsername) finalUsername = p.username;
         if (!finalFullName) finalFullName = p.full_name;
 
@@ -319,7 +368,7 @@ export default function PostList({ userId }: { userId?: string }) {
             created_at: p.created_at,
             
             author_name: finalFullName || "İsimsiz",
-            author_username: finalUsername, // <-- ARTIK DOLU OLMALI
+            author_username: finalUsername, 
             author_reputation: finalReputation || 0,
             author_avatar: finalAvatar || p.avatar_url,
 
@@ -329,13 +378,16 @@ export default function PostList({ userId }: { userId?: string }) {
             comment_count: p.comment_count,
             my_reaction: p.my_reaction, 
             image_url: p.image_url,
-            score: p.score
+            score: p.score,
+
+            is_event: p.is_event,
+            event_date: p.event_date,
+            event_location: p.event_location
         };
       };
 
       if (cUserId) {
          if (userId) {
-            // A) PROFİL SAYFASI
             const { data } = await supabase
                 .from('posts_with_stats') 
                 .select('*')
@@ -348,7 +400,6 @@ export default function PostList({ userId }: { userId?: string }) {
             }
          } 
          else {
-            // B) ANA AKIŞ (FEED)
             try {
                 const { posts: smartPosts, spotlight: smartSpotlight } = await fetchFeed(cUserId);
                 
@@ -367,20 +418,30 @@ export default function PostList({ userId }: { userId?: string }) {
     init();
   }, [userId]); 
 
+  const displayedFetchedPosts = filter === 'events' 
+    ? posts.filter(p => p.is_event) 
+    : posts;
+
+  const displayedNewPosts = filter === 'events'
+    ? newPosts.filter(p => p.is_event)
+    : newPosts;
+
+  const finalDisplayList = [...displayedNewPosts, ...displayedFetchedPosts];
+
   if (loading) {
     return (
         <div className="space-y-4">
-            {[1, 2, 3].map(i => (
+           {[1, 2, 3].map(i => (
              <div key={i} className="bg-white p-6 rounded-2xl h-48 animate-pulse border border-slate-100 shadow-sm" />
-            ))}
+           ))}
         </div>
     );
   }
   
-  if (posts.length === 0) {
+  if (finalDisplayList.length === 0) {
     return (
       <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300">
-        <p className="text-slate-500 font-medium">Henüz paylaşım yok.</p>
+        <p className="text-slate-500 font-medium">{filter === 'events' ? 'Planlanmış etkinlik bulunamadı.' : 'Henüz paylaşım yok.'}</p>
         <p className="text-sm text-slate-400 mt-1">Sessizliği bozan ilk kişi sen ol.</p>
       </div>
     );
@@ -388,8 +449,7 @@ export default function PostList({ userId }: { userId?: string }) {
 
   return (
     <div className="space-y-6">
-      {/* Spotlight Alanı (Sadece Ana Sayfada) */}
-      {!userId && spotlight && (
+      {!userId && filter === 'all' && spotlight && (
         <div className="relative overflow-hidden rounded-xl p-0.5 bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-600 shadow-lg shadow-amber-500/20 group animate-in fade-in slide-in-from-top-4">
             <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
             <div className="bg-slate-900 rounded-[10px] p-4 flex items-center gap-4 relative">
@@ -418,8 +478,7 @@ export default function PostList({ userId }: { userId?: string }) {
         </div>
       )}
 
-      {/* Post Listesi */}
-      {posts.map((post) => (
+      {finalDisplayList.map((post) => (
         <PostItem 
           key={post.id} 
           post={post} 
