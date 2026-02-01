@@ -5,12 +5,12 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { BadgeCheck, ShieldCheck, Zap } from 'lucide-react'; // YENİ: İkonlar eklendi
+// İKONLARI EKLEMEYİ UNUTMAYIN
+import { BadgeCheck, ShieldCheck, Zap } from 'lucide-react'; 
 import ReactionBar from './ReactionBar';
 import CommentSection from './CommentSection';
 import WiltedRoseMenu from './WiltedRoseMenu';
 
-// Backend veya View'dan gelen veri tipleri
 interface PostProps {
   post: {
     id: string;
@@ -21,7 +21,7 @@ interface PostProps {
     author_name: string;
     author_username?: string;
     author_avatar: string;
-    author_reputation?: number; // YENİ: Rozet için eklendi
+    author_reputation?: number; // Backend'den artık dolu geliyor
     woow_count: number;
     doow_count: number;
     adil_count: number;
@@ -43,43 +43,35 @@ export default function FeedPost({
   const cardRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   
-  // Optimistic UI
   const [isVisible, setIsVisible] = useState(true);
   const [isContentExpanded, setIsContentExpanded] = useState(false);
   
-  // İçerik Kısaltma Mantığı
   const MAX_LENGTH = 280;
   const isTooLong = post.content.length > MAX_LENGTH;
   const displayContent = isTooLong && !isContentExpanded
     ? post.content.slice(0, MAX_LENGTH) + "..." 
     : post.content;
 
-  // --- SORUN 3 ÇÖZÜMÜ: GİZLİ ÜYE BUG FIX ---
-  // Eğer post benimse ve sistem bana "Gizli Üye" veya null isim döndürdüyse, bunu düzelt.
-  const isOwner = currentUserId === post.user_id;
-  const displayName = isOwner && (post.author_name === "Gizli Üye" || !post.author_name)
-    ? "Ben (Siz)" // veya kullanıcının kendi ismi context'ten alınabilir
-    : post.author_name || "İsimsiz Kullanıcı";
-
-  // --- SORUN 2 ÇÖZÜMÜ: ROZET MANTIĞI ---
+  // ROZET RENDER MANTIĞI
   const renderBadge = () => {
+    // Güvenlik: null gelirse 0 kabul et
     const rep = post.author_reputation || 0;
     
-    if (rep >= 5000) { // Elite / Admin Seviyesi
-      return <ShieldCheck size={16} className="text-pink-500 ml-1 inline-block" fill="currentColor" stroke="white" />;
+    // Rozet stilleri (Twitter/X benzeri)
+    if (rep >= 5000) { // Elite (Pembe)
+      return <ShieldCheck size={18} className="text-pink-500 fill-pink-50 ml-1 inline-block align-text-bottom" />;
     }
-    if (rep >= 1000) { // Gold / Master Seviyesi
-      return <Zap size={16} className="text-amber-400 ml-1 inline-block" fill="currentColor" stroke="white" />;
+    if (rep >= 1000) { // Master (Gold)
+      return <Zap size={18} className="text-amber-400 fill-amber-50 ml-1 inline-block align-text-bottom" />;
     }
-    if (rep >= 100) { // Verified / Standart Onaylı
-      return <BadgeCheck size={16} className="text-blue-500 ml-1 inline-block" fill="currentColor" stroke="white" />;
+    if (rep >= 100) { // Verified (Mavi)
+      return <BadgeCheck size={18} className="text-blue-500 fill-blue-50 ml-1 inline-block align-text-bottom" />;
     }
     return null;
   };
 
   if (!isVisible) return null;
 
-  /* eslint-disable react-hooks/rules-of-hooks */
   useEffect(() => {
     if (!isExpanded || !cardRef.current) return;
     const observer = new IntersectionObserver(
@@ -102,49 +94,52 @@ export default function FeedPost({
   return (
     <div ref={cardRef} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group animate-in fade-in slide-in-from-bottom-4">
       
-      {/* HEADER */}
+      {/* HEADER BÖLÜMÜ */}
       <div className="p-4 flex items-center justify-between">
         <div className="flex items-center gap-3 cursor-pointer" onClick={goToFullView}>
-            {/* Avatar */}
+            
+            {/* AVATAR */}
             <div 
-              className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold overflow-hidden border border-slate-100 transition-transform hover:scale-105"
+              className="w-11 h-11 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold overflow-hidden border border-slate-200 transition-transform hover:scale-105 shadow-sm"
               onClick={goToProfile}
             >
               {post.author_avatar ? (
                 <Image 
                   src={post.author_avatar} 
                   alt="Avatar" 
-                  width={40} 
-                  height={40} 
+                  width={44} 
+                  height={44} 
                   className="object-cover w-full h-full"
                 />
               ) : (
-                displayName?.[0]?.toUpperCase() || 'U'
+                post.author_name?.[0]?.toUpperCase() || '?'
               )}
             </div>
 
-            {/* --- SORUN 1 VE 2 ÇÖZÜMÜ: İSİM, USERNAME VE ROZET GÖSTERİMİ --- */}
+            {/* KULLANICI BİLGİLERİ (Düzeltilen Kısım) */}
             <div className="flex flex-col justify-center">
-              <div className="flex items-center gap-0.5">
+              
+              {/* 1. Satır: İsim + Rozet */}
+              <div className="flex items-center">
                   <h3 
-                      className="font-bold text-slate-900 text-[15px] leading-tight hover:underline transition-colors"
+                      className="font-bold text-slate-900 text-[15px] leading-tight hover:underline transition-colors mr-0.5"
                       onClick={goToProfile}
                   >
-                      {displayName}
+                      {post.author_name}
                   </h3>
                   {renderBadge()}
               </div>
               
-              {/* Kullanıcı Adı: Eğer veri varsa göster, yoksa gösterme */}
+              {/* 2. Satır: @kullaniciadi */}
               {post.author_username && (
-                 <span className="text-xs text-slate-500 font-medium -mt-0.5 mb-0.5 block">
+                 <span className="text-sm text-slate-500 font-medium -mt-0.5">
                     @{post.author_username}
                  </span>
               )}
 
-              <div className="text-xs text-slate-400 flex gap-1 items-center">
+              {/* 3. Satır: Tarih */}
+              <div className="text-[11px] text-slate-400 flex gap-1 items-center mt-0.5">
                  <span>{formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}</span>
-                 {post.score !== undefined && <span className="text-slate-300">• Skor: {post.score.toFixed(1)}</span>}
               </div>
             </div>
         </div>
@@ -178,7 +173,7 @@ export default function FeedPost({
 
         {post.image_url && (
           <div 
-            className="relative w-full h-64 mb-3 rounded-xl overflow-hidden border border-slate-100 cursor-pointer shadow-sm"
+            className="relative w-full h-72 mb-3 rounded-xl overflow-hidden border border-slate-100 cursor-pointer shadow-sm"
             onClick={goToFullView}
           >
             <Image src={post.image_url} alt="Post Görseli" fill className="object-cover" />
@@ -198,7 +193,7 @@ export default function FeedPost({
             comment_count: post.comment_count
           }}
           initialUserReaction={post.my_reaction}
-          isOwner={isOwner}
+          isOwner={currentUserId === post.user_id}
           onMuzakereClick={onToggle} 
         />
       </div>

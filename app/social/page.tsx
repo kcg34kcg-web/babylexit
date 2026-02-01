@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import { 
   Search, Users, TrendingUp, ArrowLeft, 
   Image as ImageIcon, Send, X, Gavel,
-  Home, ShoppingCart, Calendar, LogOut, Menu,
-  Sparkles, User 
+  Home, ShoppingCart, Calendar,
+  Sparkles, User, BadgeCheck, ShieldCheck, Zap 
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,6 +14,8 @@ import { createClient } from "@/utils/supabase/client";
 import PostList from "@/components/PostList"; 
 import toast, { Toaster } from "react-hot-toast";
 import Link from "next/link";
+// Tip güvenliği için import (Eğer types.ts aynı dizindeyse yolu kontrol edin)
+import { UserProfile } from "@/app/types";
 
 export default function LexwoowPage() {
   const router = useRouter();
@@ -24,9 +26,9 @@ export default function LexwoowPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   
-  // STATE GÜNCELLEMESİ: Hem Auth User hem Profil Verisi
+  // STATE GÜNCELLEMESİ
   const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null); // Profil verisi eklendi
+  const [profile, setProfile] = useState<UserProfile | null>(null); // Tip eklendi
   
   const [showTransition, setShowTransition] = useState(true);
   const [activeTab, setActiveTab] = useState<'woow' | 'profile'>('woow');
@@ -39,14 +41,15 @@ export default function LexwoowPage() {
       setUser(authUser);
 
       if (authUser) {
-        // 2. Profil Verisini Çek (İsim ve Avatar için)
+        // 2. Profil Verisini Çek (reputation EKLENDİ)
         const { data: profileData } = await supabase
             .from('profiles')
-            .select('full_name, username, avatar_url')
+            .select('id, full_name, username, avatar_url, reputation, is_private')
             .eq('id', authUser.id)
             .single();
         
-        setProfile(profileData);
+        // Gelen veriyi state'e at (Tip uyumsuzluğu olursa as any kullanılabilir ama doğrusu tipleri eşlemektir)
+        if (profileData) setProfile(profileData as any);
       }
     };
 
@@ -54,6 +57,20 @@ export default function LexwoowPage() {
     const timer = setTimeout(() => setShowTransition(false), 1200);
     return () => clearTimeout(timer);
   }, [supabase]);
+
+  // --- ROZET RENDER MANTIĞI (DİĞER SAYFALARLA AYNI) ---
+  const renderBadge = (reputation: number = 0) => {
+    if (reputation >= 5000) { // Elite
+      return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block" />;
+    }
+    if (reputation >= 1000) { // Master
+      return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block" />;
+    }
+    if (reputation >= 100) { // Verified
+      return <BadgeCheck size={16} className="text-blue-500 fill-blue-50 ml-1 inline-block" />;
+    }
+    return null;
+  };
 
   const handlePost = async () => {
     if (!content && !file) return;
@@ -75,7 +92,7 @@ export default function LexwoowPage() {
         content: content,
         image_url: imageUrl,
         category: "teori"
-        // Not: Backend trigger'ları profil tablosundan ismi otomatik alacaktır.
+        // Backend trigger'ları profil bilgilerini halledecek
       });
 
       if (error) throw error;
@@ -196,9 +213,8 @@ export default function LexwoowPage() {
           <div className="bg-white border border-slate-200/80 rounded-[2rem] p-6 shadow-sm shadow-slate-200/50">
             <div className="flex gap-4">
               
-              {/* --- GÜNCELLENEN AVATAR ALANI --- */}
+              {/* AVATAR ALANI */}
               <div className="w-12 h-12 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl flex-shrink-0 flex items-center justify-center font-bold text-white uppercase text-lg shadow-lg shadow-amber-500/20 overflow-hidden relative">
-                 {/* Profil resmi varsa onu, yoksa ismin baş harfini, o da yoksa mail baş harfini göster */}
                  {profile?.avatar_url ? (
                     <img src={profile.avatar_url} alt="Profil" className="w-full h-full object-cover" />
                  ) : (
@@ -206,23 +222,29 @@ export default function LexwoowPage() {
                  )}
               </div>
               
-              <div className="flex-1 space-y-4">
+              <div className="flex-1 space-y-2">
+                {/* YENİ: KİMLİK GÖSTERİMİ (Kullanıcı paylaşırken kim olarak paylaştığını görsün) */}
+                <div className="flex items-center gap-1 text-sm text-slate-600 pl-1">
+                    <span className="font-bold text-slate-900">{profile?.full_name || "İsimsiz Kullanıcı"}</span>
+                    {renderBadge(profile?.reputation)}
+                    {profile?.username && <span className="text-slate-400">@{profile.username}</span>}
+                </div>
+
                 <textarea 
                   value={content} 
                   onChange={(e) => setContent(e.target.value)} 
-                  // Placeholder'da isimle hitap etme (Opsiyonel Güzellik)
-                  placeholder={`${profile?.full_name ? `Selam ${profile.full_name}, ` : ''}Hukuki bir analiz paylaş veya bir mesele ortaya at...`} 
-                  className="w-full bg-transparent border-none outline-none resize-none text-slate-700 placeholder:text-slate-400 min-h-[100px] text-[16px] leading-relaxed pt-2" 
+                  placeholder={`Hukuki bir analiz paylaş veya bir mesele ortaya at...`} 
+                  className="w-full bg-transparent border-none outline-none resize-none text-slate-700 placeholder:text-slate-400 min-h-[80px] text-[16px] leading-relaxed pt-1" 
                 />
                 
                 {previewUrl && (
-                  <div className="relative rounded-2xl overflow-hidden border border-slate-100 shadow-lg">
+                  <div className="relative rounded-2xl overflow-hidden border border-slate-100 shadow-lg mt-2">
                     <button onClick={() => {setFile(null); setPreviewUrl(null);}} className="absolute top-3 right-3 bg-white/90 p-2 rounded-full hover:bg-white transition-colors text-slate-900 shadow-md backdrop-blur-md"><X size={16}/></button>
                     <img src={previewUrl} className="w-full max-h-[400px] object-cover" alt="Önizleme" />
                   </div>
                 )}
 
-                <div className="flex items-center justify-between border-t border-slate-100 pt-4">
+                <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-2">
                   <label className="cursor-pointer text-slate-400 hover:text-amber-600 p-2.5 rounded-xl hover:bg-amber-50 transition-all active:scale-90 flex items-center justify-center">
                     <ImageIcon size={24} />
                     <input 
@@ -249,14 +271,14 @@ export default function LexwoowPage() {
 
           {/* Akış Başlığı */}
           <div className="flex items-center gap-3 px-2">
-             <div className="h-[1px] flex-1 bg-slate-200"></div>
-             <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
-               <TrendingUp size={14} className="text-amber-500" />
-               <span>
-                 {activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : 'PROFİLİM'}
-               </span>
-             </div>
-             <div className="h-[1px] flex-1 bg-slate-200"></div>
+              <div className="h-[1px] flex-1 bg-slate-200"></div>
+              <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
+                <TrendingUp size={14} className="text-amber-500" />
+                <span>
+                  {activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : 'PROFİLİM'}
+                </span>
+              </div>
+              <div className="h-[1px] flex-1 bg-slate-200"></div>
           </div>
 
           {/* POST LİSTESİ */}
