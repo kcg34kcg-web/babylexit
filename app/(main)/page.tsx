@@ -6,6 +6,8 @@ import Link from 'next/link';
 import moment from 'moment';
 import 'moment/locale/tr'; // Türkçe tarih formatı
 import { useRouter } from 'next/navigation';
+// YENİ: QuickAccessFolders import edildi
+import QuickAccessFolders from '@/components/QuickAccessFolders';
 import { 
   Search, 
   PenTool, 
@@ -17,8 +19,8 @@ import {
   Calendar,
   Eye,
   Loader2,
-  BookOpen,    // YENİ EKLENDİ: Makaleler için
-  PlayCircle   // YENİ EKLENDİ: Videolar için
+  BookOpen,    
+  PlayCircle   
 } from 'lucide-react';
 
 interface Profile {
@@ -105,7 +107,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 space-y-8 max-w-7xl mx-auto">
+    <div className="p-4 md:p-8 space-y-8 max-w-7xl mx-auto pb-24">
       
       {/* KARŞILAMA BÖLÜMÜ */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -132,6 +134,10 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* --- YENİ EKLENDİ: HIZLI ERİŞİM KLASÖRLERİ --- */}
+      <QuickAccessFolders />
+      {/* ------------------------------------------- */}
 
       {/* HIZLI AKSİYONLAR - GÜNCELLENDİ: 3 SÜTUN YAPILDI */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
