@@ -83,6 +83,15 @@ const CommentItem = memo(({ node, currentUserId, currentUserData, onReply, depth
           }`}>
             <div className="flex items-center gap-2 mb-1">
               <span className="text-xs font-bold text-slate-900">{node.author_name}</span>
+              
+              {/* --- YENİ EKLENEN KISIM: KULLANICI ADI --- */}
+              {/* Eğer veri varsa ve isimden farklıysa gösterir */}
+              {node.author_username && (
+                <span className="text-xs text-slate-500 font-normal">
+                  @{node.author_username}
+                </span>
+              )}
+              
               <span className="text-[10px] text-slate-400">
                 {formatDistanceToNow(new Date(node.created_at), { addSuffix: true, locale: tr })}
               </span>
