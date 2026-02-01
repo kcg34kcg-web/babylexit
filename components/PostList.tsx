@@ -149,7 +149,7 @@ const PostItem = ({
                   {renderBadge()}
               </div>
               
-              {/* 2. Satır: @kullaniciadi */}
+              {/* 2. Satır: @kullaniciadi - ARTIK GÖRÜNECEK */}
               {post.author_username && (
                  <span className="text-sm text-slate-500 font-medium block -mt-0.5">
                     @{post.author_username}
@@ -242,12 +242,12 @@ export default function PostList({ userId }: { userId?: string }) {
     const init = async () => {
       setLoading(true);
       
-      // 1. Kullanıcıyı Bul
+      // 1. Giriş yapan kullanıcıyı Bul
       const { data: { user } } = await supabase.auth.getUser();
       const cUserId = user?.id || null;
       setCurrentUserId(cUserId);
 
-      // 2. Aktif kullanıcının profil detaylarını çek (YEDEK DEPO)
+      // 2. Aktif kullanıcının (BENİM) profil detaylarını çek (Fallback için kritik)
       let currentUserProfile: any = null;
       if (cUserId) {
         const { data } = await supabase
@@ -258,13 +258,59 @@ export default function PostList({ userId }: { userId?: string }) {
         currentUserProfile = data;
       }
 
+      // 3. (YENİ EKLEME) EĞER BİR PROFİL SAYFASINDAYSAK: O profilin sahibinin bilgilerini de çek!
+      // Bu adım, "username"in veritabanı view'ında eksik olması durumunu düzeltir.
+      let pageOwnerProfile: any = null;
+      if (userId) {
+         // Eğer kendi profilimdeysem zaten verim var (currentUserProfile)
+         if (userId === cUserId && currentUserProfile) {
+             pageOwnerProfile = currentUserProfile;
+         } else {
+             // Başkasının profili ise onun verisini çek
+             const { data } = await supabase
+               .from('profiles')
+               .select('username, full_name, avatar_url, reputation')
+               .eq('id', userId)
+               .single();
+             pageOwnerProfile = data;
+         }
+      }
+
       // --- ORTAK MAPPING FONKSİYONU ---
-      // Veri nereden gelirse gelsin (Feed veya Profil), bu filtreden geçecek.
       const mapToPost = (p: any) => {
-        // Post'un sahibi ben miyim?
-        // Not: Feed'den gelen veride 'author_id', tablodan gelen veride 'user_id' olabilir.
+        // Post'un sahibi ID'si
         const ownerId = p.author_id || p.user_id;
         const isMine = ownerId === cUserId;
+        
+        // BUG FIX: Veri kaynağı hiyerarşisi
+        // 1. Feed'den gelen hazır author verisi (p.author_username)
+        // 2. Eğer profil sayfasındaysak ve post o sayfa sahibine aitse -> pageOwnerProfile
+        // 3. Eğer post benimse -> currentUserProfile
+        // 4. Post tablosundaki raw veri (p.username)
+        
+        let finalUsername = p.author_username; // Feed'den geliyorsa bunu al
+        let finalFullName = p.author_name;
+        let finalAvatar = p.author_avatar;
+        let finalReputation = p.author_reputation;
+
+        // Profil Sayfası Garantisi:
+        if (userId && pageOwnerProfile && ownerId === userId) {
+             finalUsername = pageOwnerProfile.username; // Zorla yaz
+             finalFullName = pageOwnerProfile.full_name;
+             finalAvatar = pageOwnerProfile.avatar_url;
+             finalReputation = pageOwnerProfile.reputation;
+        } 
+        // Feed veya diğer durumlarda fallback (Kendi postlarım için)
+        else if (isMine && currentUserProfile) {
+             if (!finalUsername) finalUsername = currentUserProfile.username;
+             if (!finalFullName) finalFullName = currentUserProfile.full_name;
+             if (!finalAvatar) finalAvatar = currentUserProfile.avatar_url;
+             if (finalReputation === undefined) finalReputation = currentUserProfile.reputation;
+        }
+        
+        // En son çare raw veriler
+        if (!finalUsername) finalUsername = p.username;
+        if (!finalFullName) finalFullName = p.full_name;
 
         return {
             id: p.id,
@@ -272,19 +318,11 @@ export default function PostList({ userId }: { userId?: string }) {
             content: p.content,
             created_at: p.created_at,
             
-            // 1. İsim Mantığı (Fallback'li)
-            author_name: p.full_name || p.author_name || p.username || 
-                        (isMine ? currentUserProfile?.full_name : "Gizli Üye"),
-            
-            // 2. Kullanıcı Adı Mantığı (Fallback'li)
-            author_username: p.username || p.author_username || 
-                            (isMine ? currentUserProfile?.username : undefined),
-            
-            // 3. Rozet ve Avatar
-            author_reputation: p.author_reputation ?? p.reputation ?? (isMine ? currentUserProfile?.reputation : 0),
-            author_avatar: p.author_avatar || p.avatar_url || (isMine ? currentUserProfile?.avatar_url : null),
+            author_name: finalFullName || "İsimsiz",
+            author_username: finalUsername, // <-- ARTIK DOLU OLMALI
+            author_reputation: finalReputation || 0,
+            author_avatar: finalAvatar || p.avatar_url,
 
-            // 4. İstatistikler
             woow_count: p.woow_count,
             doow_count: p.doow_count,
             adil_count: p.adil_count, 
@@ -305,7 +343,6 @@ export default function PostList({ userId }: { userId?: string }) {
                 .order('created_at', { ascending: false });
             
             if (data) {
-                // ARTIK BURASI DA MAPLANIYOR!
                 const mapped = data.map(mapToPost);
                 setPosts(mapped as Post[]); 
             }
