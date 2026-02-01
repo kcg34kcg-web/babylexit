@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-// İKONLARI EKLEMEYİ UNUTMAYIN
+// İKONLAR
 import { BadgeCheck, ShieldCheck, Zap } from 'lucide-react'; 
 import ReactionBar from './ReactionBar';
 import CommentSection from './CommentSection';
@@ -19,9 +19,9 @@ interface PostProps {
     image_url?: string;
     created_at: string;
     author_name: string;
-    author_username?: string;
+    author_username?: string; // Kullanıcı adı alanı
     author_avatar: string;
-    author_reputation?: number; // Backend'den artık dolu geliyor
+    author_reputation?: number; 
     woow_count: number;
     doow_count: number;
     adil_count: number;
@@ -52,21 +52,14 @@ export default function FeedPost({
     ? post.content.slice(0, MAX_LENGTH) + "..." 
     : post.content;
 
-  // ROZET RENDER MANTIĞI
+  // ROZET RENDER MANTIĞI (Düzeltildi)
   const renderBadge = () => {
-    // Güvenlik: null gelirse 0 kabul et
     const rep = post.author_reputation || 0;
     
-    // Rozet stilleri (Twitter/X benzeri)
-    if (rep >= 5000) { // Elite (Pembe)
-      return <ShieldCheck size={18} className="text-pink-500 fill-pink-50 ml-1 inline-block align-text-bottom" />;
-    }
-    if (rep >= 1000) { // Master (Gold)
-      return <Zap size={18} className="text-amber-400 fill-amber-50 ml-1 inline-block align-text-bottom" />;
-    }
-    if (rep >= 100) { // Verified (Mavi)
-      return <BadgeCheck size={18} className="text-blue-500 fill-blue-50 ml-1 inline-block align-text-bottom" />;
-    }
+    // Rozet stilleri
+    if (rep >= 5000) return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block align-text-bottom" />;
+    if (rep >= 1000) return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block align-text-bottom" />;
+    if (rep >= 100) return <BadgeCheck size={16} className="text-blue-500 fill-blue-50 ml-1 inline-block align-text-bottom" />;
     return null;
   };
 
@@ -116,13 +109,13 @@ export default function FeedPost({
               )}
             </div>
 
-            {/* KULLANICI BİLGİLERİ (Düzeltilen Kısım) */}
+            {/* KULLANICI BİLGİLERİ */}
             <div className="flex flex-col justify-center">
               
               {/* 1. Satır: İsim + Rozet */}
               <div className="flex items-center">
                   <h3 
-                      className="font-bold text-slate-900 text-[15px] leading-tight hover:underline transition-colors mr-0.5"
+                      className="font-bold text-slate-900 text-[15px] leading-tight hover:underline transition-colors mr-1"
                       onClick={goToProfile}
                   >
                       {post.author_name}
@@ -131,8 +124,9 @@ export default function FeedPost({
               </div>
               
               {/* 2. Satır: @kullaniciadi */}
+              {/* Eğer author_username varsa göster */}
               {post.author_username && (
-                 <span className="text-sm text-slate-500 font-medium -mt-0.5">
+                 <span className="text-sm text-slate-500 font-medium block -mt-0.5">
                     @{post.author_username}
                  </span>
               )}

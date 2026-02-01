@@ -8,15 +8,16 @@ import Image from 'next/image';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
-import { Sparkles, TrendingUp } from 'lucide-react'; 
+// İKONLAR
+import { Sparkles, TrendingUp, BadgeCheck, ShieldCheck, Zap } from 'lucide-react'; 
 import Link from 'next/link';
 
-// FİZİK MOTORU (PHASE 1 - JOLT EFFECT)
+// FİZİK MOTORU
 import { motion, useAnimation } from 'framer-motion';
 
-// YENİ ÖZELLİKLER:
-import { fetchFeed } from '@/app/actions/feed'; // Algoritma
-import WiltedRoseMenu from './WiltedRoseMenu';  // Menü
+// ACTIONS & COMPONENTS
+import { fetchFeed } from '@/app/actions/feed'; 
+import WiltedRoseMenu from './WiltedRoseMenu';  
 
 const PegasusIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
@@ -25,7 +26,7 @@ const PegasusIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-// Tip Tanımları
+// --- TİP TANIMLARI ---
 interface Post {
   id: string;
   user_id: string;
@@ -34,15 +35,18 @@ interface Post {
   created_at: string;
   author_name: string;
   author_avatar: string;
+  author_username?: string;
+  author_reputation?: number; 
+  
   woow_count: number;
   doow_count: number;
   adil_count: number;
   comment_count: number;
   my_reaction: 'woow' | 'doow' | 'adil' | null;
-  score?: number; // Algoritma puanı
+  score?: number;
 }
 
-// --- 1. PARÇA: POST KARTI (Fizik Motorlu) ---
+// --- 1. PARÇA: POST KARTI ---
 const PostItem = ({ 
   post, 
   currentUserId, 
@@ -57,24 +61,18 @@ const PostItem = ({
   const cardRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   
-  // YENİ: Kartı gizlemek için state
   const [isVisible, setIsVisible] = useState(true);
-  
-  // ESKİ: İçerik genişletme state'i
   const [isContentExpanded, setIsContentExpanded] = useState(false);
 
-  // --- PHASE 1: PHYSICS ENGINE ---
+  // Fizik Motoru
   const controls = useAnimation();
-
-  // SARSINTI EFEKTİ (ReactionBar'dan tetiklenir)
   const triggerPhysics = () => {
     controls.start({
-      x: [0, -3, 3, -2, 2, 0], // Profesyonel mikro sarsıntı
-      scale: [1, 1.015, 1],    // Hafif "nefes alma" etkisi
+      x: [0, -3, 3, -2, 2, 0], 
+      scale: [1, 1.015, 1],    
       transition: { duration: 0.35, ease: "easeOut" }
     });
   };
-  // -------------------------------
   
   const MAX_LENGTH = 280;
   const isTooLong = post.content.length > MAX_LENGTH;
@@ -82,7 +80,15 @@ const PostItem = ({
     ? post.content.slice(0, MAX_LENGTH) + "..." 
     : post.content;
 
-  // Eğer kullanıcı "İlgilenmiyorum" dediyse kartı DOM'dan sil
+  // Rozet Render
+  const renderBadge = () => {
+    const rep = post.author_reputation || 0;
+    if (rep >= 5000) return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block align-text-bottom" />;
+    if (rep >= 1000) return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block align-text-bottom" />;
+    if (rep >= 100) return <BadgeCheck size={16} className="text-blue-500 fill-blue-50 ml-1 inline-block align-text-bottom" />;
+    return null;
+  };
+
   if (!isVisible) return null;
 
   /* eslint-disable react-hooks/rules-of-hooks */
@@ -108,16 +114,17 @@ const PostItem = ({
   };
 
   return (
-    // DEĞİŞİKLİK: div -> motion.div
     <motion.div 
       ref={cardRef} 
-      animate={controls} // Fizik kontrolcüsünü bağladık
+      animate={controls} 
       className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group animate-in fade-in slide-in-from-bottom-4"
     >
       
       {/* --- HEADER --- */}
       <div className="p-4 flex items-center justify-between">
         <div className="flex items-center gap-3 cursor-pointer" onClick={goToFullView}>
+            
+            {/* AVATAR */}
             <div 
               className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold overflow-hidden border border-slate-100 transition-transform hover:scale-105"
               onClick={goToProfile}
@@ -125,23 +132,38 @@ const PostItem = ({
               {post.author_avatar ? (
                 <Image src={post.author_avatar} alt="" width={40} height={40} className="object-cover w-full h-full" />
               ) : (
-                post.author_name?.[0] || '?'
+                post.author_name?.[0]?.toUpperCase() || '?'
               )}
             </div>
-            <div>
-              <h3 
-                  className="font-semibold text-slate-900 hover:underline hover:text-amber-600 transition-colors"
-                  onClick={goToProfile}
-              >
-                  {post.author_name || "Gizli Üye"}
-              </h3>
-              <div className="flex items-center gap-2 text-xs text-slate-500">
+
+            {/* KULLANICI BİLGİLERİ */}
+            <div className="flex flex-col justify-center">
+              {/* 1. Satır: İsim + Rozet */}
+              <div className="flex items-center">
+                  <h3 
+                      className="font-semibold text-slate-900 hover:underline hover:text-amber-600 transition-colors mr-1"
+                      onClick={goToProfile}
+                  >
+                      {post.author_name}
+                  </h3>
+                  {renderBadge()}
+              </div>
+              
+              {/* 2. Satır: @kullaniciadi */}
+              {post.author_username && (
+                 <span className="text-sm text-slate-500 font-medium block -mt-0.5">
+                    @{post.author_username}
+                 </span>
+              )}
+
+              {/* 3. Satır: Tarih */}
+              <div className="flex items-center gap-2 text-xs text-slate-400 mt-0.5">
                  <span>{formatDistanceToNow(new Date(post.created_at), { addSuffix: true, locale: tr })}</span>
               </div>
             </div>
         </div>
 
-        {/* WILTED ROSE MENÜSÜ */}
+        {/* MENU */}
         <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
             <WiltedRoseMenu 
                 postId={post.id} 
@@ -178,7 +200,7 @@ const PostItem = ({
         )}
       </div>
 
-      {/* --- FOOTER: Reaksiyon Barı --- */}
+      {/* --- FOOTER --- */}
       <div className="px-4 pb-4 border-t border-slate-50 pt-2 bg-slate-50/50">
         <ReactionBar 
           targetId={post.id}
@@ -192,13 +214,11 @@ const PostItem = ({
           initialUserReaction={post.my_reaction}
           isOwner={currentUserId === post.user_id}
           onMuzakereClick={onToggle} 
-          
-          // EKLENDİ: Fizik motoru tetikleyicisi
           onTriggerPhysics={triggerPhysics}
         />
       </div>
 
-      {/* --- YORUMLAR (Açılır/Kapanır) --- */}
+      {/* --- YORUMLAR --- */}
       {isExpanded && (
         <div className="border-t border-slate-100 bg-slate-50/30 px-4 py-4 animate-in slide-in-from-top-2">
           <CommentSection postId={post.id} postOwnerId={post.user_id} />
@@ -211,7 +231,7 @@ const PostItem = ({
 // --- 2. PARÇA: POST LİSTESİ (Ana Motor) ---
 export default function PostList({ userId }: { userId?: string }) {
   const [posts, setPosts] = useState<Post[]>([]);
-  const [spotlight, setSpotlight] = useState<any>(null); // YENİ: Spotlight verisi
+  const [spotlight, setSpotlight] = useState<any>(null); 
   const [loading, setLoading] = useState(true);
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
   
@@ -222,53 +242,85 @@ export default function PostList({ userId }: { userId?: string }) {
     const init = async () => {
       setLoading(true);
       
-      // 1. Aktif Kullanıcıyı Bul
+      // 1. Kullanıcıyı Bul
       const { data: { user } } = await supabase.auth.getUser();
       const cUserId = user?.id || null;
       setCurrentUserId(cUserId);
 
+      // 2. Aktif kullanıcının profil detaylarını çek (YEDEK DEPO)
+      let currentUserProfile: any = null;
       if (cUserId) {
-         
-         // A) PROFİL GÖRÜNÜMÜ
+        const { data } = await supabase
+          .from('profiles')
+          .select('username, full_name, avatar_url, reputation')
+          .eq('id', cUserId)
+          .single();
+        currentUserProfile = data;
+      }
+
+      // --- ORTAK MAPPING FONKSİYONU ---
+      // Veri nereden gelirse gelsin (Feed veya Profil), bu filtreden geçecek.
+      const mapToPost = (p: any) => {
+        // Post'un sahibi ben miyim?
+        // Not: Feed'den gelen veride 'author_id', tablodan gelen veride 'user_id' olabilir.
+        const ownerId = p.author_id || p.user_id;
+        const isMine = ownerId === cUserId;
+
+        return {
+            id: p.id,
+            user_id: ownerId, 
+            content: p.content,
+            created_at: p.created_at,
+            
+            // 1. İsim Mantığı (Fallback'li)
+            author_name: p.full_name || p.author_name || p.username || 
+                        (isMine ? currentUserProfile?.full_name : "Gizli Üye"),
+            
+            // 2. Kullanıcı Adı Mantığı (Fallback'li)
+            author_username: p.username || p.author_username || 
+                            (isMine ? currentUserProfile?.username : undefined),
+            
+            // 3. Rozet ve Avatar
+            author_reputation: p.author_reputation ?? p.reputation ?? (isMine ? currentUserProfile?.reputation : 0),
+            author_avatar: p.author_avatar || p.avatar_url || (isMine ? currentUserProfile?.avatar_url : null),
+
+            // 4. İstatistikler
+            woow_count: p.woow_count,
+            doow_count: p.doow_count,
+            adil_count: p.adil_count, 
+            comment_count: p.comment_count,
+            my_reaction: p.my_reaction, 
+            image_url: p.image_url,
+            score: p.score
+        };
+      };
+
+      if (cUserId) {
          if (userId) {
+            // A) PROFİL SAYFASI
             const { data } = await supabase
                 .from('posts_with_stats') 
                 .select('*')
                 .eq('user_id', userId)
                 .order('created_at', { ascending: false });
             
-            if (data) setPosts(data as any[]); 
+            if (data) {
+                // ARTIK BURASI DA MAPLANIYOR!
+                const mapped = data.map(mapToPost);
+                setPosts(mapped as Post[]); 
+            }
          } 
-         
-         // B) AKILLI FEED
          else {
+            // B) ANA AKIŞ (FEED)
             try {
-                // Server Action (SQL'i çağıran fonksiyon)
                 const { posts: smartPosts, spotlight: smartSpotlight } = await fetchFeed(cUserId);
                 
-                // Mapper
-                const mappedPosts = smartPosts.map((p: any) => ({
-                    id: p.id,
-                    user_id: p.author_id, 
-                    content: p.content,
-                    created_at: p.created_at,
-                    author_name: p.author_username || p.username || "Gizli Üye",
-                    author_avatar: p.author_avatar,
-                    woow_count: p.woow_count,
-                    doow_count: p.doow_count,
-                    adil_count: p.adil_count, // Düzeltildi
-                    comment_count: p.comment_count,
-                    my_reaction: p.my_reaction, // SQL'den gelen kendi oyun
-                    image_url: p.image_url,
-                    score: p.score
-                }));
-                
-                setPosts(mappedPosts as Post[]);
+                const mapped = smartPosts.map(mapToPost);
+                setPosts(mapped as Post[]);
                 setSpotlight(smartSpotlight);
 
             } catch (error) {
                 console.error("Feed yüklenirken hata:", error);
-                // Hata olursa boş liste göster, uygulama çökmesin
             }
          }
       }
@@ -278,7 +330,6 @@ export default function PostList({ userId }: { userId?: string }) {
     init();
   }, [userId]); 
 
-  // Yükleniyor Durumu (Skeleton Loader)
   if (loading) {
     return (
         <div className="space-y-4">
@@ -289,7 +340,6 @@ export default function PostList({ userId }: { userId?: string }) {
     );
   }
   
-  // Hiç Post Yoksa
   if (posts.length === 0) {
     return (
       <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300">
@@ -301,24 +351,17 @@ export default function PostList({ userId }: { userId?: string }) {
 
   return (
     <div className="space-y-6">
-      
-      {/* Sadece ana akışta (userId yoksa) ve spotlight verisi varsa göster */}
+      {/* Spotlight Alanı (Sadece Ana Sayfada) */}
       {!userId && spotlight && (
         <div className="relative overflow-hidden rounded-xl p-0.5 bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-600 shadow-lg shadow-amber-500/20 group animate-in fade-in slide-in-from-top-4">
-            {/* Hover Shine Effect */}
             <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
-            
             <div className="bg-slate-900 rounded-[10px] p-4 flex items-center gap-4 relative">
-                {/* Background Icon Effect */}
                 <div className="absolute top-0 right-0 p-4 opacity-20 text-yellow-300 animate-pulse">
                     <PegasusIcon className="w-24 h-24 rotate-12" />
                 </div>
-                
-                {/* Main Icon */}
                 <div className="bg-gradient-to-br from-amber-300 to-yellow-600 p-3 rounded-full text-slate-900 shrink-0 shadow-lg shadow-amber-500/40 z-10">
                     <PegasusIcon className="w-6 h-6" />
                 </div>
-                
                 <div className="relative z-10">
                     <h4 className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 to-yellow-400 font-black text-[11px] uppercase tracking-widest mb-1 flex items-center gap-2">
                         GOLDEN TICKET <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-ping"/>
@@ -338,13 +381,12 @@ export default function PostList({ userId }: { userId?: string }) {
         </div>
       )}
 
-      {/* --- POST LİSTESİ --- */}
+      {/* Post Listesi */}
       {posts.map((post) => (
         <PostItem 
           key={post.id} 
           post={post} 
           currentUserId={currentUserId}
-          // Yorum bölümünü açıp kapatma mantığı (Accordion)
           isExpanded={expandedPostId === post.id}
           onToggle={() => setExpandedPostId(prev => prev === post.id ? null : post.id)}
         />
