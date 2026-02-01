@@ -9,46 +9,44 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import imageCompression from "browser-image-compression";
+import imageCompression from "browser-image-compression"; // Eski import kalabilir, zararı yok
 import { createClient } from "@/utils/supabase/client";
 import PostList from "@/components/PostList"; 
 import toast, { Toaster } from "react-hot-toast";
 import Link from "next/link";
-// Tip güvenliği için import (Eğer types.ts aynı dizindeyse yolu kontrol edin)
 import { UserProfile } from "@/app/types";
+// [YENİ] Takvimli Post Bileşenini Dahil Ettik
+import CreatePost from "@/components/CreatePost";
 
 export default function LexwoowPage() {
   const router = useRouter();
   const supabase = createClient();
   
-  const [content, setContent] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  // NOT: content, file, previewUrl, loading state'leri ve handlePost fonksiyonu 
+  // artık 'CreatePost' bileşeni içinde olduğu için buradan kaldırıldı. 
+  // Bu sayede sayfa daha hızlı çalışacak.
   
-  // STATE GÜNCELLEMESİ
   const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null); // Tip eklendi
+  const [profile, setProfile] = useState<UserProfile | null>(null);
   
   const [showTransition, setShowTransition] = useState(true);
-  const [activeTab, setActiveTab] = useState<'woow' | 'profile'>('woow');
+  
+  // [GÜNCELLEME 1] 'events' sekmesini aktif sekmeler arasına ekledik
+  const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events'>('woow');
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const getUserAndProfile = async () => {
-      // 1. Auth Kullanıcısını Çek
       const { data: { user: authUser } } = await supabase.auth.getUser();
       setUser(authUser);
 
       if (authUser) {
-        // 2. Profil Verisini Çek (reputation EKLENDİ)
         const { data: profileData } = await supabase
             .from('profiles')
             .select('id, full_name, username, avatar_url, reputation, is_private')
             .eq('id', authUser.id)
             .single();
         
-        // Gelen veriyi state'e at (Tip uyumsuzluğu olursa as any kullanılabilir ama doğrusu tipleri eşlemektir)
         if (profileData) setProfile(profileData as any);
       }
     };
@@ -58,66 +56,25 @@ export default function LexwoowPage() {
     return () => clearTimeout(timer);
   }, [supabase]);
 
-  // --- ROZET RENDER MANTIĞI (DİĞER SAYFALARLA AYNI) ---
+  // --- ROZET RENDER MANTIĞI (KORUNDU) ---
   const renderBadge = (reputation: number = 0) => {
-    if (reputation >= 5000) { // Elite
+    if (reputation >= 5000) { 
       return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block" />;
     }
-    if (reputation >= 1000) { // Master
+    if (reputation >= 1000) { 
       return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block" />;
     }
-    if (reputation >= 100) { // Verified
+    if (reputation >= 100) { 
       return <BadgeCheck size={16} className="text-blue-500 fill-blue-50 ml-1 inline-block" />;
     }
     return null;
-  };
-
-  const handlePost = async () => {
-    if (!content && !file) return;
-    setLoading(true);
-
-    try {
-      let imageUrl = null;
-      if (file && user) {
-        const options = { maxSizeMB: 0.2, maxWidthOrHeight: 1080 };
-        const compressedFile = await imageCompression(file, options);
-        const fileName = `${user.id}/${Date.now()}.webp`;
-        await supabase.storage.from("post-attachments").upload(fileName, compressedFile);
-        const { data } = supabase.storage.from("post-attachments").getPublicUrl(fileName);
-        imageUrl = data.publicUrl;
-      }
-
-      const { error } = await supabase.from("posts").insert({
-        user_id: user.id,
-        content: content,
-        image_url: imageUrl,
-        category: "teori"
-        // Backend trigger'ları profil bilgilerini halledecek
-      });
-
-      if (error) throw error;
-      
-      setContent("");
-      setFile(null);
-      setPreviewUrl(null);
-      toast.success("Kürsüde paylaşıldı!");
-      
-      setActiveTab('woow');
-      setRefreshKey(prev => prev + 1);
-
-    } catch (error: any) {
-      toast.error("Paylaşım başarısız.");
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
   };
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20 selection:bg-amber-100 font-sans">
       <Toaster position="top-center" />
       
-      {/* --- GİRİŞ ANİMASYONU --- */}
+      {/* --- GİRİŞ ANİMASYONU (KORUNDU) --- */}
       <AnimatePresence>
         {showTransition && (
           <motion.div exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center text-white">
@@ -129,7 +86,7 @@ export default function LexwoowPage() {
         )}
       </AnimatePresence>
 
-      {/* --- HEADER (Mobil) --- */}
+      {/* --- HEADER (Mobil) (KORUNDU) --- */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-4 shadow-sm lg:hidden">
         <div className="flex items-center gap-4">
           <button onClick={() => router.push('/')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-all active:scale-90">
@@ -166,9 +123,7 @@ export default function LexwoowPage() {
                     <span>WOOW</span>
                  </button>
 
-                 <button 
-                    className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-purple-600 hover:bg-purple-50 rounded-full transition-all w-full text-left group"
-                 >
+                 <button className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-purple-600 hover:bg-purple-50 rounded-full transition-all w-full text-left group">
                     <Sparkles size={26} className="group-hover:rotate-12 transition-transform" />
                     <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-500 font-bold">Geft-AI</span>
                  </button>
@@ -186,7 +141,11 @@ export default function LexwoowPage() {
                     <span>Market</span>
                  </Link>
 
-                 <button className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:bg-slate-100 rounded-full transition-all w-full text-left opacity-50 cursor-not-allowed">
+                 {/* [GÜNCELLEME 2] Etkinlikler Butonu AKTİF EDİLDİ */}
+                 <button 
+                   onClick={() => { setActiveTab('events'); setRefreshKey(prev => prev + 1); }}
+                   className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'events' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-600 hover:bg-slate-100'}`}
+                 >
                     <Calendar size={26} />
                     <span>Etkinlikler</span>
                  </button>
@@ -209,65 +168,12 @@ export default function LexwoowPage() {
         {/* 2. ORTA KOLON: AKIŞ */}
         <div className="lg:col-span-2 space-y-8 pb-20">
           
-          {/* Post Paylaşım Alanı */}
-          <div className="bg-white border border-slate-200/80 rounded-[2rem] p-6 shadow-sm shadow-slate-200/50">
-            <div className="flex gap-4">
-              
-              {/* AVATAR ALANI */}
-              <div className="w-12 h-12 bg-gradient-to-tr from-amber-500 to-amber-600 rounded-2xl flex-shrink-0 flex items-center justify-center font-bold text-white uppercase text-lg shadow-lg shadow-amber-500/20 overflow-hidden relative">
-                 {profile?.avatar_url ? (
-                    <img src={profile.avatar_url} alt="Profil" className="w-full h-full object-cover" />
-                 ) : (
-                    <span>{profile?.full_name?.charAt(0) || user?.email?.charAt(0) || "K"}</span>
-                 )}
-              </div>
-              
-              <div className="flex-1 space-y-2">
-                {/* YENİ: KİMLİK GÖSTERİMİ (Kullanıcı paylaşırken kim olarak paylaştığını görsün) */}
-                <div className="flex items-center gap-1 text-sm text-slate-600 pl-1">
-                    <span className="font-bold text-slate-900">{profile?.full_name || "İsimsiz Kullanıcı"}</span>
-                    {renderBadge(profile?.reputation)}
-                    {profile?.username && <span className="text-slate-400">@{profile.username}</span>}
-                </div>
-
-                <textarea 
-                  value={content} 
-                  onChange={(e) => setContent(e.target.value)} 
-                  placeholder={`Hukuki bir analiz paylaş veya bir mesele ortaya at...`} 
-                  className="w-full bg-transparent border-none outline-none resize-none text-slate-700 placeholder:text-slate-400 min-h-[80px] text-[16px] leading-relaxed pt-1" 
-                />
-                
-                {previewUrl && (
-                  <div className="relative rounded-2xl overflow-hidden border border-slate-100 shadow-lg mt-2">
-                    <button onClick={() => {setFile(null); setPreviewUrl(null);}} className="absolute top-3 right-3 bg-white/90 p-2 rounded-full hover:bg-white transition-colors text-slate-900 shadow-md backdrop-blur-md"><X size={16}/></button>
-                    <img src={previewUrl} className="w-full max-h-[400px] object-cover" alt="Önizleme" />
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between border-t border-slate-100 pt-3 mt-2">
-                  <label className="cursor-pointer text-slate-400 hover:text-amber-600 p-2.5 rounded-xl hover:bg-amber-50 transition-all active:scale-90 flex items-center justify-center">
-                    <ImageIcon size={24} />
-                    <input 
-                      type="file" 
-                      className="hidden" 
-                      accept="image/*" 
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        const f = e.target.files?.[0];
-                        if (f) { setFile(f); setPreviewUrl(URL.createObjectURL(f)); }
-                      }} 
-                    />
-                  </label>
-                  <button 
-                    onClick={handlePost} 
-                    disabled={loading || (!content && !file)} 
-                    className="bg-slate-900 hover:bg-black text-white px-8 py-2.5 rounded-2xl font-bold text-[14px] flex items-center gap-2 transition-all active:scale-95 disabled:opacity-20 shadow-xl shadow-slate-900/10"
-                  >
-                    {loading ? "..." : <><Send size={16} /> Paylaş</>}
-                  </button>
-                </div>
-              </div>
+          {/* [GÜNCELLEME 3] Eski Manuel Form Yerine Yeni Akıllı Bileşen Geldi */}
+          {user && (
+            <div className="animate-in fade-in slide-in-from-top-4">
+              <CreatePost userId={user.id} />
             </div>
-          </div>
+          )}
 
           {/* Akış Başlığı */}
           <div className="flex items-center gap-3 px-2">
@@ -275,7 +181,7 @@ export default function LexwoowPage() {
               <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
                 <TrendingUp size={14} className="text-amber-500" />
                 <span>
-                  {activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : 'PROFİLİM'}
+                  {activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : activeTab === 'profile' ? 'PROFİLİM' : 'ETKİNLİK GÜNDEMİ'}
                 </span>
               </div>
               <div className="h-[1px] flex-1 bg-slate-200"></div>
@@ -284,12 +190,12 @@ export default function LexwoowPage() {
           {/* POST LİSTESİ */}
           <PostList 
             key={refreshKey} 
-            userId={activeTab === 'woow' ? undefined : user?.id} 
+            userId={activeTab === 'profile' ? user?.id : undefined} 
           />
           
         </div>
 
-        {/* 3. SAĞ KOLON */}
+        {/* 3. SAĞ KOLON (TAMAMEN KORUNDU) */}
         <div className="hidden lg:block lg:col-span-1">
           <div className="sticky top-8 space-y-6">
              <div className="relative mb-6">
