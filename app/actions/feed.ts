@@ -48,6 +48,7 @@ export async function fetchFeed(userId: string) {
 
     // 3. Fallback Mekanizması
     if (rpcError || !rpcData || rpcData.length === 0) {
+        // Not: Fallback sorgusuna comments(count) eklendi, ancak aşağıda birleşik bir çözüm uygulayacağız.
         const { data: fallbackData } = await supabase
             .from('posts')
             .select(`*, profiles!inner(full_name, username, avatar_url, reputation), my_reaction_data:post_reactions(reaction_type)`)
@@ -71,6 +72,27 @@ export async function fetchFeed(userId: string) {
         return { posts: [], spotlight: null };
     }
 
+    // --- FIX: COMMENT COUNT FETCHING ---
+    // RPC verisinde comment_count eksik olduğu için, ve fallback verisinde de netleştirmek için
+    // tüm postlar için yorum sayılarını verimli bir şekilde çekiyoruz.
+    const postIds = rawPosts.map((p: any) => p.id);
+    
+    // 'comments' tablosundaki ilişkisel sayıyı (count) 'posts' tablosu üzerinden çekiyoruz
+    const { data: countData } = await supabase
+        .from('posts')
+        .select('id, comments(count)')
+        .in('id', postIds);
+
+    // ID -> Comment Count haritası oluştur
+    const commentCountMap = new Map();
+    if (countData) {
+        countData.forEach((item: any) => {
+            // comments: [{ count: 5 }] şeklinde döner
+            const count = item.comments?.[0]?.count || 0;
+            commentCountMap.set(item.id, count);
+        });
+    }
+
     // --- VERİ ZENGİNLEŞTİRME ---
     // User ID vs Author ID çakışması için önceki fix korundu: author_id öncelikli.
     const authorIds = Array.from(new Set(rawPosts.map((p: any) => p.author_id || p.user_id))).filter(Boolean);
@@ -87,6 +109,9 @@ export async function fetchFeed(userId: string) {
         const authorId = post.author_id || post.user_id;
         const authorProfile = authorMap.get(authorId);
         
+        // Yorum sayısını haritadan al, yoksa 0 (veya mevcutsa onu koru)
+        const commentCount = commentCountMap.get(post.id) ?? post.comment_count ?? 0;
+
         // Post Sahibi Kontrolü
         const isOwner = userId === authorId;
 
@@ -139,9 +164,17 @@ export async function fetchFeed(userId: string) {
             author_reputation: finalReputation,
             is_private: isPrivate,
             my_reaction: post.my_reaction,
+            
+            // Counts (Ensure they are numbers)
+            woow_count: post.woow_count || 0,
+            doow_count: post.doow_count || 0,
+            adil_count: post.adil_count || 0,
+            comment_count: commentCount, // Enjected fix
+
             is_following_author: post.is_following || false, 
             score: BabylexitRecommender.calculateScore({
                 ...post,
+                comment_count: commentCount, // Skora da dahil ettik
                 is_following_author: post.is_following || false
             })
         };
