@@ -1,26 +1,52 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-:root {
-  --background: #020617; /* slate-950 */
-  --foreground: #e2e8f0; /* slate-200 */
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
+    /* 🌕 Full Moon (Default / Private) - Cool Slate */
     --background: #020617; /* slate-950 */
+    --foreground: #f8fafc; /* slate-50 */
+    
+    --card-bg: #0f172a;       /* slate-900 */
+    --card-border: #1e293b;   /* slate-800 */
+    --muted-bg: #1e293b;      /* slate-800 */
+    --accent: #38bdf8;        /* sky-400 (for highlights) */
+    --status-icon: #94a3b8;   /* slate-400 */
+  }
+
+  [data-theme="sun"] {
+    /* ☀️ Sun Mode (Public) - Warm Amber/Orange */
+    --background: #fffbeb; /* amber-50 */
+    --foreground: #451a03; /* amber-950 */
+    
+    --card-bg: #ffffff;       /* white */
+    --card-border: #fbbf24;   /* amber-400 */
+    --muted-bg: #fef3c7;      /* amber-100 */
+    --accent: #d97706;        /* amber-600 */
+    --status-icon: #f59e0b;   /* amber-500 */
+  }
+
+  [data-theme="half"] {
+    /* 🌓 Half Moon (Mixed) - Twilight/Neutral Blue */
+    --background: #1e293b; /* slate-800 */
     --foreground: #e2e8f0; /* slate-200 */
+    
+    --card-bg: #334155;       /* slate-700 */
+    --card-border: #475569;   /* slate-600 */
+    --muted-bg: #475569;      /* slate-600 */
+    --accent: #818cf8;        /* indigo-400 */
+    --status-icon: #94a3b8;   /* slate-400 */
+  }
+
+  /* Smooth Transition for all theme changes */
+  body {
+    transition: background-color 0.5s ease, color 0.5s ease;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Helper Utility Classes if you want to use them directly */
+.bg-theme-card {
+  background-color: var(--card-bg);
+  border-color: var(--card-border);
 }

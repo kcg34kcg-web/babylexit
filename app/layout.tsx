@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ToastProvider from "@/components/toast-provider";
+import ThemeManager from "@/components/ThemeManager"; // <--- 1. Import Added
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,8 +27,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-slate-950 text-slate-200`}
+        // 2. Updated className to use dynamic variables instead of hardcoded 'bg-slate-950'
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[var(--background)] text-[var(--foreground)]`}
       >
+        <ThemeManager /> {/* <--- 3. Component Added */}
         <ToastProvider />
         {children}
       </body>
