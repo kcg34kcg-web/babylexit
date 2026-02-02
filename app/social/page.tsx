@@ -21,10 +21,23 @@ export default function LexwoowPage() {
   
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  
   const [showTransition, setShowTransition] = useState(true);
+  
   const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events'>('woow');
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // [YENİ] Arama State'leri
+  const [searchTerm, setSearchTerm] = useState(""); // Anlık yazılan
+  const [debouncedSearch, setDebouncedSearch] = useState(""); // Gecikmeli (API'ye giden)
+
+  // [YENİ] Debounce Mantığı (Optimization: Yazma bitince 500ms bekle)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 500); // 500ms bekleme süresi
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     const getUserAndProfile = async () => {
@@ -49,15 +62,9 @@ export default function LexwoowPage() {
 
   // --- ROZET RENDER MANTIĞI ---
   const renderBadge = (reputation: number = 0) => {
-    if (reputation >= 5000) { 
-      return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block" />;
-    }
-    if (reputation >= 1000) { 
-      return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block" />;
-    }
-    if (reputation >= 100) { 
-      return <BadgeCheck size={16} className="text-blue-500 fill-blue-50 ml-1 inline-block" />;
-    }
+    if (reputation >= 5000) return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block" />;
+    if (reputation >= 1000) return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block" />;
+    if (reputation >= 100) return <BadgeCheck size={16} className="text-blue-500 fill-blue-50 ml-1 inline-block" />;
     return null;
   };
 
@@ -77,7 +84,7 @@ export default function LexwoowPage() {
         )}
       </AnimatePresence>
 
-      {/* --- HEADER (Mobil) --- */}
+      {/* --- HEADER (Mobil - Arama Entegre Edildi) --- */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-4 shadow-sm lg:hidden">
         <div className="flex items-center gap-4">
           <button onClick={() => router.push('/')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-all active:scale-90">
@@ -87,7 +94,9 @@ export default function LexwoowPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input 
               type="text" 
-              placeholder="Hukuk gündemini ara..." 
+              placeholder="Konum, kişi veya içerik ara..." 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-slate-100/50 border border-slate-200 rounded-full py-2 pl-10 pr-4 outline-none focus:ring-2 focus:ring-amber-500/10 text-sm transition-all" 
             />
           </div>
@@ -107,7 +116,7 @@ export default function LexwoowPage() {
 
               <nav className="space-y-2">
                  <button 
-                   onClick={() => { setActiveTab('woow'); setRefreshKey(prev => prev + 1); }} 
+                   onClick={() => { setActiveTab('woow'); setSearchTerm(""); setRefreshKey(prev => prev + 1); }} 
                    className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'woow' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-slate-100'}`}
                  >
                     <Home size={26} />
@@ -120,7 +129,7 @@ export default function LexwoowPage() {
                  </button>
 
                  <button 
-                   onClick={() => setActiveTab('profile')} 
+                   onClick={() => { setActiveTab('profile'); setSearchTerm(""); }} 
                    className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'profile' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-transparent'}`}
                  >
                     <User size={26} />
@@ -132,9 +141,8 @@ export default function LexwoowPage() {
                     <span>Market</span>
                  </Link>
 
-                 {/* ETKİNLİKLER BUTONU */}
                  <button 
-                   onClick={() => { setActiveTab('events'); setRefreshKey(prev => prev + 1); }}
+                   onClick={() => { setActiveTab('events'); setSearchTerm(""); setRefreshKey(prev => prev + 1); }}
                    className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${
                      activeTab === 'events' 
                        ? 'bg-amber-500/10 text-amber-600 border border-amber-200' 
@@ -175,29 +183,41 @@ export default function LexwoowPage() {
               <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
                 <TrendingUp size={14} className="text-amber-500" />
                 <span>
-                  {activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : activeTab === 'profile' ? 'PROFİLİM' : 'ETKİNLİK GÜNDEMİ'}
+                  {/* Başlık Duruma Göre Değişir */}
+                  {searchTerm 
+                    ? `"${searchTerm}" İÇİN SONUÇLAR` 
+                    : activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : activeTab === 'profile' ? 'PROFİLİM' : 'ETKİNLİK GÜNDEMİ'
+                  }
                 </span>
               </div>
               <div className="h-[1px] flex-1 bg-slate-200"></div>
           </div>
 
-          {/* POST LİSTESİ */}
+          {/* POST LİSTESİ - Search Query Prop Eklendi */}
           <PostList 
             key={refreshKey} 
             userId={activeTab === 'profile' ? user?.id : undefined} 
             filter={activeTab === 'events' ? 'events' : 'all'} 
+            searchQuery={debouncedSearch} // [YENİ] Arama kelimesini gönderiyoruz
           />
           
         </div>
 
-        {/* 3. SAĞ KOLON */}
+        {/* 3. SAĞ KOLON (Masaüstü Arama Entegre Edildi) */}
         <div className="hidden lg:block lg:col-span-1">
           <div className="sticky top-8 space-y-6">
              <div className="relative mb-6">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input type="text" placeholder="Ara..." className="w-full bg-white border border-slate-200 rounded-full py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-amber-500/20 text-sm shadow-sm" />
+                <input 
+                  type="text" 
+                  placeholder="Kişi, Şehir veya Konu..." 
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full bg-white border border-slate-200 rounded-full py-3 pl-12 pr-4 outline-none focus:ring-2 focus:ring-amber-500/20 text-sm shadow-sm transition-all" 
+                />
              </div>
 
+            {/* Yan Widgetlar */}
             <div className="bg-white border border-slate-200/80 rounded-[1.5rem] p-6 shadow-sm shadow-slate-200/50">
               <h3 className="font-black text-[11px] mb-6 flex items-center gap-2 text-slate-900 uppercase tracking-widest">
                 <Users size={18} className="text-amber-500" /> Aktif Gruplar

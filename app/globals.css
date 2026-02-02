@@ -34,16 +34,31 @@
   }
 
   body {
+    /* Tailwind değişkenlerini burada uyguluyoruz ki varsayılan olsun */
+    background-color: var(--background);
+    color: var(--foreground);
     transition: background-color 0.5s ease, color 0.5s ease;
   }
 }
 
-.bg-theme-card {
-  background-color: var(--card-bg);
-  border-color: var(--card-border);
+/* Özel sınıfları components veya utilities katmanına almak en iyisidir */
+@layer components {
+  .bg-theme-card {
+    background-color: var(--card-bg);
+    border-color: var(--card-border);
+  }
 }
 
-/* --- OPTİMİZE EDİLMİŞ ARKA PLAN ANİMASYONU --- */
+@layer utilities {
+  .animate-floating-icons {
+    will-change: transform, opacity;
+    animation: floatUp 25s linear infinite;
+    -webkit-font-smoothing: antialiased;
+    backface-visibility: hidden;
+  }
+}
+
+/* Keyframes global alanda kalabilir */
 @keyframes floatUp {
   0% {
     transform: translateY(0) rotate(0deg);
@@ -59,11 +74,4 @@
     transform: translateY(-120vh) rotate(20deg);
     opacity: 0;
   }
-}
-
-.animate-floating-icons {
-  will-change: transform, opacity;
-  animation: floatUp 25s linear infinite;
-  -webkit-font-smoothing: antialiased;
-  backface-visibility: hidden;
 }

