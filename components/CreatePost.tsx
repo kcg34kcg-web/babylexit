@@ -1,13 +1,15 @@
 "use client";
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect } from "react";
 import imageCompression from "browser-image-compression";
 import { createClient } from "@/utils/supabase/client"; 
 import { Calendar, MapPin, Image as ImageIcon, Loader2, X, Clock, Globe, Building2 } from "lucide-react"; 
 import { cn } from "@/utils/cn";
-// ÖNEMLİ: Yukarıda oluşturduğumuz dosyayı import ediyoruz
+// Router'ı kaldırdık çünkü otomatik yönlendirme istemiyoruz
+// import { useRouter } from "next/navigation"; 
 import { ALL_LOCATIONS, LocationItem, LocationType } from "@/utils/locations"; 
 
 export default function CreatePost({ userId }: { userId: string }) {
+  // const router = useRouter(); // Kullanmıyoruz
   const [content, setContent] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -156,6 +158,7 @@ export default function CreatePost({ userId }: { userId: string }) {
 
       if (dbError) throw dbError;
 
+      // --- DEĞİŞİKLİK BURADA: YÖNLENDİRME YOK, SADECE EVENT ---
       // Sayfa yenilemeden güncellemek için event fırlatıyoruz
       const newPostEvent = new CustomEvent('new-post-created', { detail: data });
       window.dispatchEvent(newPostEvent);
@@ -163,10 +166,14 @@ export default function CreatePost({ userId }: { userId: string }) {
       // Temizlik
       setContent("");
       setFile(null);
-      setIsEventMode(false);
-      setDateInput("");
-      setTimeInput("");
-      setEventLocation("");
+      // Event modunu hemen kapatmıyoruz ki kullanıcı "oluştuğunu" görsün,
+      // veya isteğe bağlı kapatabiliriz:
+      if (isEventMode) {
+         setIsEventMode(false);
+         setDateInput("");
+         setTimeInput("");
+         setEventLocation("");
+      }
 
     } catch (error) {
       console.error("Hata:", error);
@@ -266,6 +273,7 @@ export default function CreatePost({ userId }: { userId: string }) {
                                 </div>
                             </div>
                         ))}
+                        {/* EKSİK OLAN KISIM BURASIYDI: Özel Konum Ekleme Seçeneği */}
                         {filteredLocations.length === 0 && eventLocation && (
                              <div 
                                 onClick={() => selectLocation(eventLocation)}

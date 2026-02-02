@@ -18,46 +18,49 @@ const config: Config = {
     },
     extend: {
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        // DÜZELTME: hsl() fonksiyonları kaldırıldı, doğrudan değişken kullanıldı.
+        border: "var(--card-border)", 
+        input: "var(--card-border)",
+        ring: "var(--accent)",
+        background: "var(--background)",
+        foreground: "var(--foreground)",
 
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: "var(--foreground)",
+          foreground: "var(--background)",
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+          DEFAULT: "var(--muted-bg)",
+          foreground: "var(--foreground)",
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+          DEFAULT: "#ef4444", // Varsayılan kırmızı
+          foreground: "#ffffff",
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: "var(--muted-bg)",
+          foreground: "#94a3b8",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: "var(--accent)",
+          foreground: "#ffffff",
         },
         popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
+          DEFAULT: "var(--card-bg)",
+          foreground: "var(--foreground)",
         },
         card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
+          DEFAULT: "var(--card-bg)",
+          foreground: "var(--foreground)",
         },
 
-        /* 🔥 YENİ EKLENEN RENKLER (MEVCUTLAR KORUNDU) */
+        /* 🔥 LEXWOOW ÖZEL RENKLERİ */
         lexwoow: {
           start: "#FF6B6B",
           end: "#FF8E53",
           neon: "#FF5E92",
+          violet: "#7c3aed",
+          fuchsia: "#c026d3",
         },
         gold: {
           star: "#FFD700",
@@ -65,9 +68,9 @@ const config: Config = {
       },
 
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        lg: "0.5rem",
+        md: "calc(0.5rem - 2px)",
+        sm: "calc(0.5rem - 4px)",
       },
 
       keyframes: {
@@ -87,8 +90,13 @@ const config: Config = {
           from: { transform: "translateY(-0.5rem)", opacity: "0" },
           to: { transform: "translateY(0)", opacity: "1" },
         },
-
-        /* ✨ YENİ KEYFRAMES */
+        /* ✨ ARKA PLAN İKONLARI İÇİN KEYFRAMES */
+        floatUp: {
+          "0%": { transform: "translateY(0) rotate(0deg)", opacity: "0" },
+          "20%": { opacity: "0.15" },
+          "80%": { opacity: "0.15" },
+          "100%": { transform: "translateY(-100vh) rotate(20deg)", opacity: "0" },
+        },
         "bounce-slight": {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-5px)" },
@@ -110,8 +118,9 @@ const config: Config = {
         "accordion-up": "accordion-up 0.2s ease-out",
         "fade-in": "fade-in 0.3s ease-out",
         "slide-in-from-top-2": "slide-in-from-top-2 0.3s ease-out",
-
+        
         /* ✨ YENİ ANİMASYONLAR */
+        "floating-icons": "floatUp 20s linear infinite",
         "bounce-slight": "bounce-slight 0.4s ease-out",
         "pulse-glow": "pulse-glow 2s infinite",
       },

@@ -12,7 +12,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 // İKONLAR
-import { Sparkles, TrendingUp, BadgeCheck, ShieldCheck, Zap, Ticket, Calendar, MapPin, Clock } from 'lucide-react'; 
+import { Sparkles, TrendingUp, BadgeCheck, ShieldCheck, Zap, Ticket, Calendar, MapPin, Clock, ArrowRight } from 'lucide-react'; 
 
 // FİZİK MOTORU
 import { motion, useAnimation } from 'framer-motion';
@@ -178,7 +178,7 @@ const PostItem = ({
       {/* --- CONTENT --- */}
       <div className="px-4 pb-2">
         
-        {/* --- [YENİ] ETKİNLİK DETAYLARI (ÜST KISIM - HEADER GİBİ) --- */}
+        {/* --- ETKİNLİK DETAYLARI (ÜST KISIM) --- */}
         {post.is_event && (
            <div className="mb-2 flex flex-wrap items-center gap-2 animate-in fade-in slide-in-from-left-2">
               
@@ -243,6 +243,42 @@ const PostItem = ({
             <Image src={post.image_url} alt="Post Görseli" fill className="object-cover" />
           </div>
         )}
+
+        {/* [YENİLENMİŞ FİNAL TASARIM] Lacivert-Turuncu Degrade */}
+        {post.is_event && (
+           <button 
+                onClick={(e) => {
+                    e.stopPropagation();
+                    goToFullView();
+                }}
+                className="mt-3 w-full group/btn relative overflow-hidden rounded-xl border border-slate-200 hover:border-blue-300 transition-all duration-300 shadow-sm hover:shadow-md"
+           >
+                {/* Arka Plan Degradesi (Transparan Turuncu-Lacivert Geçiş) */}
+                <div className="absolute inset-0 bg-gradient-to-r from-blue-50/50 via-transparent to-orange-50/50 opacity-100 group-hover/btn:opacity-0 transition-opacity" />
+                
+                {/* Hover Arka Planı (Daha Canlı Lacivert) */}
+                <div className="absolute inset-0 bg-gradient-to-r from-slate-900 to-blue-900 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+
+                <div className="relative z-10 flex items-center justify-center gap-2 py-2.5 px-4">
+                    {/* Bilet İkonu: Normalde Turuncu, Hoverda Beyaz */}
+                    <Ticket 
+                        size={16} 
+                        className="text-orange-500 group-hover/btn:text-white transition-colors duration-300 rotate-0 group-hover/btn:-rotate-12" 
+                    />
+                    
+                    <span className="text-sm font-bold text-slate-700 group-hover/btn:text-white transition-colors duration-300">
+                        Etkinlik Detayları & Katıl
+                    </span>
+                    
+                    {/* Ok İkonu: Hoverda kayar */}
+                    <ArrowRight 
+                        size={14} 
+                        className="text-slate-400 group-hover/btn:text-orange-400 group-hover/btn:translate-x-1 transition-all duration-300" 
+                    />
+                </div>
+           </button>
+        )}
+
       </div>
 
       {/* --- FOOTER --- */}

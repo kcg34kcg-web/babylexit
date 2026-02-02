@@ -132,13 +132,13 @@ export default function LexwoowPage() {
                     <span>Market</span>
                  </Link>
 
-                 {/* [DÜZELTİLDİ] Etkinlikler Butonu - Ghost Style */}
+                 {/* ETKİNLİKLER BUTONU */}
                  <button 
                    onClick={() => { setActiveTab('events'); setRefreshKey(prev => prev + 1); }}
                    className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${
                      activeTab === 'events' 
-                       ? 'bg-amber-500/10 text-amber-600' // Aktif Stil (Ghost)
-                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900' // Normal Stil
+                       ? 'bg-amber-500/10 text-amber-600 border border-amber-200' 
+                       : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                    }`}
                  >
                     <Calendar size={26} />
@@ -185,6 +185,7 @@ export default function LexwoowPage() {
           <PostList 
             key={refreshKey} 
             userId={activeTab === 'profile' ? user?.id : undefined} 
+            filter={activeTab === 'events' ? 'events' : 'all'} 
           />
           
         </div>

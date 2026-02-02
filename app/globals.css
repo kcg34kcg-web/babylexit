@@ -1,5 +1,6 @@
-@import "tailwindcss";
-@config "../tailwind.config.ts";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 @layer base {
   :root {
@@ -37,8 +38,32 @@
   }
 }
 
-
 .bg-theme-card {
   background-color: var(--card-bg);
   border-color: var(--card-border);
+}
+
+/* --- OPTİMİZE EDİLMİŞ ARKA PLAN ANİMASYONU --- */
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.15;
+  }
+  90% {
+    opacity: 0.15;
+  }
+  100% {
+    transform: translateY(-120vh) rotate(20deg);
+    opacity: 0;
+  }
+}
+
+.animate-floating-icons {
+  will-change: transform, opacity;
+  animation: floatUp 25s linear infinite;
+  -webkit-font-smoothing: antialiased;
+  backface-visibility: hidden;
 }
