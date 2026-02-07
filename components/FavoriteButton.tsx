@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react"; // DÜZELTME: useEffect eklendi
 import { Star } from "lucide-react";
 import { toggleFavoriteAction } from "@/app/actions/favorite";
 import { cn } from "@/utils/cn";
@@ -15,19 +15,33 @@ export default function FavoriteButton({ itemId, initialIsFavorited, type = 'que
   const [isFavorited, setIsFavorited] = useState(initialIsFavorited);
   const [loading, setLoading] = useState(false);
 
+  // --- KRİTİK DÜZELTME BURASI ---
+  // Dashboard veriyi sonradan yükleyip gönderdiğinde, 
+  // butonun da bu değişikliği algılayıp kendini güncellemesini sağlıyoruz.
+  useEffect(() => {
+    setIsFavorited(initialIsFavorited);
+  }, [initialIsFavorited]);
+  // -----------------------------
+
   const handleToggle = async (e: React.MouseEvent) => {
-    e.preventDefault(); // Link'e tıklamayı engelle
+    e.preventDefault(); 
     e.stopPropagation();
     
     if (loading) return;
     setLoading(true);
 
-    // Optimistic UI (Sonuç gelmeden rengi değiştiriyoruz, daha hızlı hissettirir)
     const newState = !isFavorited;
-    setIsFavorited(newState);
+    setIsFavorited(newState); // Hızlı tepki (Optimistic UI)
 
-    await toggleFavoriteAction(itemId, type);
-    setLoading(false);
+    try {
+      await toggleFavoriteAction(itemId, type);
+    } catch (error) {
+      // Hata olursa geri al
+      setIsFavorited(!newState);
+      console.error("Favori işlemi hatası:", error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -44,7 +58,7 @@ export default function FavoriteButton({ itemId, initialIsFavorited, type = 'que
         className={cn(
           "transition-colors duration-300",
           isFavorited 
-            ? "fill-gold-star text-gold-star animate-bounce-slight" 
+            ? "fill-orange-400 text-orange-400 animate-bounce-slight" // Renkleri de netleştirdik
             : "text-gray-400"
         )} 
       />

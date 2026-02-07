@@ -2,41 +2,109 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/utils/supabase/server";
-import { cookies } from "next/headers";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const apiKey = process.env.GEMINI_API_KEY;
+if (!apiKey) {
+  throw new Error("GEMINI_API_KEY is not defined");
+}
 
-// Cevapları denetleyen ve 2 paragraf yorum yazan fonksiyon
-export async function analyzeAnswer(answerId: string, content: string, questionTitle: string) {
-// cookies() fonksiyonunu await ederek çağırıyoruz (Next.js 15 kuralı)
-const cookieStore = await cookies();
-const supabase = await createClient(); // createClient kendi içinde cookies'i kullanır
+const genAI = new GoogleGenerativeAI(apiKey);
+
+// Modeller
+// Moderasyon ve analiz için hızlı model (Flash)
+const flashModel = genAI.getGenerativeModel({ 
+  model: "gemini-2.0-flash", 
+  generationConfig: { responseMimeType: "application/json" } 
+});
+
+// Vektör işlemleri için embedding modeli
+const embeddingModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
+
+// ---------------------------------------------------------
+// 1. İÇERİK GÜVENLİK KONTROLÜ (MODERASYON)
+// ---------------------------------------------------------
+export async function checkContentSafety(text: string) {
   const prompt = `
-    Sen "Babylexit" hukuk platformunda uzman bir Türk hukukçususun.
+    Sen "Babylexit" hukuk ve topluluk platformunun içerik moderatörüsün.
+    Aşağıdaki metni analiz et.
+
+    METİN: "${text}"
+
+    KRİTERLER:
+    - Küfür, ağır hakaret, aşağılama var mı?
+    - Açıkça şiddet tehdidi veya fiziksel zarar verme isteği var mı?
+    - Yasadışı faaliyetlere (uyuşturucu, kaçakçılık vb.) teşvik var mı?
+    - Hukuki tartışma adabına uymayan cinsel içerik var mı?
+
+    NOT: "Öldürme suçu", "tecavüz davası" gibi hukuki terimlerin kullanılması YASAK DEĞİLDİR. Sadece şahsa saldırı ve toksik dil yasaktır.
+
+    YANIT FORMATI (JSON):
+    {
+      "isSafe": boolean, 
+      "reason": "string" (Eğer false ise, kullanıcıya gösterilecek nazik bir uyarı mesajı. Örn: "İçeriğiniz hakaret içerdiği için...")
+    }
+  `;
+
+  try {
+    const result = await flashModel.generateContent(prompt);
+    const responseText = result.response.text().replace(/```json|```/g, "").trim();
+    return JSON.parse(responseText);
+  } catch (error) {
+    console.error("Moderation Error:", error);
+    // Hata durumunda kullanıcıyı engellememek için (fail-open) veya güvenli olsun diye engellemek (fail-closed) senin tercihin.
+    // Şimdilik güvenli varsayıyoruz:
+    return { isSafe: true, reason: "" }; 
+  }
+}
+
+// ---------------------------------------------------------
+// 2. VEKTÖR OLUŞTURMA
+// ---------------------------------------------------------
+export async function generateEmbedding(text: string) {
+  try {
+    const cleanText = text.replace(/\n/g, " ");
+    const result = await embeddingModel.embedContent(cleanText);
+    return result.embedding.values;
+  } catch (error) {
+    console.error("Embedding Error:", error);
+    return null;
+  }
+}
+
+// ---------------------------------------------------------
+// 3. CEVAP ANALİZİ VE PUANLAMA
+// ---------------------------------------------------------
+export async function analyzeAnswer(answerId: string, content: string, questionTitle: string) {
+  const supabase = await createClient();
+  
+  const prompt = `
+    Sen "Babylexit" platformunda uzman bir asistan ve moderatörsün.
     SORU: "${questionTitle}"
     KULLANICI CEVABI: "${content}"
     
     GÖREVİN:
-    1. Cevabı hukuki doğruluk açısından 0-100 arası puanla.
-    2. Cevaba dair ekleme veya düzeltme yap.
-    3. ÖNEMLİ: Yazacağın yorum MAKSİMUM 2 PARAGRAF olmalı. Profesyonel ve yapıcı ol.
+    1. Sorunun alanını tespit et (Hukuk, Genel, vb.).
+    2. Cevabı doğruluk açısından 0-100 arası puanla.
+    3. Eksik veya yanlış varsa düzelt.
+    4. Yorumun MAKSİMUM 2 PARAGRAF olsun. Profesyonel ve yapıcı ol.
     
-    YANITI ŞU JSON FORMATINDA VER: {"score": 85, "critique": "Paragraf 1... \n\n Paragraf 2..."}
+    YANIT FORMATI (JSON): 
+    {"score": 85, "critique": "Alan: [Alan]. \n\n Yorum..."}
   `;
 
   try {
-    const result = await model.generateContent(prompt);
-    const data = JSON.parse(result.response.text().replace(/```json|```/g, ""));
+    const result = await flashModel.generateContent(prompt);
+    const responseText = result.response.text().replace(/```json|```/g, "").trim();
+    const data = JSON.parse(responseText);
 
     await supabase.from('answers').update({ 
       ai_score: data.score, 
-      ai_critique: data.critique 
+      ai_feedback: data.critique 
     }).eq('id', answerId);
 
-    return { success: true };
+    return { success: true, data };
   } catch (error) {
-    console.error("AI Error:", error);
+    console.error("AI Analysis Error:", error);
     return { success: false };
   }
 }

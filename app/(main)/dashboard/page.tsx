@@ -1,3 +1,4 @@
+// Dosya: app/(main)/dashboard/page.tsx
 'use client';
 
 import { createClient } from '@/utils/supabase/client';
@@ -6,6 +7,8 @@ import Link from 'next/link';
 import moment from 'moment';
 import 'moment/locale/tr';
 import { useRouter } from 'next/navigation';
+// ÖNEMLİ: Çalışan bileşeni buraya çağırıyoruz
+import FavoriteButton from '@/components/FavoriteButton';
 import { 
   TrendingUp, 
   MessageSquare, 
@@ -14,7 +17,6 @@ import {
   User, 
   Calendar, 
   Loader2, 
-  Heart, 
   Search,
   PenTool,
   BookOpen, 
@@ -48,6 +50,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   
+  // Favori listesi (sadece butonun ilk rengini belirlemek için)
   const [favorites, setFavorites] = useState<string[]>([]);
 
   const supabase = createClient();
@@ -64,6 +67,7 @@ export default function DashboardPage() {
       }
       setUser(user);
 
+      // Profil verisi
       const { data: profileData } = await supabase
         .from('profiles')
         .select('id, full_name, reputation, credits')
@@ -71,6 +75,7 @@ export default function DashboardPage() {
         .single();
       if (profileData) setProfile(profileData);
 
+      // Soruları çek
       const { data: questionsData } = await supabase
         .from('questions')
         .select(`
@@ -81,21 +86,24 @@ export default function DashboardPage() {
         .limit(10);
 
       if (questionsData) setQuestions(questionsData as any);      
+
+      // Kullanıcının favorilerini çek (Veritabanından)
+      const { data: existingFavs } = await supabase
+        .from('favorites')
+        .select('question_id')
+        .eq('user_id', user.id);
+        
+      if (existingFavs) {
+        // Gelen veriyi ["id1", "id2"] formatına çevir
+        setFavorites(existingFavs.map((item: any) => item.question_id));
+      }
+
       setLoading(false);
     };
 
     fetchData();
     moment.locale('tr');
   }, [supabase, router]);
-
-  const toggleFavorite = (e: React.MouseEvent, id: string) => {
-    e.preventDefault(); 
-    if (favorites.includes(id)) {
-      setFavorites(favorites.filter(favId => favId !== id));
-    } else {
-      setFavorites([...favorites, id]);
-    }
-  };
 
   const filteredQuestions = questions.filter((q) => 
     q.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -113,7 +121,6 @@ export default function DashboardPage() {
   return (
     <div className="p-4 md:p-8 space-y-8 max-w-7xl mx-auto pb-24 bg-slate-50 min-h-screen">
       
-      {/* Özel Animasyon Stilleri */}
       <style jsx global>{`
         @keyframes border-flow {
           0% { background-position: 0% 50%; }
@@ -153,10 +160,9 @@ export default function DashboardPage() {
 
       {/* 2. HIZLI AKSİYONLAR */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        
         <Link 
           href="/ask" 
-          className="bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 p-6 rounded-3xl flex items-center justify-between group transition-all shadow-lg shadow-amber-500/20"
+          className="bg-gradient-to-r from-amber-500 to-orange-400 hover:from-amber-500 hover:to-orange-400 p-6 rounded-3xl flex items-center justify-between group transition-all shadow-lg shadow-amber-500/20"
         >
           <div>
             <h3 className="text-white font-bold text-xl mb-1">Soru Sor</h3>
@@ -180,23 +186,14 @@ export default function DashboardPage() {
           </div>
         </Link>
       </div>
-{/* 3. YAYINLAR BANNER (TAM İSTEDİĞİN GİBİ) */}
-<Link href="/publications" className="block mt-6 group">
-        {/* Yuvarlak Köşeler (rounded-3xl) ve Neon Efekt */}
+
+      {/* 3. YAYINLAR BANNER */}
+      <Link href="/publications" className="block mt-6 group">
         <div className="relative p-[3px] rounded-3xl overflow-hidden shadow-2xl shadow-indigo-900/10 hover:shadow-amber-500/20 transition-shadow duration-300">
-          
-          {/* Neon Arkaplan Animasyonu */}
           <div className="absolute inset-0 bg-gradient-to-r from-amber-500 via-indigo-400 to-amber-500 animate-border-flow"></div>
-          
-          {/* İçerik Kartı: LACİVERT ZEMİN (Turuncu değil) */}
           <div className="relative bg-slate-00 rounded-[21px] p-6 sm:p-8 flex flex-col md:flex-row items-start md:items-center justify-between overflow-hidden">
-            
-            {/* Hafif Desen */}
             <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#fb923c 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
-            
             <div className="z-10 flex flex-col gap-4 max-w-2xl">
-              
-              {/* ETİKETLER */}
               <div className="flex gap-2">
                   <span className="bg-amber-500 text-slate-900 text-xs px-3 py-1 rounded-lg flex items-center gap-1.5 font-extrabold shadow-lg uppercase tracking-wide">
                     <BookOpen size={14} /> Makale
@@ -205,8 +202,6 @@ export default function DashboardPage() {
                     <PlayCircle size={14} /> Video
                   </span>
               </div>
-
-              {/* ANA METİN: Beyaz */}
               <div>
                 <h2 className="text-3xl sm:text-4xl font-black text-white leading-tight mb-2 drop-shadow-md">
                   Bilgi birikimini artır.
@@ -215,23 +210,19 @@ export default function DashboardPage() {
                   Bilimsel makaleler, içtihat analizleri ve eğitici videolar ile uzmanlaş.
                 </p>
               </div>
-              
-              {/* BUTTON: Turuncu Zemin -> Lacivert Yazı */}
               <div className="mt-1 inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-slate-900 px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl hover:scale-105 transition-transform w-fit cursor-pointer">
                 Hemen İncele <ArrowRight size={18} />
               </div>
             </div>
-
-            {/* Dekoratif İkon */}
             <div className="hidden md:flex items-center justify-center w-28 h-28 bg-white/5 rounded-full shadow-2xl backdrop-blur-sm border border-white/10 group-hover:rotate-12 transition-transform duration-500">
               <BookOpen className="text-amber-500 drop-shadow-[0_0_15px_rgba(249,115,22,0.5)]" size={48} />
             </div>
           </div>
         </div>
       </Link>
+
       {/* 4. GÜNDEM AKIŞI ALANI */}
       <div className="mt-10">
-        
         <div className="flex flex-col md:flex-row justify-between items-end md:items-center mb-6 gap-4">
           <div className="w-full md:w-auto self-start md:self-auto">
             <h2 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
@@ -287,21 +278,13 @@ export default function DashboardPage() {
                   
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                     
-                    {/* FAVORİ BUTONU: Belirgin Hale Getirildi */}
-                    <button 
-                      onClick={(e) => toggleFavorite(e, q.id)}
-                      className={`p-2.5 rounded-full transition-all duration-200 active:scale-90 border shadow-sm ${
-                        favorites.includes(q.id) 
-                          ? 'bg-amber-500 border-amber-600 text-white shadow-amber-200 shadow-md' 
-                          : 'bg-white border-slate-200 text-slate-400 hover:border-amber-300 hover:text-amber-500'
-                      }`}
-                      title="Favorile"
-                    >
-                      <Heart 
-                        size={20} 
-                        className={favorites.includes(q.id) ? 'fill-current' : ''}
-                      />
-                    </button>
+                    {/* YENİ EKLENEN KISIM: FavoriteButton Bileşeni */}
+                    {/* Artık manuel buton yok. Bu bileşen veritabanı işini kendi hallediyor. */}
+                    <FavoriteButton 
+                      itemId={q.id} 
+                      initialIsFavorited={favorites.includes(q.id)} 
+                      type="question" 
+                    />
 
                     <Link 
                       href={`/questions/${q.id}`}

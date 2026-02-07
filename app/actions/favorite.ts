@@ -28,7 +28,8 @@ export async function toggleFavoriteAction(itemId: string, type: 'question' | 'a
     });
   }
 
-  // Sayfayı yenile ki UI güncellensin
+  // Sayfaları yenile ki UI güncellensin
+  revalidatePath("/dashboard"); // EKLENDİ: Artık ana evimiz burası
   revalidatePath("/main");
   revalidatePath("/favorites");
   revalidatePath(`/questions/${itemId}`);

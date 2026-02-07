@@ -4,9 +4,21 @@ import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Loader2, ArrowLeft, Sparkles, Users, Scale } from 'lucide-react'; 
+import { 
+  Loader2, 
+  ArrowLeft, 
+  Sparkles, 
+  Users, 
+  Scale, 
+  FileText,
+  AlertCircle,
+  ShieldCheck,
+  Search
+} from 'lucide-react'; 
 import Link from 'next/link';
 import { submitQuestion } from '@/app/actions/submit-question';
+import { suggestSimilarQuestions } from '@/app/actions/search';
+import { AILoadingOverlay } from '@/components/ai-loading-overlay';
 
 export default function AskPage() {
   // UI State
@@ -14,10 +26,25 @@ export default function AskPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showEffect, setShowEffect] = useState<'ai' | 'community' | null>(null);
   
+  const [targetType, setTargetType] = useState<'ai' | 'community' | null>(null);
+
+  // Arama ve Limit State'leri
+  const [similarQuestions, setSimilarQuestions] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  
   // Form State
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  // YENİ STATE: İşlem bittiğinde oluşan ID'yi burada tutacağız
+  const [finishedQuestionId, setFinishedQuestionId] = useState<string | null>(null);
+
+  // Limit Tanımları
+  const LIMITS = {
+    title: 100,
+    content: 1000
+  };
 
   const router = useRouter();
   const supabase = createClient();
@@ -48,52 +75,117 @@ export default function AskPage() {
     fetchCredits();
   }, [supabase, router]);
 
-  // --- 2. GÜNCELLENEN GÖNDERİM FONKSİYONU ---
-  const handleClientSubmit = async (formData: FormData) => {
-    const target = formData.get('target') as string;
-    const cost = target === 'ai' ? 3 : 1;
+  // --- 1.1 AKILLI ARAMA ---
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (title.length > 2) { 
+        setIsSearching(true);
+        try {
+          const results = await suggestSimilarQuestions(title);
+          setSimilarQuestions(results || []);
+        } catch (err) {
+          console.error("Arama hatası", err);
+        } finally {
+          setIsSearching(false);
+        }
+      } else {
+        setSimilarQuestions([]);
+      }
+    }, 800); 
 
-    // A. Validasyonlar
+    return () => clearTimeout(delayDebounceFn);
+  }, [title]);
+
+  // --- 2. GÖNDERİM FONKSİYONU (GÜNCELLENDİ) ---
+  const handleClientSubmit = async (formData: FormData) => {
+    let targetVal = formData.get('target') as string;
+    
+    // Target belirleme mantığı (State veya Form'dan)
+    const activeTarget = targetType || (targetVal as 'ai' | 'community');
+    if (!targetType) setTargetType(activeTarget);
+    
+    // FormData'ya target ekle (Eğer yoksa)
+    if(!formData.get('target')) {
+        formData.append('target', activeTarget);
+    }
+
+    const cost = activeTarget === 'ai' ? 3 : 1;
+
     if (credits !== null && credits < cost) {
       toast.error(`Yetersiz kredi. Bu işlem için ${cost} kredi gerekiyor.`);
+      setTargetType(null);
       return;
     }
 
     if (!title.trim() || !content.trim()) {
       toast.error('Lütfen tüm alanları doldurun.');
+      setTargetType(null);
       return;
     }
 
+    // Yükleme Başlıyor
     setIsSubmitting(true);
-    if (target === 'ai') setShowEffect('ai');
+    setFinishedQuestionId(null); // ID'yi sıfırla
+
+    if (activeTarget === 'ai') setShowEffect('ai');
     else setShowEffect('community');
 
     try {
-      const result = await submitQuestion(formData);
+      // --- ZAMANLAYICI EKLEME ---
+      // AI ise en az 4 saniye bekle (Oyun oynansın)
+      // Topluluk ise bekleme
+      const minWaitTime = activeTarget === 'ai' ? 4000 : 0;
+      
+      const timerPromise = new Promise(resolve => setTimeout(resolve, minWaitTime));
+      const submissionPromise = submitQuestion(formData);
+
+      // İki işlemin de bitmesini bekle
+      const [_, result] = await Promise.all([timerPromise, submissionPromise]);
 
       if (result?.error) {
-        toast.error(`Hata: ${result.error}`);
-        setIsSubmitting(false);
-        setShowEffect(null);
+         toast.error(result.error);
+         setIsSubmitting(false);
+         setShowEffect(null);
+         setTargetType(null);
       } else if (result?.success && result?.questionId) {
-        toast.success(target === 'ai' ? 'AI Analizi Tamamlandı!' : 'Soru topluluğa iletildi!');
-        router.push(`/questions/${result.questionId}`); 
+        
+        // --- BURASI DEĞİŞTİ: HEDEF AI İSE YÖNLENDİRME YAPMA ---
+        if (activeTarget === 'ai') {
+            setFinishedQuestionId(result.questionId);
+            toast.success("Analiz Tamamlandı! Sonuçlar hazır.");
+            // isSubmitting'i kapatmıyoruz, böylece overlay ekranda kalıyor
+            // ama 'isFinished' prop'u sayesinde içeriği değişecek.
+        } else {
+            // Topluluk ise hemen yönlendir
+            toast.success('Soru topluluğa iletildi!');
+            router.push(`/questions/${result.questionId}`); 
+        }
       }
     } catch (error) {
       console.error(error);
       toast.error('Beklenmedik bir hata oluştu.');
       setIsSubmitting(false);
       setShowEffect(null);
+      setTargetType(null);
     }
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 md:p-8 relative overflow-hidden">
+    <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 relative overflow-hidden">
       
-      {/* KREDİ DÜŞME EFEKTİ */}
-      {showEffect && (
+      {/* --- AI BEKLEME EKRANI --- */}
+      {/* isSubmitting true VE targetType 'ai' ise gösterilir. */}
+      {isSubmitting && targetType === 'ai' && (
+        <AILoadingOverlay 
+            isFinished={!!finishedQuestionId} // ID varsa bitti demektir
+            redirectUrl={finishedQuestionId ? `/questions/${finishedQuestionId}` : '/'}
+        />
+      )}
+
+      {/* KREDİ EFEKTİ (Sadece topluluk için, AI için zaten overlay var) */}
+      {showEffect && targetType !== 'ai' && (
         <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
-          <div className="animate-float-up text-6xl font-black text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+          <div className="animate-float-up text-6xl font-black text-orange-500 drop-shadow-xl bg-white/90 backdrop-blur-sm px-8 py-4 rounded-3xl border border-orange-100">
             -{showEffect === 'ai' ? '3' : '1'} Kredi
           </div>
         </div>
@@ -101,106 +193,190 @@ export default function AskPage() {
 
       <div className="max-w-3xl mx-auto">
         
-        {/* ÜST MENÜ */}
         <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-8 gap-4">
           <Link 
-            href="/" 
-            className="inline-flex items-center text-slate-400 hover:text-amber-500 transition-colors font-medium group"
+            href="/dashboard" 
+            className="inline-flex items-center text-slate-500 hover:text-orange-600 transition-colors font-bold bg-white px-4 py-2 rounded-full shadow-sm border border-slate-200 group"
           >
-            <ArrowLeft className="mr-2 group-hover:-translate-x-1 transition-transform" size={20} />
-            Ana Menüye Dön
+            <ArrowLeft className="mr-2 group-hover:-translate-x-1 transition-transform" size={18} />
+            Panele Dön
           </Link>
 
           <div className="self-end md:self-auto">
              {isLoading ? (
-              <div className="bg-slate-900 border border-slate-700 px-4 py-2 rounded-full text-slate-400 text-sm animate-pulse">
+              <div className="bg-white border border-slate-200 px-4 py-2 rounded-full text-slate-400 text-sm animate-pulse shadow-sm">
                 Yükleniyor...
               </div>
             ) : (
-              <div className={`px-5 py-2 rounded-full font-bold border flex items-center gap-2 ${credits === 0 ? 'bg-red-900/20 border-red-500 text-red-500' : 'bg-slate-900 border-amber-500/50 text-amber-500'}`}>
+              <div className={`px-5 py-2 rounded-full font-bold border flex items-center gap-2 shadow-sm ${credits === 0 ? 'bg-red-50 border-red-200 text-red-500' : 'bg-white border-orange-100 text-orange-600'}`}>
                 <span>Kalan Kredi: {credits}</span>
-                <span>🪙</span>
+                <span className="text-xl">🪙</span>
               </div>
             )}
           </div>
         </div>
 
-        {/* FORM ALANI */}
-        <form action={handleClientSubmit} className="bg-slate-900 p-6 md:p-8 rounded-2xl shadow-xl border border-slate-800">
+        <form action={handleClientSubmit} className="bg-white p-6 md:p-10 rounded-[2rem] shadow-xl shadow-indigo-900/5 border border-indigo-50 relative overflow-hidden group">
           
-          {/* YENİ LOGO VE SARI BAŞLIK ALANI */}
-          <div className="flex items-center gap-3 mb-6">
-            <Scale className="text-amber-500" size={32} />
-            <h1 className="text-3xl font-bold text-amber-500">Jurisdiction Lab</h1>
-            <span className="px-3 py-1 rounded-full bg-blue-600/20 text-blue-400 text-xs font-bold border border-blue-600/30 ml-auto">
-              Hibrit Sistem
-            </span>
+          <div className="absolute top-0 right-0 w-40 h-40 bg-orange-100 rounded-full mix-blend-multiply filter blur-3xl opacity-40 -z-10"></div>
+          <div className="absolute bottom-0 left-0 w-40 h-40 bg-indigo-100 rounded-full mix-blend-multiply filter blur-3xl opacity-40 -z-10"></div>
+
+          <div className="flex items-center gap-3 mb-8 pb-6 border-b border-slate-100">
+            <div className="bg-indigo-50 p-3 rounded-2xl text-indigo-600">
+               <Scale size={32} />
+            </div>
+            <div>
+               <h1 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Yeni Tartışma</h1>
+               <span className="text-slate-500 text-sm font-medium">Hukuki sorununa çözüm ara</span>
+            </div>
           </div>
 
-          <div className="mb-6">
-            <label className="block text-slate-300 text-sm font-bold mb-2">Başlık</label>
+          {/* --- BAŞLIK ALANI --- */}
+          <div className="mb-6 relative">
+            <label className="block text-slate-700 text-sm font-bold mb-2 flex justify-between">
+              <span className="flex items-center gap-2">Soru Başlığı <span className="text-red-400">*</span></span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded ${title.length >= LIMITS.title ? 'bg-red-100 text-red-500' : 'bg-slate-100 text-slate-500'}`}>
+                {title.length}/{LIMITS.title}
+              </span>
+            </label>
             <input
               type="text"
               name="title" 
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:ring-2 focus:ring-amber-500 outline-none transition-all"
-              placeholder="Örn: Roma Hukukunda Mülkiyet Devri"
+              onChange={(e) => setTitle(e.target.value.slice(0, LIMITS.title))}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-4 px-5 text-slate-900 placeholder:text-slate-400 focus:bg-white focus:ring-4 focus:ring-orange-500/10 focus:border-orange-400 outline-none transition-all font-bold text-lg shadow-sm"
+              placeholder="Örn: Ev sahibi kirayı %100 artırabilir mi?"
               required
               disabled={isSubmitting}
+              autoComplete="off"
             />
+            
+            {/* BENZER SORULAR PANELİ */}
+            {(isSearching || similarQuestions.length > 0) && (
+               <div className="mt-3 bg-white border border-slate-200 rounded-2xl p-4 shadow-xl animate-in fade-in slide-in-from-top-2 relative z-20">
+                 {isSearching ? (
+                   <div className="flex items-center gap-2 text-sm text-indigo-500 font-bold">
+                     <Loader2 className="animate-spin w-4 h-4" />
+                     <span>Benzer konular taranıyor...</span>
+                   </div>
+                 ) : (
+                   <div className="space-y-1">
+                     <div className="flex justify-between items-center mb-2 px-2">
+                        <p className="text-xs text-orange-600 font-black uppercase tracking-wider flex items-center gap-1">
+                          <Search size={12} /> Bunları mı aramak istediniz?
+                        </p>
+                        <button 
+                           type="button" 
+                           onClick={() => setSimilarQuestions([])} 
+                           className="text-xs text-slate-400 hover:text-slate-600 underline"
+                        >
+                          Gizle
+                        </button>
+                     </div>
+                     
+                     {similarQuestions.map((q) => (
+                       <Link 
+                         key={q.id} 
+                         href={`/questions/${q.id}`}
+                         target="_blank"
+                         className="flex items-start gap-3 p-3 hover:bg-indigo-50 rounded-xl group transition-all border border-transparent hover:border-indigo-100"
+                       >
+                         <div className="bg-slate-100 p-2 rounded-lg text-slate-500 group-hover:bg-white group-hover:text-indigo-500 transition-colors">
+                            <FileText size={16} />
+                         </div>
+                         <div>
+                           <div className="text-sm text-slate-800 group-hover:text-indigo-700 font-bold mb-0.5 line-clamp-1">
+                             {q.title}
+                           </div>
+                           <div className="text-xs text-slate-500 group-hover:text-indigo-400 font-medium flex items-center gap-2">
+                             <span className="font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
+                               %{Math.round(q.similarity * 100)}
+                             </span>
+                             <span className="line-clamp-1 opacity-70">{q.content.substring(0, 40)}...</span>
+                           </div>
+                         </div>
+                       </Link>
+                     ))}
+                   </div>
+                 )}
+               </div>
+            )}
           </div>
 
           <div className="mb-8">
-            <label className="block text-slate-300 text-sm font-bold mb-2">Detaylı Açıklama</label>
+            <label className="block text-slate-700 text-sm font-bold mb-2 flex justify-between">
+              <span className="flex items-center gap-2">Detaylı Açıklama <span className="text-red-400">*</span></span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded ${content.length >= LIMITS.content ? 'bg-red-100 text-red-500' : 'bg-slate-100 text-slate-500'}`}>
+                {content.length}/{LIMITS.content}
+              </span>
+            </label>
             <textarea
               name="content" 
               rows={6}
               value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-lg py-3 px-4 text-white focus:ring-2 focus:ring-amber-500 outline-none transition-all resize-none"
-              placeholder="Sorunuzun detaylarını buraya yazın..."
+              onChange={(e) => setContent(e.target.value.slice(0, LIMITS.content))}
+              className="w-full bg-slate-50 border border-slate-200 rounded-xl py-4 px-5 text-slate-800 placeholder:text-slate-400 focus:bg-white focus:ring-4 focus:ring-orange-500/10 focus:border-orange-400 outline-none transition-all resize-y font-medium text-base shadow-sm"
+              placeholder="Durumu detaylıca anlatın. Ne kadar çok detay verirseniz, o kadar doğru yanıt alırsınız..."
               required
               disabled={isSubmitting}
             ></textarea>
+             {content.length < 20 && content.length > 0 && (
+              <p className="text-xs text-red-500 font-bold mt-2 ml-1 flex items-center gap-1">
+                <AlertCircle size={12}/> Lütfen en az 20 karakter açıklama giriniz.
+              </p>
+            )}
+            
+            <div className="mt-4 bg-indigo-50/50 border border-indigo-100 p-4 rounded-xl flex gap-3">
+               <ShieldCheck className="text-indigo-500 shrink-0 mt-0.5" size={18} />
+               <p className="text-xs text-indigo-800 leading-relaxed font-medium">
+                 Sorunuz <strong>Yapay Zeka Moderatörü</strong> tarafından otomatik denetlenecektir. Hakaret, tehdit veya suç unsuru içeren sorular yayınlanmaz ve krediniz iade edilmez.
+               </p>
+            </div>
           </div>
 
-          {/* İKİ AYRI BUTON ALANI */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            
-            {/* 1. TOPLULUK BUTONU */}
             <button
               type="submit"
               name="target"
               value="community"
+              onClick={() => setTargetType('community')}
               disabled={isSubmitting || (credits !== null && credits < 1)}
-              className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-slate-700 bg-slate-800/50 hover:bg-slate-800 hover:border-orange-500/50 transition-all group disabled:opacity-50"
+              className="flex flex-col items-center justify-center p-5 rounded-2xl border-2 border-slate-100 bg-white hover:border-orange-200 hover:bg-orange-50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md"
             >
-              <Users className="text-slate-400 group-hover:text-orange-500 mb-2" size={24} />
-              <span className="font-bold text-white">Topluluğa Sor</span>
-              <span className="text-orange-500 text-sm">1 Kredi</span>
-              <p className="text-[10px] text-slate-500 mt-2 text-center">Sadece kullanıcılar yanıtlayabilir</p>
+              <div className="bg-slate-100 p-3 rounded-full text-slate-500 group-hover:bg-orange-500 group-hover:text-white transition-colors mb-2">
+                 <Users size={24} />
+              </div>
+              <span className="font-bold text-slate-900 group-hover:text-orange-700 text-lg">Topluluğa Sor</span>
+              <span className="text-orange-500 text-xs font-black bg-orange-100 px-2 py-0.5 rounded mt-1">1 KREDİ</span>
+              <p className="text-[11px] text-slate-400 mt-2 text-center font-medium">Sadece kullanıcılar yanıtlayabilir</p>
             </button>
 
-            {/* 2. BABYLEXIT AI BUTONU */}
             <button
               type="submit"
               name="target"
               value="ai"
+              onClick={() => setTargetType('ai')}
               disabled={isSubmitting || (credits !== null && credits < 3)}
-              className="flex flex-col items-center justify-center p-4 rounded-xl border-2 border-blue-600 bg-blue-600/10 hover:bg-blue-600 hover:text-white transition-all group shadow-lg shadow-blue-900/20 disabled:opacity-50"
+              className="flex flex-col items-center justify-center p-5 rounded-2xl border-2 border-indigo-100 bg-indigo-50/30 hover:border-indigo-500 hover:bg-indigo-50 transition-all group shadow-sm hover:shadow-indigo-200/50 disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
             >
-              <Sparkles className="text-blue-400 group-hover:text-white mb-2" size={24} />
-              <span className="font-bold text-white group-hover:text-white">BabylexitAI'a Sor</span>
-              <span className="text-blue-400 group-hover:text-white text-sm">3 Kredi</span>
-              <p className="text-[10px] text-blue-300/60 group-hover:text-white/80 mt-2 text-center">AI Analizi + Topluluk Görüşü</p>
+              <div className="bg-indigo-100 p-3 rounded-full text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-colors mb-2 relative z-10">
+                 <Sparkles size={24} />
+              </div>
+              <span className="font-bold text-slate-900 group-hover:text-indigo-700 text-lg relative z-10">Babylexit AI'ya Sor</span>
+              <span className="text-indigo-600 text-xs font-black bg-indigo-100 px-2 py-0.5 rounded mt-1 relative z-10">3 KREDİ</span>
+              <p className="text-[11px] text-slate-500 mt-2 text-center font-medium relative z-10">AI Analizi + Topluluk Görüşü</p>
+              <div className="absolute inset-0 bg-gradient-to-tr from-white via-transparent to-white opacity-50"></div>
             </button>
           </div>
 
-          {isSubmitting && (
-            <div className="mt-6 flex items-center justify-center gap-3 text-amber-500">
-              <Loader2 className="animate-spin" />
-              <span className="text-sm font-medium animate-pulse">İşleminiz gerçekleştiriliyor...</span>
+          {/* STANDART LOADING (Sadece Topluluk seçiliyse) */}
+          {isSubmitting && targetType !== 'ai' && (
+            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 rounded-[2rem]">
+              <Loader2 className="animate-spin text-orange-500 w-12 h-12 mb-4" />
+              <span className="text-slate-800 font-bold text-lg animate-pulse">
+                 Topluluğa Gönderiliyor...
+              </span>
+              <span className="text-slate-500 text-sm mt-2">Lütfen bekleyiniz</span>
             </div>
           )}
 
