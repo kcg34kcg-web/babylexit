@@ -26,12 +26,13 @@ export async function startConversation(recipientId: string) {
 
 /**
  * Mesaj gönderir (Karakter limiti ve dosya yükleme dahil)
+ * UI'daki kalıcı state güncellemesi için yeni oluşturulan mesajı döndürür.
  */
 export async function sendMessage(formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) throw new Error('Unauthorized');
+  if (!user) throw new Error('Yetkisiz işlem');
 
   const conversationId = formData.get('conversationId') as string;
   const content = formData.get('content') as string;
@@ -51,25 +52,28 @@ export async function sendMessage(formData: FormData) {
     const fileName = `${Date.now()}.${fileExt}`;
     const filePath = `${conversationId}/${fileName}`;
 
-    // 'chat-files' bucket'ına yükle
     const { error: uploadError } = await supabase.storage
       .from('chat-files')
       .upload(filePath, file);
 
     if (uploadError) throw new Error('Dosya yüklenemedi: ' + uploadError.message);
     
-    mediaUrl = filePath; // Sadece yolu (path) saklıyoruz
-    mediaType = file.type.split('/')[0]; // 'image', 'video' vb.
+    mediaUrl = filePath;
+    mediaType = file.type.split('/')[0];
   }
 
-  // 3. Mesajı Veritabanına Ekle
-  const { error } = await supabase.from('messages').insert({
-    conversation_id: conversationId,
-    sender_id: user.id,
-    content: content,
-    media_url: mediaUrl,
-    media_type: mediaType,
-  });
+  // 3. Mesajı Veritabanına Ekle ve geri döndür (.select().single())
+  const { data: newMessage, error } = await supabase
+    .from('messages')
+    .insert({
+      conversation_id: conversationId,
+      sender_id: user.id,
+      content: content,
+      media_url: mediaUrl,
+      media_type: mediaType,
+    })
+    .select()
+    .single();
 
   if (error) throw new Error(error.message);
 
@@ -78,11 +82,13 @@ export async function sendMessage(formData: FormData) {
     .from('conversations')
     .update({ 
         updated_at: new Date().toISOString(), 
-        last_message_preview: content ? content.substring(0, 50) : (mediaType ? '📎 Medya' : '') 
+        last_message_preview: content ? content.substring(0, 50) : (mediaType ? '📎 Medya' : 'Dosya gönderildi') 
     })
     .eq('id', conversationId);
 
   revalidatePath(`/messages/${conversationId}`);
+  
+  return newMessage; // ✅ Mesaj objesini geri döndürüyoruz (UI için kritik)
 }
 
 /**
@@ -94,7 +100,6 @@ export async function markMessagesAsRead(conversationId: string) {
   
   if(!user) return;
 
-  // Participant tablosundaki son okuma zamanını güncelle
   await supabase
     .from('conversation_participants')
     .update({ last_read_at: new Date().toISOString() })
@@ -109,26 +114,24 @@ export async function getMessages(conversationId: string, page: number = 0) {
     const supabase = await createClient();
     const pageSize = 20;
     
-    // Mesajları çek
     const { data } = await supabase
         .from('messages')
         .select('*')
         .eq('conversation_id', conversationId)
-        .order('created_at', { ascending: false }) // En yeni en üstte
+        .order('created_at', { ascending: false })
         .range(page * pageSize, (page + 1) * pageSize - 1);
 
-    // Eğer veri varsa ve medya içeriyorsa, güvenli erişim için Signed URL oluştur
     if (data) {
         const signedData = await Promise.all(data.map(async (msg) => {
             if (msg.media_url && !msg.deleted_at) {
                 const { data: signed } = await supabase.storage
                     .from('chat-files')
-                    .createSignedUrl(msg.media_url, 3600); // 1 saat geçerli link
+                    .createSignedUrl(msg.media_url, 3600);
                 return { ...msg, signedUrl: signed?.signedUrl };
             }
             return msg;
         }));
-        return signedData.reverse(); // Eskiden yeniye sıralı hale getir (UI için)
+        return signedData.reverse(); 
     }
     return [];
 }
@@ -142,7 +145,6 @@ export async function getUserConversations() {
 
   if (!user) return [];
 
-  // Konuşmaları ve karşıdaki katılımcıyı çek
   const { data, error } = await supabase
     .from('conversation_participants')
     .select(`
@@ -157,7 +159,7 @@ export async function getUserConversations() {
       )
     `)
     .eq('user_id', user.id)
-    .neq('other_participant.user_id', user.id) // Kendimiz hariç diğer kişiyi bul
+    .neq('other_participant.user_id', user.id)
     .order('conversation_id');
 
   if (error) {
@@ -165,38 +167,35 @@ export async function getUserConversations() {
     return [];
   }
   
-  // Veriyi UI için sadeleştir
   return data.map((item: any) => ({
     id: item.conversation_id,
     updated_at: item.conversations?.updated_at,
     last_message: item.conversations?.last_message_preview,
-    otherUserId: item.other_participant?.[0]?.user_id, // Profil bilgisi için bu ID kullanılacak
+    otherUserId: item.other_participant?.[0]?.user_id,
     last_read_at: item.last_read_at
   })).sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 }
 
 /**
  * Kullanıcı adı veya isme göre kullanıcı arar.
- * (Kendi hesabını sonuçlardan hariç tutar)
  */
 export async function searchUsers(query: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) return [];
-  if (!query || query.length < 2) return [];
+  if (!user || !query || query.length < 2) return [];
 
   const { data, error } = await supabase
     .from('profiles')
     .select('id, full_name, username, avatar_url')
     .or(`username.ilike.%${query}%,full_name.ilike.%${query}%`)
-    .neq('id', user.id) // Kendini getirme
-    .limit(10); // En fazla 10 sonuç
+    .neq('id', user.id) 
+    .limit(10);
 
   if (error) {
     console.error('Kullanıcı arama hatası:', error);
     return [];
   }
 
-  return data;
+  return data || [];
 }

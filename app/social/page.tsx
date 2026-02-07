@@ -14,8 +14,12 @@ import { Toaster } from "react-hot-toast";
 import Link from "next/link";
 import { UserProfile } from "@/app/types";
 import CreatePost from "@/components/CreatePost";
-import { NotificationPopover } from "@/components/notifications/NotificationPopover";
 import InboxDialog from "@/components/chat/InboxDialog";
+
+// ✅ YENİ: Drawer ve Çiçek İkonu (Popover yerine bunları kullanıyoruz)
+import { NotificationDrawer } from "@/components/notifications/NotificationDrawer";
+import { NotificationFlower } from "@/components/notifications/NotificationFlower"; 
+import { useNotifications } from "@/hooks/useNotifications"; // Bildirim sayısını almak için
 
 export default function LexwoowPage() {
   const router = useRouter();
@@ -28,7 +32,12 @@ export default function LexwoowPage() {
   const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events'>('woow');
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // STATE YÖNETİMİ
   const [isInboxOpen, setIsInboxOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false); // ✅ YENİ: Bildirim Paneli State'i
+
+  // Bildirim sayısını çek (Buton üzerindeki kırmızı nokta/çiçek için)
+  const { unreadCount } = useNotifications(user?.id);
 
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -37,7 +46,6 @@ export default function LexwoowPage() {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
     }, 500);
-
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
@@ -73,11 +81,23 @@ export default function LexwoowPage() {
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20 selection:bg-amber-100 font-sans relative">
       <Toaster position="top-center" />
       
+      {/* --- MODALLAR VE DRAWERLAR --- */}
+      
+      {/* 1. Mesajlaşma */}
       {user && (
         <InboxDialog 
           isOpen={isInboxOpen} 
           onClose={() => setIsInboxOpen(false)} 
           currentUserId={user.id} 
+        />
+      )}
+
+      {/* 2. ✅ BİLDİRİM DRAWER (YENİ EKLENDİ) */}
+      {user && (
+        <NotificationDrawer 
+          isOpen={isNotificationOpen} 
+          onClose={() => setIsNotificationOpen(false)} 
+          userId={user.id} 
         />
       )}
         
@@ -92,6 +112,7 @@ export default function LexwoowPage() {
         )}
       </AnimatePresence>
 
+      {/* --- HEADER (Mobil) --- */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-4 shadow-sm lg:hidden">
         <div className="flex items-center gap-3">
           <button onClick={() => router.push('/')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-all active:scale-90">
@@ -116,13 +137,24 @@ export default function LexwoowPage() {
              <MessageCircle size={24} />
           </button>
 
-          {/* Mobil Bildirim İkonu */}
-          {user && <NotificationPopover userId={user.id} />}
+          {/* ✅ MOBİL BİLDİRİM BUTONU */}
+          {user && (
+            <button 
+              onClick={() => setIsNotificationOpen(true)}
+              className="p-2 hover:bg-slate-100 rounded-full relative transition-all active:scale-90"
+            >
+               {/* Görsel olarak Çiçeği kullanıyoruz ama tıklamayı buton yönetiyor */}
+               <div className="pointer-events-none">
+                 <NotificationFlower hasUnread={unreadCount > 0} asDiv={true} /> 
+               </div>
+            </button>
+          )}
         </div>
       </div>
 
       <main className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-4 gap-8 mt-6">
         
+        {/* SOL KOLON */}
         <div className="hidden lg:block lg:col-span-1">
            <div className="sticky top-8 space-y-6">
               <div className="px-4 mb-8 flex items-center gap-2 text-amber-600">
@@ -139,18 +171,19 @@ export default function LexwoowPage() {
                     <span>WOOW</span>
                  </button>
 
-                 {/* DÜZELTME: Bildirimler Kısmı */}
+                 {/* ✅ BİLDİRİMLER BUTONU (Düzeltildi) */}
                  {user && (
-                   <div className="px-6 py-2">
-                      <div className="w-full hover:bg-slate-100 rounded-full transition-all p-2">
-                        {/* align="left" ve label="Bildirimler" ile tek parça tıklanabilir alan */}
-                        <NotificationPopover 
-                          userId={user.id} 
-                          align="left" 
-                          label="Bildirimler" 
-                        />
+                   <button 
+                      onClick={() => setIsNotificationOpen(true)}
+                      className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:bg-slate-100 rounded-full transition-all w-full text-left group"
+                   >
+                      <div className="pointer-events-none">
+                         <NotificationFlower hasUnread={unreadCount > 0} asDiv={true} />
                       </div>
-                   </div>
+                      <span className={`group-hover:text-slate-900 transition-colors ${unreadCount > 0 ? "font-bold text-slate-900" : ""}`}>
+                        Bildirimler
+                      </span>
+                   </button>
                  )}
 
                  <button className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-purple-600 hover:bg-purple-50 rounded-full transition-all w-full text-left group">
@@ -206,6 +239,7 @@ export default function LexwoowPage() {
            </div>
         </div>
 
+        {/* ORTA KOLON (İçerik değişmedi) */}
         <div className="lg:col-span-2 space-y-8 pb-20">
           {user && (
             <div className="animate-in fade-in slide-in-from-top-4">
@@ -235,6 +269,7 @@ export default function LexwoowPage() {
           />
         </div>
 
+        {/* SAĞ KOLON (İçerik değişmedi) */}
         <div className="hidden lg:block lg:col-span-1">
           <div className="sticky top-8 space-y-6">
              <div className="relative mb-6">
