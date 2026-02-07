@@ -15,17 +15,15 @@ interface ChatWindowProps {
 }
 
 export default function ChatWindow({ conversationId, initialMessages, currentUser, className }: ChatWindowProps) {
-  // Mesajları state'de tut (en eski en üstte, en yeni en altta)
   const [messages, setMessages] = useState(initialMessages);
   const [page, setPage] = useState(0);
   const supabase = createClient();
   
   const [optimisticMessages, addOptimisticMessage] = useOptimistic(
     messages,
-    (state, newMessage) => [...state, newMessage] // ✅ Yeni mesajı sona ekle
+    (state, newMessage) => [...state, newMessage]
   );
 
-  // 1. Realtime Abonelik
   useEffect(() => {
     const channel = supabase
       .channel(`chat:${conversationId}`)
@@ -36,9 +34,8 @@ export default function ChatWindow({ conversationId, initialMessages, currentUse
         filter: `conversation_id=eq.${conversationId}` 
       }, async (payload) => {
         const newMsg = payload.new;
-        // Eğer mesaj başkasından geldiyse state'e ekle
         if (newMsg.sender_id !== currentUser.id) {
-            setMessages((prev: any) => [...prev, newMsg]); // ✅ Sona ekle
+            setMessages((prev: any) => [...prev, newMsg]);
             await markMessagesAsRead(conversationId);
         }
       })
@@ -47,18 +44,16 @@ export default function ChatWindow({ conversationId, initialMessages, currentUse
     return () => { supabase.removeChannel(channel); };
   }, [conversationId, currentUser.id, supabase]);
 
-  // 2. Okundu İşaretleme
   useEffect(() => {
     markMessagesAsRead(conversationId);
   }, [conversationId]);
 
-  // 3. Daha Fazla Mesaj Yükle (Yukarı kaydırınca)
   const loadMore = async () => {
       const nextPage = page + 1;
       try {
           const olderMessages = await getMessages(conversationId, nextPage);
           if (olderMessages.length > 0) {
-              setMessages((prev: any) => [...olderMessages, ...prev]); // ✅ Eskileri başa ekle
+              setMessages((prev: any) => [...olderMessages, ...prev]);
               setPage(nextPage);
           }
       } catch (error) {
@@ -66,14 +61,12 @@ export default function ChatWindow({ conversationId, initialMessages, currentUse
       }
   };
 
-  // 4. Mesaj Gönderme
   const handleSendMessage = async (formData: FormData) => {
     const content = formData.get('content') as string;
     const file = formData.get('file') as File | null;
     
     if (!content && (!file || file.size === 0)) return;
 
-    // Optimistic Mesaj Objesi
     const tempId = Math.random().toString();
     const optimisticMsg = {
         id: tempId,
@@ -86,7 +79,6 @@ export default function ChatWindow({ conversationId, initialMessages, currentUse
         is_read: false
     };
 
-    // ✅ startTransition hatayı çözer
     startTransition(() => {
         addOptimisticMessage(optimisticMsg);
     });
@@ -94,7 +86,6 @@ export default function ChatWindow({ conversationId, initialMessages, currentUse
     try {
         const actualMessage = await sendMessage(formData);
         if (actualMessage) {
-            // ✅ Sunucudan gelen gerçek mesajı kalıcı state'e ekle
             setMessages((prev) => [...prev, actualMessage]);
         }
     } catch (e) {
@@ -104,17 +95,24 @@ export default function ChatWindow({ conversationId, initialMessages, currentUse
   };
 
   return (
-    // ✅ bg-white ile tam beyaz arka plan
-    <div className={`flex flex-col h-full bg-white text-slate-900 relative overflow-hidden ${className}`}>
-        {/* Mesaj Listesi */}
-        <MessageList 
-            messages={optimisticMessages} 
-            currentUserId={currentUser.id} 
-            onLoadMore={loadMore}
-        />
+    // h-full ile ebeveynin (page.tsx) yüksekliğini tam dolduruyoruz.
+    <div className={`flex flex-col h-full w-full bg-white relative ${className}`}>
+        
+        {/* MESAJ LİSTESİ */}
+        {/* flex-1: Boşluğu doldur. */}
+        {/* min-h-0: Input büyüdüğünde burası sıkışarak küçülür (Aşağı taşmayı engeller). */}
+        <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50 relative w-full">
+            <MessageList 
+                messages={optimisticMessages} 
+                currentUserId={currentUser.id} 
+                onLoadMore={loadMore}
+            />
+        </div>
 
-        {/* Girdi Alanı */}
-        <div className="border-t border-slate-100 bg-white">
+        {/* INPUT ALANI */}
+        {/* shrink-0: Input alanı ASLA ezilmez, yüksekliği neyse o kadar yer kaplar. */}
+        {/* pb-safe: iPhone'larda alttaki siyah çizgi (Home indicator) için boşluk bırakır. */}
+        <div className="shrink-0 w-full bg-white border-t border-slate-100 z-20 pb-[env(safe-area-inset-bottom)]">
             <ChatInput conversationId={conversationId} onSend={handleSendMessage} />
         </div>
     </div>

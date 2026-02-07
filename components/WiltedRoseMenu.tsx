@@ -35,9 +35,7 @@ export default function WiltedRoseMenu({
     setIsLoading(true);
     setIsOpen(false); // Menüyü hemen kapat
 
-    // 1. OPTIMISTIC UPDATE:
-    // Sunucuyu beklemeden kullanıcıya anında tepki veriyoruz.
-    // Postu listeden siliyoruz.
+    
     onOptimisticHide(); 
 
     try {

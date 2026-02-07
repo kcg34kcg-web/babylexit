@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNotifications } from '@/hooks/useNotifications';
-import { NotificationFlower } from './NotificationFlower';
+import { NotificationBell } from './NotificationBell'; // ✅ Yeni Bileşen
 import { NotificationList } from './NotificationList';
 import { X, CheckCheck } from 'lucide-react';
 
@@ -58,47 +58,54 @@ export const NotificationPopover = ({ userId, align = 'right', label }: Notifica
     <div ref={containerRef} className="relative inline-block">
       
       {/* --- TETİKLEYİCİ (TRIGGER) --- */}
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className={`flex items-center gap-4 group focus:outline-none ${label ? 'w-full' : ''}`}
-      >
-         <div className="pointer-events-none relative">
-            <NotificationFlower hasUnread={unreadCount > 0} asDiv={true} />
-         </div>
+      {/* DÜZELTME: Bell zaten bir buton olduğu için wrapper 'div' yapıldı */}
+      <div className={`flex items-center gap-4 group ${label ? 'w-full' : ''}`}>
+         
+         <NotificationBell 
+            count={unreadCount} 
+            isOpen={isOpen} 
+            onClick={() => setIsOpen(!isOpen)} 
+         />
+
+         {/* Eğer Sidebar'da kullanılıyorsa etiket (Label) buraya gelir */}
          {label && (
-           <span className="text-xl font-bold text-slate-600 group-hover:text-slate-900 transition-colors">
+           <button 
+             onClick={() => setIsOpen(!isOpen)}
+             className="text-xl font-bold text-slate-600 group-hover:text-slate-900 transition-colors focus:outline-none"
+           >
              {label}
-           </span>
+           </button>
          )}
-      </button>
+      </div>
 
       {/* --- AÇILIR PENCERE (POPOVER / DRAWER) --- */}
       {isOpen && (
         <>
-          {/* MOBİL İÇİN ARKA PLAN KARARTMA (BACKDROP) */}
+          {/* MOBİL BACKDROP */}
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[90] lg:hidden" onClick={() => setIsOpen(false)} />
 
           <div 
             className={`
-                bg-white shadow-2xl z-[100] flex flex-col
+                bg-white dark:bg-slate-900 shadow-2xl z-[100] flex flex-col
+                border border-slate-100 dark:border-slate-800
                 
-                /* MOBİL STİLLERİ: Ekranın ortasında veya tam ekran */
-                fixed inset-x-0 bottom-0 top-[10%] rounded-t-2xl  /* Alt çekmece stili (Sheet) */
-                lg:top-auto lg:bottom-auto lg:inset-auto /* Masaüstünde sıfırla */
+                /* MOBİL: Bottom Sheet */
+                fixed inset-x-0 bottom-0 top-[10%] rounded-t-2xl
+                lg:top-auto lg:bottom-auto lg:inset-auto 
                 
-                /* MASAÜSTÜ STİLLERİ: Dropdown */
-                lg:absolute lg:mt-3 lg:w-[400px] lg:rounded-2xl lg:border lg:border-slate-100
+                /* MASAÜSTÜ: Dropdown */
+                lg:absolute lg:mt-3 lg:w-[400px] lg:rounded-2xl
                 ${align === 'left' ? 'lg:left-0' : 'lg:right-0'}
 
                 animate-in slide-in-from-bottom-10 lg:zoom-in-95 duration-200
             `}
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-white rounded-t-2xl">
-              <h3 className="text-slate-900 font-bold text-lg flex items-center gap-2">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800 rounded-t-2xl">
+              <h3 className="text-slate-900 dark:text-white font-bold text-lg flex items-center gap-2">
                 Bildirimler
                 {unreadCount > 0 && (
-                   <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full">{unreadCount}</span>
+                   <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full shadow-sm">{unreadCount}</span>
                 )}
               </h3>
               
@@ -107,15 +114,15 @@ export const NotificationPopover = ({ userId, align = 'right', label }: Notifica
                     <button 
                         onClick={() => markAllAsRead()}
                         title="Tümünü okundu işaretle"
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-full transition-colors"
+                        className="p-2 text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-full transition-colors"
                     >
                         <CheckCheck size={20} />
                     </button>
                  )}
-                 {/* Kapat Butonu */}
+                 
                  <button 
                     onClick={() => setIsOpen(false)}
-                    className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-full lg:hidden"
+                    className="p-2 text-slate-400 hover:text-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full lg:hidden"
                  >
                     <X size={24} />
                  </button>
@@ -123,7 +130,7 @@ export const NotificationPopover = ({ userId, align = 'right', label }: Notifica
             </div>
 
             {/* Liste Alanı */}
-            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 lg:max-h-[500px]">
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 dark:scrollbar-thumb-slate-700 lg:max-h-[500px]">
                <NotificationList 
                  notifications={notifications}
                  loading={loading}

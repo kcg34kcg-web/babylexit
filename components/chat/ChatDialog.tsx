@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-import { X, Maximize2, Minimize2, Loader2, Minus } from 'lucide-react'; // Minus ikonu eklendi
+import { X, Maximize2, Minimize2, Loader2, Minus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ChatWindow from './ChatWindow';
 import { getMessages, startConversation } from '@/app/actions/chat';
@@ -17,22 +17,19 @@ interface ChatDialogProps {
 
 export default function ChatDialog({ isOpen, onClose, recipientId, recipientName, recipientAvatar, currentUser }: ChatDialogProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(false); // Pencereyi aşağı indirme durumu
+  const [isMinimized, setIsMinimized] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [initialMessages, setInitialMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Pencere açıldığında sohbeti başlat veya mevcut olanı getir
+  // Pencere açıldığında sohbeti başlat
   useEffect(() => {
     if (isOpen && currentUser && !conversationId) {
       setLoading(true);
       const initChat = async () => {
         try {
-          // 1. Konuşma ID'sini sunucudan al (yoksa oluşturur)
           const convId = await startConversation(recipientId);
           setConversationId(convId);
-
-          // 2. İlk mesajları çek
           const msgs = await getMessages(convId, 0);
           setInitialMessages(msgs);
         } catch (error) {
@@ -45,9 +42,6 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
     }
   }, [isOpen, recipientId, currentUser, conversationId]);
 
-  // Pencere kapalıysa hiçbir şey render etme (AnimatePresence hariç)
-  // Ancak minimize ise sadece başlığı göster
-  
   return (
     <AnimatePresence>
       {isOpen && (
@@ -55,70 +49,70 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
           initial={{ opacity: 0, y: 100, scale: 0.95 }}
           animate={{ 
             opacity: 1, 
-            y: isMinimized ? 'calc(100% - 60px)' : 0, // Minimize ise aşağı kaydır
+            y: isMinimized ? 'calc(100% - 60px)' : 0, 
             scale: 1,
-            // Tam ekransa tüm ekranı kapla, değilse sağ altta dur
+            // DÜZELTME: Mobilde '100dvh' yerine 'inset-0' kullanıyoruz.
+            // Bu sayede klavye açılınca pencere otomatik boyutlanır.
             ...isExpanded ? { 
-                position: 'fixed', inset: 0, borderRadius: 0, zIndex: 50, height: '100dvh'
+                position: 'fixed', inset: 0, borderRadius: 0, zIndex: 50
             } : { 
                 position: 'fixed', bottom: 0, right: 0, width: '100%', maxWidth: '24rem', height: '500px',
                 borderTopLeftRadius: '1.5rem', borderTopRightRadius: '1.5rem', zIndex: 40,
-                marginRight: '1rem' // Masaüstünde sağdan biraz boşluk
+                marginRight: '1rem', marginBottom: '0' 
             }
           }}
           exit={{ opacity: 0, y: 100, scale: 0.95 }}
           transition={{ type: "spring", damping: 25, stiffness: 300 }}
-          className="bg-slate-900 shadow-2xl border-x border-t border-slate-700 overflow-hidden flex flex-col"
+          // TEMA GÜNCELLEMESİ: bg-slate-900 yerine bg-white (Beyaz Tema)
+          className="bg-white shadow-2xl border-x border-t border-slate-200 overflow-hidden flex flex-col"
         >
-          {/* --- HEADER --- */}
+          {/* --- HEADER (BEYAZ TEMA) --- */}
           <div 
-            className="flex items-center justify-between p-3 bg-slate-800 border-b border-slate-700 cursor-pointer select-none"
+            className="flex items-center justify-between p-3 bg-white border-b border-slate-100 cursor-pointer select-none"
             onClick={() => {
-                if(isMinimized) setIsMinimized(false); // Tıklayınca yukarı kaldır
+                if(isMinimized) setIsMinimized(false);
             }}
           >
             <div className="flex items-center gap-3">
                <div className="relative">
                    {recipientAvatar ? (
-                       <img src={recipientAvatar} className="w-8 h-8 rounded-full object-cover border border-slate-600" alt="" />
+                       <img src={recipientAvatar} className="w-9 h-9 rounded-full object-cover border border-slate-200" alt="" />
                    ) : (
-                       <div className="w-8 h-8 rounded-full bg-slate-600" />
+                       <div className="w-9 h-9 rounded-full bg-orange-100 border border-orange-200" />
                    )}
-                   <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-slate-800 rounded-full"></div>
+                   <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></div>
                </div>
                <div>
-                   <h3 className="text-sm font-bold text-slate-100">{recipientName}</h3>
-                   <span className="text-[10px] text-slate-400 block leading-none">
-                       {isMinimized ? 'Sohbeti açmak için tıkla' : 'Aktif'}
+                   <h3 className="text-sm font-bold text-slate-900">{recipientName}</h3>
+                   <span className="text-[11px] text-slate-500 block leading-none mt-0.5">
+                       {isMinimized ? 'Sohbeti açmak için tıkla' : 'Çevrimiçi'}
                    </span>
                </div>
             </div>
 
             <div className="flex items-center gap-1">
-                {/* Küçültme (Minimize) Butonu */}
+                {/* İkon renkleri koyu yapıldı (slate-400 -> slate-500/hover:orange) */}
                 <button 
                     onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); setIsExpanded(false); }}
-                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-full transition-colors"
+                    className="p-1.5 text-slate-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors"
                     title="Aşağı İndir"
                 >
                     <Minus size={18} />
                 </button>
 
-                {/* Tam Ekran Butonu */}
                 {!isMinimized && (
                     <button 
                         onClick={(e) => { e.stopPropagation(); setIsExpanded(!isExpanded); }}
-                        className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded-full transition-colors"
+                        className="p-1.5 text-slate-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors"
                         title={isExpanded ? "Küçült" : "Tam Ekran"}
                     >
                         {isExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
                     </button>
                 )}
 
-                {/* Kapat Butonu */}
                 <button 
                     onClick={(e) => { e.stopPropagation(); onClose(); }}
-                    className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-full transition-colors"
+                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors"
                     title="Kapat"
                 >
                     <X size={18} />
@@ -127,11 +121,11 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
           </div>
 
           {/* --- CONTENT --- */}
-          {/* Minimize durumunda içeriği gizle veya render etme */}
-          <div className={`flex-1 bg-slate-950 relative ${isMinimized ? 'hidden' : 'block'}`}>
+          {/* bg-slate-950 yerine bg-white */}
+          <div className={`flex-1 bg-white relative overflow-hidden ${isMinimized ? 'hidden' : 'flex flex-col'}`}>
             {loading ? (
-                <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-3">
-                    <Loader2 className="animate-spin text-blue-500" size={32} />
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3">
+                    <Loader2 className="animate-spin text-orange-500" size={32} />
                     <p className="text-xs font-medium">Sohbet yükleniyor...</p>
                 </div>
             ) : (
@@ -140,7 +134,7 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
                         conversationId={conversationId} 
                         initialMessages={initialMessages} 
                         currentUser={currentUser} 
-                        className="h-full" // ChatWindow'a tam yükseklik veriyoruz
+                        className="h-full w-full" // ChatWindow'un tüm alanı kaplamasını sağla
                     />
                 )
             )}

@@ -7,11 +7,8 @@ export default async function ChatPage({ params }: { params: { id: string } }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) {
-    redirect('/login');
-  }
+  if (!user) redirect('/login');
 
-  // 1. Güvenlik Kontrolü: Kullanıcı bu sohbette mi?
   const { data: participation } = await supabase
     .from('conversation_participants')
     .select('user_id')
@@ -19,17 +16,14 @@ export default async function ChatPage({ params }: { params: { id: string } }) {
     .eq('user_id', user.id)
     .single();
 
-  if (!participation) {
-    // Erişim hakkı yoksa veya konuşma yoksa
-    redirect('/messages'); 
-  }
+  if (!participation) redirect('/messages'); 
 
-  // 2. İlk Mesajları Sunucuda Çek (SEO ve Hız için)
-  // İlk 20 mesajı alıyoruz (sayfa 0)
   const initialMessages = await getMessages(params.id, 0);
 
   return (
-    <div className="h-full w-full">
+    // DÜZELTME: fixed yerine relative ve h-[100dvh] kullanıyoruz.
+    // Bu, mobil tarayıcılarda (Safari/Chrome) klavye açılınca yaşanan sorunları çözer.
+    <div className="relative w-full h-[100dvh] bg-white overflow-hidden flex flex-col">
       <ChatWindow 
         conversationId={params.id} 
         initialMessages={initialMessages} 
