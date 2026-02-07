@@ -10,11 +10,12 @@ import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { TrendingUp, BadgeCheck, ShieldCheck, Zap, Ticket, Calendar, MapPin, ArrowRight } from 'lucide-react'; 
+import { BadgeCheck, ShieldCheck, Zap, Ticket, Calendar, MapPin, ArrowRight } from 'lucide-react'; 
 import { motion, useAnimation } from 'framer-motion';
 import { fetchFeed } from '@/app/actions/feed'; 
+import PollCard from './poll-card'; // YENİ: PollCard import edildi
 
-// --- OPTİMİZASYON 1: İkonu dışarı aldık (Render içinde tekrar tanımlanmasın) ---
+// --- OPTİMİZASYON 1: İkonu dışarı aldık ---
 const PegasusIcon = memo(({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className} xmlns="http://www.w3.org/2000/svg">
      <path d="M12 2C8 2 6 4 6 6V8H5C3.3 8 2 9.3 2 11V14C2 15.7 3.3 17 5 17H6V20C6 21.1 6.9 22 8 22H16C17.1 22 18 21.1 18 20V17H19C20.7 17 22 15.7 22 14V11C22 9.3 20.7 8 19 8H18V6C18 4 16 2 12 2ZM8 18H16V20H8V18ZM18 15H6V11C6 10.4 6.4 10 7 10H17C17.6 10 18 10.4 18 11V15ZM10 6C10 5.4 10.4 5 11 5H13C13.6 5 14 5.4 14 6V8H10V6Z" />
@@ -23,37 +24,50 @@ const PegasusIcon = memo(({ className }: { className?: string }) => (
 ));
 PegasusIcon.displayName = 'PegasusIcon';
 
-// --- TİP TANIMLARI ---
-interface Post {
+// --- TİP TANIMLARI (GÜNCELLENDİ) ---
+// Artık hem Post hem Poll verilerini kapsayacak esnek bir yapı kullanıyoruz
+interface FeedItemData {
   id: string;
+  type?: 'post' | 'poll'; // Tür ayrımı
   user_id: string;
-  content: string;
-  image_url?: string;
   created_at: string;
+  
+  // Ortak Yazar Bilgileri
   author_name: string;
   author_avatar: string;
   author_username?: string;
-  author_reputation?: number; 
-  woow_count: number;
-  doow_count: number;
-  adil_count: number;
-  comment_count: number;
-  my_reaction: 'woow' | 'doow' | 'adil' | null;
+  author_reputation?: number;
+
+  // Post Alanları
+  content?: string;
+  image_url?: string;
+  woow_count?: number;
+  doow_count?: number;
+  adil_count?: number;
+  comment_count?: number;
+  my_reaction?: 'woow' | 'doow' | 'adil' | null;
   score?: number;
   is_event?: boolean;
   event_date?: string;
   event_location?: any;
+
+  // Poll Alanları
+  question?: string;
+  options?: any[];
+  expires_at?: string;
+  is_closed?: boolean;
+  is_anonymous?: boolean;
+  user_vote?: string | null;
 }
 
-// --- OPTİMİZASYON 2: PostItem'ı Memoize Etmek ---
-// Bu sayede props değişmediği sürece kart tekrar çizilmez.
+// --- OPTİMİZASYON 2: PostItem ---
 const PostItem = memo(({ 
   post, 
   currentUserId, 
   isExpanded, 
   onToggle 
 }: { 
-  post: Post, 
+  post: FeedItemData, 
   currentUserId: string | null, 
   isExpanded: boolean, 
   onToggle: (id: string) => void 
@@ -66,7 +80,6 @@ const PostItem = memo(({
 
   const controls = useAnimation();
   
-  // useCallback ile fonksiyon referansını sabitliyoruz
   const triggerPhysics = useCallback(() => {
     controls.start({
       x: [0, -3, 3, -2, 2, 0], 
@@ -75,11 +88,13 @@ const PostItem = memo(({
     });
   }, [controls]);
   
+  // --- HATA DÜZELTME: content kontrolü ---
+  const contentText = post.content || ""; // Eğer undefined ise boş string al
   const MAX_LENGTH = 280;
-  const isTooLong = post.content.length > MAX_LENGTH;
+  const isTooLong = contentText.length > MAX_LENGTH;
   const displayContent = isTooLong && !isContentExpanded
-    ? post.content.slice(0, MAX_LENGTH) + "..." 
-    : post.content;
+    ? contentText.slice(0, MAX_LENGTH) + "..." 
+    : contentText;
 
   const renderBadge = () => {
     const rep = post.author_reputation || 0;
@@ -91,7 +106,6 @@ const PostItem = memo(({
 
   if (!isVisible) return null;
 
-  // IntersectionObserver'ı sadece expanded değiştiğinde değil, mount olduğunda kuruyoruz
   // eslint-disable-next-line react-hooks/rules-of-hooks
   useEffect(() => {
     if (!isExpanded || !cardRef.current) return;
@@ -118,7 +132,6 @@ const PostItem = memo(({
     <motion.div 
       ref={cardRef} 
       animate={controls} 
-      // Layout prop'u her değişiklikte hesaplama yapar, listede performans için kaldırılabilir veya 'position' yapılabilir
       layout="position" 
       className={`bg-white rounded-2xl border shadow-sm overflow-hidden hover:shadow-md transition-shadow relative group ${
         post.is_event ? 'border-blue-200 shadow-blue-50' : 'border-slate-200'
@@ -159,7 +172,7 @@ const PostItem = memo(({
               
               {post.author_username && (
                  <span className="text-sm text-slate-500 font-medium block -mt-0.5">
-                    @{post.author_username}
+                   @{post.author_username}
                  </span>
               )}
 
@@ -221,7 +234,6 @@ const PostItem = memo(({
             className="relative w-full h-64 mb-3 rounded-xl overflow-hidden border border-slate-100 cursor-pointer shadow-sm"
             onClick={goToFullView}
           >
-            {/* OPTİMİZASYON 3: sizes prop'u eklendi. Mobil ve Desktop için doğru boyutu çeker */}
             <Image 
               src={post.image_url} 
               alt="Post Görseli" 
@@ -261,7 +273,7 @@ const PostItem = memo(({
             adil: post.adil_count || 0,
             comment_count: post.comment_count || 0
           }}
-          initialUserReaction={(post.my_reaction as 'woow' | 'doow' | 'adil') || null}
+          initialUserReaction={post.my_reaction || null}
           isOwner={currentUserId === post.user_id}
           onMuzakereClick={() => onToggle(post.id)} 
           onTriggerPhysics={triggerPhysics}
@@ -276,7 +288,6 @@ const PostItem = memo(({
     </motion.div>
   );
 }, (prevProps, nextProps) => {
-    // Custom Comparison Function: Sadece bu prop'lar değiştiğinde render et
     return (
         prevProps.post.id === nextProps.post.id &&
         prevProps.isExpanded === nextProps.isExpanded &&
@@ -292,8 +303,8 @@ PostItem.displayName = 'PostItem';
 
 // --- POST LİSTESİ ---
 export default function PostList({ userId, filter = 'all', searchQuery }: { userId?: string, filter?: 'all' | 'events', searchQuery?: string }) {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [newPosts, setNewPosts] = useState<Post[]>([]);
+  const [posts, setPosts] = useState<FeedItemData[]>([]);
+  const [newPosts, setNewPosts] = useState<FeedItemData[]>([]);
   const [spotlight, setSpotlight] = useState<any>(null); 
   const [loading, setLoading] = useState(true);
   const [expandedPostId, setExpandedPostId] = useState<string | null>(null);
@@ -301,18 +312,18 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
   const supabase = createClient();
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  // --- OPTİMİZASYON 4: Toggle Handler Memoization ---
-  // Bu fonksiyon her renderda değişirse, PostItem'daki React.memo kırılır. useCallback şart.
   const handleToggle = useCallback((id: string) => {
     setExpandedPostId(prev => prev === id ? null : id);
   }, []);
 
   useEffect(() => {
+    // Post Eventi
     const handleNewPost = (event: CustomEvent) => {
       const newPost = event.detail;
       if (newPost) {
-        const formattedNewPost = {
+        const formattedNewPost: FeedItemData = {
             ...newPost,
+            type: 'post',
             author_name: newPost.profiles?.full_name || 'Ben',
             author_username: newPost.profiles?.username || 'ben',
             author_avatar: newPost.profiles?.avatar_url,
@@ -323,20 +334,43 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
         setNewPosts(prev => [formattedNewPost, ...prev]);
       }
     };
+
+    // YENİ: Poll Eventi
+    const handleNewPoll = (event: CustomEvent) => {
+        const newPoll = event.detail;
+        if (newPoll) {
+          const formattedPoll: FeedItemData = {
+             id: newPoll.id,
+             type: 'poll',
+             user_id: newPoll.creator_id, // createPost'ta creator_id dönüyor olabilir
+             created_at: newPoll.created_at,
+             author_name: 'Ben', // Profil join edilmediyse default
+             author_avatar: '', // TODO: Context'ten al
+             question: newPoll.question,
+             options: newPoll.options || [],
+             expires_at: newPoll.expires_at,
+             is_closed: false
+          };
+          setNewPosts(prev => [formattedPoll, ...prev]);
+        }
+    };
+
     window.addEventListener('new-post-created' as any, handleNewPost);
-    return () => window.removeEventListener('new-post-created' as any, handleNewPost);
+    window.addEventListener('new-poll-created' as any, handleNewPoll);
+    return () => {
+        window.removeEventListener('new-post-created' as any, handleNewPost);
+        window.removeEventListener('new-poll-created' as any, handleNewPoll);
+    };
   }, []);
 
   useEffect(() => {
     const init = async () => {
-      setLoading(true); // Yükleniyor durumu başlangıcı
+      setLoading(true);
       
       const { data: { user } } = await supabase.auth.getUser();
       const cUserId = user?.id || null;
       setCurrentUserId(cUserId);
 
-      // Profil verilerini paralel çekmek için Promise.all kullanılabilir ama şimdilik bu yapı yeterli.
-      // ... Profil alma mantığı (Aynı kalıyor) ...
       let currentUserProfile: any = null;
       if (cUserId) {
         const { data } = await supabase.from('profiles').select('username, full_name, avatar_url, reputation').eq('id', cUserId).single();
@@ -353,8 +387,9 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
          }
       }
 
-      const mapToPost = (p: any) => {
-        const ownerId = p.author_id || p.user_id;
+      // --- MAPPER FONKSİYONU GÜNCELLENDİ (Poll Desteği) ---
+      const mapToFeedItem = (p: any): FeedItemData => {
+        const ownerId = p.author_id || p.user_id || p.creator_id;
         const isMine = ownerId === cUserId;
         
         let finalUsername = p.author_username; 
@@ -380,8 +415,9 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
 
         return {
             id: p.id,
+            type: p.type || (p.question ? 'poll' : 'post'), // Tip tahmini
             user_id: ownerId, 
-            content: p.content,
+            content: p.content, // Poll ise undefined olabilir, PostItem'da kontrol ettik
             created_at: p.created_at,
             author_name: finalFullName || "İsimsiz",
             author_username: finalUsername, 
@@ -396,12 +432,20 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
             score: p.score,
             is_event: p.is_event,
             event_date: p.event_date,
-            event_location: p.event_location
+            event_location: p.event_location,
+            
+            // Poll Özellikleri
+            question: p.question,
+            options: p.options,
+            expires_at: p.expires_at,
+            is_closed: p.is_closed,
+            user_vote: p.user_vote
         };
       };
 
       if (cUserId) {
          if (userId) {
+            // Profil sayfası (Henüz poll desteği yoksa sadece post çeker)
             let query = supabase
                 .from('posts_with_stats') 
                 .select('*')
@@ -414,15 +458,16 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
 
             const { data } = await query;
             if (data) {
-                const mapped = data.map(mapToPost);
-                setPosts(mapped as Post[]); 
+                const mapped = data.map(mapToFeedItem);
+                setPosts(mapped); 
             }
          } 
          else {
             try {
+                // FetchFeed artık Mixed Array dönüyor
                 const { posts: smartPosts, spotlight: smartSpotlight } = await fetchFeed(cUserId, searchQuery);
-                const mapped = smartPosts.map(mapToPost);
-                setPosts(mapped as Post[]);
+                const mapped = smartPosts.map(mapToFeedItem);
+                setPosts(mapped);
                 setSpotlight(smartSpotlight);
             } catch (error) {
                 console.error("Feed yüklenirken hata:", error);
@@ -435,8 +480,6 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
     init();
   }, [userId, searchQuery]); 
 
-  // --- OPTİMİZASYON 5: useMemo ile Liste Filtreleme ---
-  // Her render'da bu array işlemleri tekrar yapılmamalı.
   const finalDisplayList = useMemo(() => {
     const displayedFetchedPosts = filter === 'events' 
       ? posts.filter(p => p.is_event) 
@@ -452,7 +495,6 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
   if (loading) {
     return (
         <div className="space-y-4">
-           {/* Skeleton sayısını düşürdük, daha hafif bir render */}
            {[1, 2, 3].map(i => (
              <div key={i} className="bg-white p-6 rounded-2xl h-48 animate-pulse border border-slate-100 shadow-sm" />
            ))}
@@ -504,15 +546,29 @@ export default function PostList({ userId, filter = 'all', searchQuery }: { user
         </div>
       )}
 
-      {finalDisplayList.map((post) => (
-        <PostItem 
-          key={post.id} 
-          post={post} 
-          currentUserId={currentUserId}
-          isExpanded={expandedPostId === post.id}
-          onToggle={handleToggle} // Memoize edilmiş fonksiyon
-        />
-      ))}
+      {finalDisplayList.map((item) => {
+        // --- AYRIŞTIRMA MANTIĞI ---
+        if (item.type === 'poll') {
+           // Type Casting yaparak PollCard'a gönderiyoruz
+           return (
+             <PollCard 
+               key={item.id} 
+               poll={item as any} 
+               currentUserId={currentUserId || undefined} 
+             />
+           );
+        } else {
+           return (
+             <PostItem 
+               key={item.id} 
+               post={item} 
+               currentUserId={currentUserId}
+               isExpanded={expandedPostId === item.id}
+               onToggle={handleToggle} 
+             />
+           );
+        }
+      })}
     </div>
   );
 }
