@@ -22,13 +22,13 @@ export default async function FavoritesPage() {
         content,
         created_at,
         users (
-           full_name,
-           avatar_url
+            full_name,
+            avatar_url
         )
       )
     `)
     .eq("user_id", user.id)
-    .not("questions", "is", null) // Sadece soruları getir (cevapları değil)
+    .not("questions", "is", null) 
     .order("created_at", { ascending: false });
 
   return (
@@ -36,9 +36,14 @@ export default async function FavoritesPage() {
       
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
-        <Link href="/main" className="p-2 bg-white rounded-full border border-gray-100 shadow-sm">
+        
+        {/* --- DÜZELTME BURADA YAPILDI --- */}
+        {/* href="/main" yerine href="/dashboard" yazıldı */}
+        <Link href="/dashboard" className="p-2 bg-white rounded-full border border-gray-100 shadow-sm hover:bg-gray-50 transition-colors">
             <ChevronLeft size={20} className="text-gray-600"/>
         </Link>
+        {/* ------------------------------- */}
+
         <div>
            <h1 className="text-xl font-bold text-gray-800">Favoriler Dosyası</h1>
            <p className="text-xs text-gray-500">Toplam {favorites?.length || 0} içerik saklandı</p>
@@ -57,19 +62,17 @@ export default async function FavoritesPage() {
                    
                    <div className="flex justify-between items-start">
                       <div className="flex items-center gap-2 mb-2">
-                         <div className="w-6 h-6 rounded-full bg-gray-200 overflow-hidden">
-                            {/* Avatar placeholder */}
+                          <div className="w-6 h-6 rounded-full bg-gray-200 overflow-hidden">
                             {question.users?.avatar_url && <img src={question.users.avatar_url} className="w-full h-full object-cover"/>}
-                         </div>
-                         <span className="text-xs text-gray-500 font-medium">{question.users?.full_name || "Anonim"}</span>
+                          </div>
+                          <span className="text-xs text-gray-500 font-medium">{question.users?.full_name || "Anonim"}</span>
                       </div>
                       
-                      {/* Favori Butonu (Burada favoriden çıkarmak için kullanılabilir) */}
                       <FavoriteButton itemId={question.id} initialIsFavorited={true} type="question" />
                    </div>
 
                    <h3 className="font-bold text-gray-800 text-sm mb-2 line-clamp-2">
-                     {question.title || question.content}
+                      {question.title || question.content}
                    </h3>
                    
                    <div className="flex items-center justify-between mt-3">
@@ -92,9 +95,9 @@ export default async function FavoritesPage() {
              </div>
              <h3 className="text-lg font-bold text-gray-700">Dosya Boş</h3>
              <p className="text-gray-500 text-sm max-w-[200px] mt-2">
-                Gündemdeki tartışmalarda gördüğün ilginç konuları yıldız butonuna basarak buraya ekleyebilirsin.
+                Henüz favorilenmiş içerik yok.
              </p>
-             <Link href="/main" className="mt-6 text-orange-500 font-bold text-sm bg-orange-50 px-6 py-3 rounded-xl hover:bg-orange-100 transition-colors">
+             <Link href="/dashboard" className="mt-6 text-orange-500 font-bold text-sm bg-orange-50 px-6 py-3 rounded-xl hover:bg-orange-100 transition-colors">
                 Gündeme Dön
              </Link>
           </div>
