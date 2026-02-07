@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useState, useEffect } from "react";
 import { 
@@ -26,15 +26,15 @@ export default function LexwoowPage() {
   const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events'>('woow');
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // [YENİ] Arama State'leri
-  const [searchTerm, setSearchTerm] = useState(""); // Anlık yazılan
-  const [debouncedSearch, setDebouncedSearch] = useState(""); // Gecikmeli (API'ye giden)
+  // Arama State'leri
+  const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  // [YENİ] Debounce Mantığı (Optimization: Yazma bitince 500ms bekle)
+  // Debounce Mantığı (Optimization)
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
-    }, 500); // 500ms bekleme süresi
+    }, 500);
 
     return () => clearTimeout(timer);
   }, [searchTerm]);
@@ -193,12 +193,12 @@ export default function LexwoowPage() {
               <div className="h-[1px] flex-1 bg-slate-200"></div>
           </div>
 
-          {/* POST LİSTESİ - Search Query Prop Eklendi */}
+          {/* POST LİSTESİ */}
           <PostList 
             key={refreshKey} 
             userId={activeTab === 'profile' ? user?.id : undefined} 
             filter={activeTab === 'events' ? 'events' : 'all'} 
-            searchQuery={debouncedSearch} // [YENİ] Arama kelimesini gönderiyoruz
+            searchQuery={debouncedSearch} 
           />
           
         </div>
