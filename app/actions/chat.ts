@@ -174,3 +174,29 @@ export async function getUserConversations() {
     last_read_at: item.last_read_at
   })).sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 }
+
+/**
+ * Kullanıcı adı veya isme göre kullanıcı arar.
+ * (Kendi hesabını sonuçlardan hariç tutar)
+ */
+export async function searchUsers(query: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return [];
+  if (!query || query.length < 2) return [];
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name, username, avatar_url')
+    .or(`username.ilike.%${query}%,full_name.ilike.%${query}%`)
+    .neq('id', user.id) // Kendini getirme
+    .limit(10); // En fazla 10 sonuç
+
+  if (error) {
+    console.error('Kullanıcı arama hatası:', error);
+    return [];
+  }
+
+  return data;
+}

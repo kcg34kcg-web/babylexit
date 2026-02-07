@@ -1,18 +1,27 @@
+// components/notifications/NotificationFlower.tsx
 'use client';
 
 import React from 'react';
-import { cn } from '@/utils/cn'; // Senin utils klasöründeki cn fonksiyonu
+import { cn } from '@/utils/cn'; 
 
 interface NotificationFlowerProps {
   hasUnread: boolean;
-  onClick: () => void;
+  onClick?: () => void; // Opsiyonel
+  asDiv?: boolean;      // Opsiyonel (Varsayılan: false)
 }
 
-export const NotificationFlower = ({ hasUnread, onClick }: NotificationFlowerProps) => {
+export const NotificationFlower = ({ hasUnread, onClick, asDiv = false }: NotificationFlowerProps) => {
+  // asDiv true ise 'div', değilse 'button' olarak render et
+  const Component = asDiv ? 'div' : 'button';
+
   return (
-    <button
+    <Component
       onClick={onClick}
-      className="relative group focus:outline-none transition-transform active:scale-95"
+      className={cn(
+        "relative group transition-transform active:scale-95",
+        // Sadece buton modundaysa focus özelliği ekle
+        !asDiv && "focus:outline-none"
+      )}
     >
       {/* Glow Effect - Sadece okunmamış varsa görünür */}
       <div
@@ -40,13 +49,12 @@ export const NotificationFlower = ({ hasUnread, onClick }: NotificationFlowerPro
             : "text-gray-400 hover:text-gray-300" // Solgun Renk
         )}
       >
-        {/* Çiçek Yaprakları - Duruma göre şekil değiştirebilir veya sadece renk */}
         <path d="M12 7.5a4.5 4.5 0 1 1 4.5 4.5M12 7.5A4.5 4.5 0 1 0 7.5 12M12 7.5V9m-4.5 3a4.5 4.5 0 1 0 4.5 4.5M7.5 12H9" />
         <path d="M16.5 12A4.5 4.5 0 1 1 12 16.5M16.5 12H15" />
         <path d="M12 16.5V19" />
         <path d="M12 19a3 3 0 0 1-3 3h6a3 3 0 0 1-3-3z" />
         <path d="M12 2v5.5" />
       </svg>
-    </button>
+    </Component>
   );
 };

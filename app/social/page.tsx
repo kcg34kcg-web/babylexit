@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { 
   Users, TrendingUp, ArrowLeft, 
   Gavel, Home, ShoppingCart, Calendar,
-  Sparkles, User, BadgeCheck, ShieldCheck, Zap, Search 
+  Sparkles, User, BadgeCheck, ShieldCheck, Zap, Search, MessageCircle
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -14,23 +14,25 @@ import { Toaster } from "react-hot-toast";
 import Link from "next/link";
 import { UserProfile } from "@/app/types";
 import CreatePost from "@/components/CreatePost";
+import { NotificationPopover } from "@/components/notifications/NotificationPopover";
+import InboxDialog from "@/components/chat/InboxDialog";
 
 export default function LexwoowPage() {
   const router = useRouter();
   const supabase = createClient();
-  
+    
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [showTransition, setShowTransition] = useState(true);
-  
+    
   const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events'>('woow');
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Arama State'leri
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  // Debounce Mantığı (Optimization)
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
@@ -60,7 +62,6 @@ export default function LexwoowPage() {
     return () => clearTimeout(timer);
   }, [supabase]);
 
-  // --- ROZET RENDER MANTIĞI ---
   const renderBadge = (reputation: number = 0) => {
     if (reputation >= 5000) return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block" />;
     if (reputation >= 1000) return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block" />;
@@ -69,10 +70,17 @@ export default function LexwoowPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20 selection:bg-amber-100 font-sans">
+    <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20 selection:bg-amber-100 font-sans relative">
       <Toaster position="top-center" />
       
-      {/* --- GİRİŞ ANİMASYONU --- */}
+      {user && (
+        <InboxDialog 
+          isOpen={isInboxOpen} 
+          onClose={() => setIsInboxOpen(false)} 
+          currentUserId={user.id} 
+        />
+      )}
+        
       <AnimatePresence>
         {showTransition && (
           <motion.div exit={{ opacity: 0 }} className="fixed inset-0 z-[100] bg-slate-900 flex flex-col items-center justify-center text-white">
@@ -84,29 +92,37 @@ export default function LexwoowPage() {
         )}
       </AnimatePresence>
 
-      {/* --- HEADER (Mobil - Arama Entegre Edildi) --- */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-4 shadow-sm lg:hidden">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <button onClick={() => router.push('/')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-all active:scale-90">
             <ArrowLeft size={22} />
           </button>
+          
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input 
               type="text" 
-              placeholder="Konum, kişi veya içerik ara..." 
+              placeholder="Ara..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full bg-slate-100/50 border border-slate-200 rounded-full py-2 pl-10 pr-4 outline-none focus:ring-2 focus:ring-amber-500/10 text-sm transition-all" 
             />
           </div>
+
+          <button 
+            onClick={() => setIsInboxOpen(true)}
+            className="p-2 hover:bg-slate-100 rounded-full text-slate-600 relative transition-all active:scale-90"
+          >
+             <MessageCircle size={24} />
+          </button>
+
+          {/* Mobil Bildirim İkonu */}
+          {user && <NotificationPopover userId={user.id} />}
         </div>
       </div>
 
-      {/* --- ANA LAYOUT --- */}
       <main className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-4 gap-8 mt-6">
         
-        {/* 1. SOL KOLON: NAVİGASYON */}
         <div className="hidden lg:block lg:col-span-1">
            <div className="sticky top-8 space-y-6">
               <div className="px-4 mb-8 flex items-center gap-2 text-amber-600">
@@ -123,6 +139,20 @@ export default function LexwoowPage() {
                     <span>WOOW</span>
                  </button>
 
+                 {/* DÜZELTME: Bildirimler Kısmı */}
+                 {user && (
+                   <div className="px-6 py-2">
+                      <div className="w-full hover:bg-slate-100 rounded-full transition-all p-2">
+                        {/* align="left" ve label="Bildirimler" ile tek parça tıklanabilir alan */}
+                        <NotificationPopover 
+                          userId={user.id} 
+                          align="left" 
+                          label="Bildirimler" 
+                        />
+                      </div>
+                   </div>
+                 )}
+
                  <button className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-purple-600 hover:bg-purple-50 rounded-full transition-all w-full text-left group">
                     <Sparkles size={26} className="group-hover:rotate-12 transition-transform" />
                     <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-500 font-bold">Geft-AI</span>
@@ -134,6 +164,14 @@ export default function LexwoowPage() {
                  >
                     <User size={26} />
                     <span>Hesabım</span>
+                 </button>
+
+                 <button 
+                    onClick={() => setIsInboxOpen(true)}
+                    className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-all w-full text-left"
+                 >
+                    <MessageCircle size={26} />
+                    <span>Mesajlar</span>
                  </button>
 
                  <Link href="/market" className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:bg-slate-100 rounded-full transition-all w-full">
@@ -168,22 +206,18 @@ export default function LexwoowPage() {
            </div>
         </div>
 
-        {/* 2. ORTA KOLON: AKIŞ */}
         <div className="lg:col-span-2 space-y-8 pb-20">
-          
           {user && (
             <div className="animate-in fade-in slide-in-from-top-4">
               <CreatePost userId={user.id} />
             </div>
           )}
 
-          {/* Akış Başlığı */}
           <div className="flex items-center gap-3 px-2">
               <div className="h-[1px] flex-1 bg-slate-200"></div>
               <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
                 <TrendingUp size={14} className="text-amber-500" />
                 <span>
-                  {/* Başlık Duruma Göre Değişir */}
                   {searchTerm 
                     ? `"${searchTerm}" İÇİN SONUÇLAR` 
                     : activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : activeTab === 'profile' ? 'PROFİLİM' : 'ETKİNLİK GÜNDEMİ'
@@ -193,17 +227,14 @@ export default function LexwoowPage() {
               <div className="h-[1px] flex-1 bg-slate-200"></div>
           </div>
 
-          {/* POST LİSTESİ */}
           <PostList 
             key={refreshKey} 
             userId={activeTab === 'profile' ? user?.id : undefined} 
             filter={activeTab === 'events' ? 'events' : 'all'} 
             searchQuery={debouncedSearch} 
           />
-          
         </div>
 
-        {/* 3. SAĞ KOLON (Masaüstü Arama Entegre Edildi) */}
         <div className="hidden lg:block lg:col-span-1">
           <div className="sticky top-8 space-y-6">
              <div className="relative mb-6">
@@ -217,7 +248,6 @@ export default function LexwoowPage() {
                 />
              </div>
 
-            {/* Yan Widgetlar */}
             <div className="bg-white border border-slate-200/80 rounded-[1.5rem] p-6 shadow-sm shadow-slate-200/50">
               <h3 className="font-black text-[11px] mb-6 flex items-center gap-2 text-slate-900 uppercase tracking-widest">
                 <Users size={18} className="text-amber-500" /> Aktif Gruplar
