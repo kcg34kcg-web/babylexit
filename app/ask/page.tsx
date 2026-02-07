@@ -37,7 +37,7 @@ export default function AskPage() {
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // YENİ STATE: İşlem bittiğinde oluşan ID'yi burada tutacağız
+  // YENİ EKLENEN STATE: İşlem bittiğinde oluşan ID'yi burada tutacağız
   const [finishedQuestionId, setFinishedQuestionId] = useState<string | null>(null);
 
   // Limit Tanımları
@@ -96,15 +96,13 @@ export default function AskPage() {
     return () => clearTimeout(delayDebounceFn);
   }, [title]);
 
-  // --- 2. GÖNDERİM FONKSİYONU (GÜNCELLENDİ) ---
+  // --- 2. GÖNDERİM FONKSİYONU ---
   const handleClientSubmit = async (formData: FormData) => {
     let targetVal = formData.get('target') as string;
     
-    // Target belirleme mantığı (State veya Form'dan)
     const activeTarget = targetType || (targetVal as 'ai' | 'community');
     if (!targetType) setTargetType(activeTarget);
     
-    // FormData'ya target ekle (Eğer yoksa)
     if(!formData.get('target')) {
         formData.append('target', activeTarget);
     }
@@ -125,15 +123,15 @@ export default function AskPage() {
 
     // Yükleme Başlıyor
     setIsSubmitting(true);
-    setFinishedQuestionId(null); // ID'yi sıfırla
+    setFinishedQuestionId(null); // ID'yi sıfırla (Yeni işlem için)
 
     if (activeTarget === 'ai') setShowEffect('ai');
     else setShowEffect('community');
 
     try {
-      // --- ZAMANLAYICI EKLEME ---
-      // AI ise en az 4 saniye bekle (Oyun oynansın)
-      // Topluluk ise bekleme
+      // --- ZAMANLAYICI ---
+      // AI ise en az 4 saniye bekle (Oyun oynansın diye)
+      // Topluluk ise bekleme yok
       const minWaitTime = activeTarget === 'ai' ? 4000 : 0;
       
       const timerPromise = new Promise(resolve => setTimeout(resolve, minWaitTime));
@@ -149,14 +147,15 @@ export default function AskPage() {
          setTargetType(null);
       } else if (result?.success && result?.questionId) {
         
-        // --- BURASI DEĞİŞTİ: HEDEF AI İSE YÖNLENDİRME YAPMA ---
+        // --- KRİTİK GÜNCELLEME BURADA ---
         if (activeTarget === 'ai') {
+            // Eğer AI ise: Yönlendirme YAPMA.
+            // Sadece ID'yi kaydet ki Overlay "Bitti" moduna geçsin.
             setFinishedQuestionId(result.questionId);
-            toast.success("Analiz Tamamlandı! Sonuçlar hazır.");
-            // isSubmitting'i kapatmıyoruz, böylece overlay ekranda kalıyor
-            // ama 'isFinished' prop'u sayesinde içeriği değişecek.
+            toast.success("Analiz Tamamlandı! Raporunuz hazır.");
+            // isSubmitting'i FALSE YAPMIYORUZ! Overlay ekranda kalsın.
         } else {
-            // Topluluk ise hemen yönlendir
+            // Eğer Topluluk ise: Eski usul hemen yönlendir.
             toast.success('Soru topluluğa iletildi!');
             router.push(`/questions/${result.questionId}`); 
         }
@@ -173,11 +172,11 @@ export default function AskPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 relative overflow-hidden">
       
-      {/* --- AI BEKLEME EKRANI --- */}
-      {/* isSubmitting true VE targetType 'ai' ise gösterilir. */}
+      {/* --- AI BEKLEME EKRANI (GÜNCELLENDİ) --- */}
+      {/* finishedQuestionId doluysa Overlay 'Bitti' modunda açılır */}
       {isSubmitting && targetType === 'ai' && (
         <AILoadingOverlay 
-            isFinished={!!finishedQuestionId} // ID varsa bitti demektir
+            isFinished={!!finishedQuestionId} 
             redirectUrl={finishedQuestionId ? `/questions/${finishedQuestionId}` : '/'}
         />
       )}

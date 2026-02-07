@@ -3,57 +3,43 @@
 import { createClient } from '@/utils/supabase/server';
 import { generateEmbedding } from './ai-engine';
 
-// ---------------------------------------------------------
-// 1. SORU SORMA SAYFASI İÇİN (HİBRİT ARAMA: Text + AI)
-// ---------------------------------------------------------
+// =========================================================
+// 1. ASK PAGE İÇİN: HIZLI ÖNERİ SİSTEMİ
+// Amacı: Sadece başlıkları getirip "Bak bu soruldu" demek.
+// =========================================================
 export async function suggestSimilarQuestions(query: string) {
-  // Kullanıcı çok az yazdıysa yormayalım
   if (!query || query.length < 2) return [];
 
   const supabase = await createClient();
   let finalResults: any[] = [];
 
-  // --- A. ADIM: KLASİK METİN ARAMASI (GARANTİ YÖNTEM) ---
-  // Direkt 'questions' tablosuna gidip "başlıkta veya içerikte bu kelime var mı?" diye bakar.
-  const { data: textData, error: textError } = await supabase
+  // A. KLASİK ARAMA (Başlıkta ara)
+  const { data: textData } = await supabase
     .from('questions')
     .select('id, title, content')
-    .or(`title.ilike.%${query}%,content.ilike.%${query}%`) // Başlık VEYA İçerik ara
+    .ilike('title', `%${query}%`)
     .limit(3);
 
-  if (!textError && textData) {
-    // Bulunanları listeye ekle (Benzerlik puanını manuel 1.0 yapıyoruz ki en üstte çıksın)
-    const formattedTextData = textData.map(q => ({
-      ...q,
-      similarity: 1.0 
-    }));
-    finalResults = [...formattedTextData];
+  if (textData) {
+    finalResults = textData.map(q => ({ ...q, similarity: 1.0 }));
   }
 
-  // --- B. ADIM: YAPAY ZEKA VEKTÖR ARAMASI (AKILLI YÖNTEM) ---
-  // Mevcut kodlarını koruyoruz, sadece hata olursa sistemi durdurmamasını sağlıyoruz.
+  // B. AI ARAMA (Anlamsal)
   try {
     const embedding = await generateEmbedding(query);
-    
     if (embedding) {
-      const { data: vectorData, error: vectorError } = await supabase.rpc('match_questions', {
+      const { data: vectorData } = await supabase.rpc('match_questions', {
         query_embedding: embedding,
-        match_threshold: 0.5, // %50 benzerlik (Yapay zeka için ideal)
+        match_threshold: 0.5,
         match_count: 3
       });
-
-      if (!vectorError && vectorData) {
-        finalResults = [...finalResults, ...vectorData];
-      }
+      if (vectorData) finalResults = [...finalResults, ...vectorData];
     }
-  } catch (err) {
-    console.error("AI Arama Hatası (Önemli değil, klasik arama çalıştı):", err);
-  }
+  } catch (e) { console.error(e); }
 
-  // --- C. ADIM: ÇİFT KAYITLARI TEMİZLE ---
-  // Hem klasik hem AI aynı soruyu bulduysa listede iki kere görünmesin.
+  // C. BİRLEŞTİR VE DÖNDÜR
   const uniqueResults = Array.from(new Map(finalResults.map(item => [item.id, item])).values());
-
+  
   return uniqueResults.map((q: any) => ({
     id: q.id,
     title: q.title,
@@ -62,10 +48,61 @@ export async function suggestSimilarQuestions(query: string) {
   }));
 }
 
-// ---------------------------------------------------------
-// 2. DASHBOARD / GLOBAL ARAMA (Aynı mantığı kullanabilir)
-// ---------------------------------------------------------
+// =========================================================
+// 2. DASHBOARD İÇİN: DETAYLI GLOBAL ARAMA (DÜZELTİLDİ!)
+// Amacı: Profil resmi, cevap sayısı, tarih vb. HER ŞEYİ getirmek.
+// =========================================================
 export async function searchGlobalQuestions(query: string) {
-  // Dashboard araması için de aynı güçlü fonksiyonu kullanıyoruz
-  return suggestSimilarQuestions(query);
+  if (!query) return [];
+
+  const supabase = await createClient();
+  let questionIds = new Set<string>();
+
+  // --- ADIM 1: AI İLE ID'LERİ BUL ---
+  // Önce yapay zeka ile mantıklı soruların ID'lerini alıyoruz
+  try {
+    const embedding = await generateEmbedding(query);
+    if (embedding) {
+      const { data: vectorData } = await supabase.rpc('match_questions', {
+        query_embedding: embedding,
+        match_threshold: 0.5, 
+        match_count: 10
+      });
+      if (vectorData) {
+        vectorData.forEach((q: any) => questionIds.add(q.id));
+      }
+    }
+  } catch (e) { console.error("AI Arama Hatası:", e); }
+
+  // --- ADIM 2: ID LİSTESİNİ VE KLASİK ARAMAYI BİRLEŞTİRİP DETAYLARI ÇEK ---
+  // Burası çok önemli: Dashboard'un ihtiyaç duyduğu profiles ve answers verilerini çekiyoruz.
+  
+  let queryBuilder = supabase
+    .from('questions')
+    .select(`
+      *,
+      profiles (full_name, avatar_url),
+      answers (count)
+    `)
+    .order('created_at', { ascending: false });
+
+  // Eğer AI sonuç bulduysa veya kullanıcı metin girdiyse filtrele
+  if (questionIds.size > 0) {
+    // Hem AI'ın bulduklarını (ID ile) HEM DE içinde kelime geçenleri (OR ile) getir
+    const idsString = Array.from(questionIds).join(',');
+    // Mantık: (ID listesindeyse) VEYA (Başlık/İçerik metni içeriyorsa)
+    queryBuilder = queryBuilder.or(`id.in.(${idsString}),title.ilike.%${query}%,content.ilike.%${query}%`);
+  } else {
+    // AI bulamadıysa sadece metin araması yap
+    queryBuilder = queryBuilder.or(`title.ilike.%${query}%,content.ilike.%${query}%`);
+  }
+
+  const { data, error } = await queryBuilder.limit(20);
+
+  if (error) {
+    console.error("Dashboard Arama Hatası:", error);
+    return [];
+  }
+
+  return data;
 }
