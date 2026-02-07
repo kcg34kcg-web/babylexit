@@ -8,7 +8,7 @@ import { checkContentSafety } from "./ai-engine";
 const API_KEY = process.env.GEMINI_API_KEY; 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
-// --- YARDIMCI: Embedding Oluşturma ---
+// --- YARDIMCI: Embedding Oluşturma (Hazırda dursun, ileride kullanacağız) ---
 async function generateEmbedding(text: string) {
   try {
     const response = await ai.models.embedContent({
@@ -22,14 +22,14 @@ async function generateEmbedding(text: string) {
   }
 }
 
-// --- ANA FONKSİYON ---
+// --- ANA FONKSİYON: Soru Gönderme ---
 export async function submitQuestion(formData: FormData) {
   const supabase = await createClient();
   
   const title = formData.get('title') as string;
   const content = formData.get('content') as string;
   const target = formData.get('target') as string;
-  // const topicId = formData.get('topic_id') as string; // Şimdilik kapalı
+  // const topicId = formData.get('topic_id') as string; // VERİTABANINDA YOKSA KAPAT
 
   if (!title || !content) {
     return { error: 'Başlık ve içerik zorunludur.' };
@@ -59,26 +59,30 @@ export async function submitQuestion(formData: FormData) {
   if (profile.credits < SORU_UCRETI) return { error: `Yetersiz kredi (${SORU_UCRETI} gerekli).` };
 
   // 4. Kredi Düşme
-  await supabase
+  const { error: updateError } = await supabase
     .from('profiles')
     .update({ credits: profile.credits - SORU_UCRETI })
     .eq('id', user.id);
 
-  // 5. Embedding (Hazır olsun ama insert'te kullanmayacağız)
+  if (updateError) {
+    return { error: 'Kredi düşülürken hata oluştu.' };
+  }
+
+  // 5. Embedding (Oluşturalım ama şimdilik kaydetmeyelim)
   const textForEmbedding = `${title} ${content.substring(0, 200)}`.replace(/\n/g, " ");
   await generateEmbedding(textForEmbedding);
 
   // 6. SORUYU KAYDET (GÜVENLİ INSERT) ✅
-  // Hatayı çözen kısım burası: Olmayan sütunları çıkardık.
+  // HATA ÇÖZÜMÜ BURADA: Veritabanında kesin olan alanları kullanıyoruz.
   const { data: questionData, error: questionError } = await supabase
     .from('questions')
     .insert({
       title,
       content,
       user_id: user.id,
-      // topic_id: topicId,      <-- VERİTABANINDA YOKSA HATA VERİR (KAPATTIM)
-      // asked_to_ai: target === 'ai', <-- VERİTABANINDA YOKSA HATA VERİR (KAPATTIM)
-      // embedding: embedding,   <-- VERİTABANINDA YOKSA HATA VERİR (KAPATTIM)
+      // topic_id: topicId,      <-- KAPATILDI (DB'de yoksa hata verir)
+      // asked_to_ai: target === 'ai', <-- KAPATILDI (DB'de yoksa hata verir)
+      // embedding: embedding,   <-- KAPATILDI (DB'de yoksa hata verir)
       status: target === 'ai' ? 'analyzing' : 'approved',
       created_at: new Date().toISOString()
     })
@@ -87,11 +91,12 @@ export async function submitQuestion(formData: FormData) {
 
   if (questionError) {
     console.error("Soru kayıt hatası:", questionError);
-    // Hata olursa krediyi iade et
+    // Hata durumunda krediyi iade et
     await supabase.from('profiles').update({ credits: profile.credits }).eq('id', user.id);
-    return { error: "Veritabanı hatası: Soru kaydedilemedi." };
+    return { error: "Veritabanı hatası: Soru kaydedilemedi. (Sütun eksikliği olabilir)" };
   }
 
+  // Başarılı
   revalidatePath('/questions');
   revalidatePath('/dashboard');
   

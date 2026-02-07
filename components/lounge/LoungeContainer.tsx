@@ -6,25 +6,22 @@ import { Brain, Gamepad2, Wind, BookOpen, Quote, CheckCircle, ArrowRight } from 
 import { cn } from '@/utils/cn';
 import { PulseFooter } from './ui/PulseFooter';
 
-// --- MODÜLLER (ARTIK AKTİF) ---
 import { TriviaCard } from '@/components/lounge/modules/TriviaCard';
 import { WisdomQuote } from '@/components/lounge/modules/WisdomQuote';
 import { ZenBreathing } from '@/components/lounge/modules/ZenBreathing';
 import { SmartReader } from '@/components/lounge/modules/SmartReader';
-import { MiniGame } from '@/components/lounge/modules/MiniGame'
+import { MiniGame } from '@/components/lounge/modules/MiniGame';
 
 type LoungeMode = 'trivia' | 'wisdom' | 'zen' | 'read' | 'game';
 
 interface LoungeContainerProps {
-  isFinished: boolean;      // Backend işlemi bitti mi?
-  onComplete: () => void;   // "Sonucu Gör" butonuna basınca
+  isFinished: boolean;      
+  onComplete: () => void;   
 }
 
 export default function LoungeContainer({ isFinished, onComplete }: LoungeContainerProps) {
-  // Başlangıç modumuz Trivia olsun
   const [activeMode, setActiveMode] = useState<LoungeMode>('trivia');
 
-  // Arka Plan Renk Geçişleri (Moda göre değişen atmosfer)
   const getGradient = () => {
     switch (activeMode) {
       case 'game': return 'from-amber-900/40 via-purple-900/40 to-slate-900';
@@ -38,17 +35,16 @@ export default function LoungeContainer({ isFinished, onComplete }: LoungeContai
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 text-white overflow-hidden transition-colors duration-1000 font-sans">
       
-      {/* 1. DİNAMİK ARKA PLAN (Aurora Mesh) */}
+      {/* 1. DİNAMİK ARKA PLAN */}
       <div className={cn("absolute inset-0 bg-gradient-to-br transition-all duration-1000", getGradient())} />
       
-      {/* Ambient Lights (Yüzen Işıklar) */}
       <motion.div 
         animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0], opacity: [0.3, 0.5, 0.3] }}
         transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
         className="absolute -top-[20%] -left-[20%] w-[70%] h-[70%] bg-purple-600/20 rounded-full blur-[120px] mix-blend-screen pointer-events-none"
       />
       
-      {/* 2. ANA SAHNE (Modüller Burada Yüklenir) */}
+      {/* 2. ANA SAHNE */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-4 w-full max-w-2xl mx-auto">
         <AnimatePresence mode="wait">
           <motion.div
@@ -68,7 +64,7 @@ export default function LoungeContainer({ isFinished, onComplete }: LoungeContai
         </AnimatePresence>
       </div>
 
-      {/* 3. NAVİGASYON (Glassmorphism Dock) */}
+      {/* 3. NAVİGASYON */}
       <div className="relative z-20 px-6 pb-24 flex justify-center">
         <div className="bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-2xl p-1.5 flex gap-1 shadow-2xl max-w-md w-full ring-1 ring-white/5">
            <NavButton active={activeMode === 'trivia'} onClick={() => setActiveMode('trivia')} icon={<Brain size={20}/>} label="Bilgi" />
@@ -82,7 +78,7 @@ export default function LoungeContainer({ isFinished, onComplete }: LoungeContai
       {/* 4. ALT DURUM ÇUBUĞU */}
       <PulseFooter />
 
-      {/* 5. SONUÇ BİLDİRİMİ (İşlem bitince alttan çıkar) */}
+      {/* 5. SONUÇ BİLDİRİMİ (YESIL BUTON) */}
       <AnimatePresence>
         {isFinished && (
            <motion.div 
@@ -93,10 +89,13 @@ export default function LoungeContainer({ isFinished, onComplete }: LoungeContai
            >
               <button 
                   onClick={onComplete}
-                  className="pointer-events-auto bg-emerald-500 hover:bg-emerald-400 text-white pl-6 pr-8 py-3 rounded-full font-bold shadow-lg shadow-emerald-500/40 animate-bounce flex items-center gap-3 group transition-all hover:scale-105"
+                  className="pointer-events-auto bg-emerald-500 hover:bg-emerald-400 text-white pl-6 pr-8 py-3 rounded-full font-bold shadow-lg shadow-emerald-500/40 animate-bounce flex items-center gap-3 group transition-all hover:scale-105 cursor-pointer"
               >
                   <div className="bg-white/20 p-1 rounded-full"><CheckCircle size={18} className="text-white" /></div>
-                  <span className="text-sm">Analiz Hazır! Sonucu Gör</span>
+                  
+                  {/* İSTENEN METİN GÜNCELLEMESİ */}
+                  <span className="text-sm">Analiz Tamamlandı! Yönlendiriliyorsunuz...</span>
+                  
                   <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
               </button>
            </motion.div>
@@ -107,7 +106,6 @@ export default function LoungeContainer({ isFinished, onComplete }: LoungeContai
   );
 }
 
-// Navigasyon Butonu Bileşeni
 function NavButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
   return (
     <button

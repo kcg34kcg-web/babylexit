@@ -2,7 +2,7 @@
 
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { 
   Loader2, 
@@ -18,7 +18,6 @@ import {
 import Link from 'next/link';
 import { submitQuestion } from '@/app/actions/submit-question';
 import { suggestSimilarQuestions } from '@/app/actions/search';
-// YENİ: LoungeContainer import edildi (Mutlak yol kullanın)
 import LoungeContainer from '@/components/lounge/LoungeContainer';
 
 export default function AskPage() {
@@ -44,6 +43,9 @@ export default function AskPage() {
   // YENİ: AI İşlem Durumu
   const [questionId, setQuestionId] = useState<string | null>(null);
   const [isAiFinished, setIsAiFinished] = useState(false);
+
+  // Polling (Düzenli Kontrol) Temizliği için Ref
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Limit Tanımları
   const LIMITS = {
@@ -100,6 +102,13 @@ export default function AskPage() {
 
     return () => clearTimeout(delayDebounceFn);
   }, [title]);
+
+  // Sayfadan çıkılırsa polling'i durdur
+  useEffect(() => {
+    return () => {
+        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
 
   // --- 2. GÖNDERİM FONKSİYONU ---
   const handleClientSubmit = async (formData: FormData) => {
@@ -196,8 +205,11 @@ export default function AskPage() {
     }
   };
 
-  // Bitişi Dinle (Supabase Realtime)
+  // Bitişi Dinle (Supabase Realtime + POLLING)
   const listenForCompletion = (id: string) => {
+    let isCompleted = false;
+
+    // YÖNTEM 1: Realtime Dinleyici (Hızlı Tepki)
     const channel = supabase
       .channel('question-status-check')
       .on(
@@ -210,14 +222,39 @@ export default function AskPage() {
         },
         (payload) => {
           // Eğer statüs "answered" olduysa işlem bitmiştir
-          if (payload.new.status === 'answered') {
-             setIsAiFinished(true); // Lounge'a "Bitti" sinyali gönder
+          if (payload.new.status === 'answered' && !isCompleted) {
+             isCompleted = true;
+             setIsAiFinished(true); // Lounge'a "Bitti" sinyali gönder (Buton çıkar)
              toast.success("Analiz Tamamlandı! 🧠");
              supabase.removeChannel(channel);
+             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
           }
         }
       )
       .subscribe();
+
+    // YÖNTEM 2: Polling (Yedek Güç - İnternet yavaşsa veya soket koptuysa kurtarır)
+    pollIntervalRef.current = setInterval(async () => {
+        if (isCompleted) {
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            return;
+        }
+
+        // Veritabanına doğrudan soruyoruz: "Bitti mi?"
+        const { data } = await supabase
+            .from('questions')
+            .select('status')
+            .eq('id', id)
+            .single();
+        
+        if (data?.status === 'answered') {
+            isCompleted = true;
+            setIsAiFinished(true); // Lounge'a "Bitti" sinyali gönder (Buton çıkar)
+            toast.success("Analiz Tamamlandı! (Kontrol)");
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+            supabase.removeChannel(channel);
+        }
+    }, 3000); // Her 3 saniyede bir kontrol et
   };
 
   // Lounge'dan Çıkış (Sonucu Gör Butonu)
