@@ -5,29 +5,19 @@ import { revalidatePath } from 'next/cache';
 
 const MAX_CHAR_LIMIT = 1000;
 
-/**
- * Yeni bir sohbet başlatır veya varsa mevcut olanı getirir.
- */
 export async function startConversation(recipientId: string) {
   const supabase = await createClient();
-  
-  // RPC fonksiyonunu çağır (SQL adımında oluşturduğumuz get_or_create_dm)
   const { data: conversationId, error } = await supabase.rpc('get_or_create_dm', {
     recipient_id: recipientId
   });
 
   if (error) {
-    console.error('Error starting chat:', error);
+    console.error('Sohbet başlatma hatası:', error);
     throw new Error('Sohbet başlatılamadı');
   }
-
   return conversationId;
 }
 
-/**
- * Mesaj gönderir (Karakter limiti ve dosya yükleme dahil)
- * UI'daki kalıcı state güncellemesi için yeni oluşturulan mesajı döndürür.
- */
 export async function sendMessage(formData: FormData) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -38,7 +28,6 @@ export async function sendMessage(formData: FormData) {
   const content = formData.get('content') as string;
   const file = formData.get('file') as File | null;
 
-  // 1. Karakter Limiti Kontrolü
   if (content && content.length > MAX_CHAR_LIMIT) {
     throw new Error(`Mesaj çok uzun! Maksimum ${MAX_CHAR_LIMIT} karakter.`);
   }
@@ -46,7 +35,6 @@ export async function sendMessage(formData: FormData) {
   let mediaUrl = null;
   let mediaType = null;
 
-  // 2. Dosya Yükleme İşlemi
   if (file && file.size > 0) {
     const fileExt = file.name.split('.').pop();
     const fileName = `${Date.now()}.${fileExt}`;
@@ -62,7 +50,6 @@ export async function sendMessage(formData: FormData) {
     mediaType = file.type.split('/')[0];
   }
 
-  // 3. Mesajı Veritabanına Ekle ve geri döndür (.select().single())
   const { data: newMessage, error } = await supabase
     .from('messages')
     .insert({
@@ -77,7 +64,6 @@ export async function sendMessage(formData: FormData) {
 
   if (error) throw new Error(error.message);
 
-  // 4. Konuşmayı Güncelle (Son mesaj önizlemesi ve zamanı)
   await supabase
     .from('conversations')
     .update({ 
@@ -87,17 +73,12 @@ export async function sendMessage(formData: FormData) {
     .eq('id', conversationId);
 
   revalidatePath(`/messages/${conversationId}`);
-  
-  return newMessage; // ✅ Mesaj objesini geri döndürüyoruz (UI için kritik)
+  return newMessage;
 }
 
-/**
- * Konuşmadaki mesajları okundu olarak işaretler.
- */
 export async function markMessagesAsRead(conversationId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  
   if(!user) return;
 
   await supabase
@@ -107,9 +88,6 @@ export async function markMessagesAsRead(conversationId: string) {
     .eq('user_id', user.id);
 }
 
-/**
- * Mesajları sayfalı şekilde getirir ve imzalı URL (Signed URL) oluşturur.
- */
 export async function getMessages(conversationId: string, page: number = 0) {
     const supabase = await createClient();
     const pageSize = 20;
@@ -137,7 +115,8 @@ export async function getMessages(conversationId: string, page: number = 0) {
 }
 
 /**
- * Kullanıcının konuşma listesini (Gelen Kutusu) getirir.
+ * ✅ OPTİMİZE EDİLMİŞ LİSTELEME
+ * Paralel sorgular (Promise.all) kullanır, daha hızlıdır.
  */
 export async function getUserConversations() {
   const supabase = await createClient();
@@ -145,40 +124,71 @@ export async function getUserConversations() {
 
   if (!user) return [];
 
-  const { data, error } = await supabase
+  // 1. Önce benim sohbet ID'lerimi çek (Burası mecbur sıralı)
+  const { data: myConvos } = await supabase
     .from('conversation_participants')
-    .select(`
-      conversation_id,
-      last_read_at,
-      conversations (
-        updated_at,
-        last_message_preview
-      ),
-      other_participant: conversation_participants!conversation_participants_conversation_id_fkey (
-        user_id
-      )
-    `)
-    .eq('user_id', user.id)
-    .neq('other_participant.user_id', user.id)
-    .order('conversation_id');
+    .select('conversation_id, last_read_at')
+    .eq('user_id', user.id);
 
-  if (error) {
-    console.error('Konuşmalar getirilemedi:', error);
-    return [];
-  }
+  if (!myConvos || myConvos.length === 0) return [];
+
+  const conversationIds = myConvos.map(c => c.conversation_id);
+
+  // 2. 🚀 OPTİMİZASYON: Detayları ve Katılımcıları AYNI ANDA çek
+  const [detailsResult, participantsResult] = await Promise.all([
+    // Sohbet detaylarını çek
+    supabase
+      .from('conversations')
+      .select('id, updated_at, last_message_preview')
+      .in('id', conversationIds),
+    
+    // Diğer katılımcıları çek
+    supabase
+      .from('conversation_participants')
+      .select('conversation_id, user_id')
+      .in('conversation_id', conversationIds)
+      .neq('user_id', user.id) // Kendimiz hariç
+  ]);
+
+  const conversationDetails = detailsResult.data;
+  const otherParticipants = participantsResult.data;
+
+  // 3. Profilleri çek (Katılımcı verisine bağlı olduğu için burası beklemek zorunda)
+  const otherUserIds = otherParticipants?.map(p => p.user_id) || [];
   
-  return data.map((item: any) => ({
-    id: item.conversation_id,
-    updated_at: item.conversations?.updated_at,
-    last_message: item.conversations?.last_message_preview,
-    otherUserId: item.other_participant?.[0]?.user_id,
-    last_read_at: item.last_read_at
-  })).sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+  if (otherUserIds.length === 0) return [];
+
+  const { data: profiles } = await supabase
+    .from('profiles')
+    .select('id, full_name, username, avatar_url')
+    .in('id', otherUserIds);
+
+  // 4. Verileri Birleştir
+  const result = myConvos.map(myConvo => {
+    const details = conversationDetails?.find(d => d.id === myConvo.conversation_id);
+    const otherPart = otherParticipants?.find(op => op.conversation_id === myConvo.conversation_id);
+    const profile = profiles?.find(p => p.id === otherPart?.user_id);
+
+    if (!profile) return null;
+
+    return {
+      id: myConvo.conversation_id,
+      updated_at: details?.updated_at,
+      last_message: details?.last_message_preview,
+      last_read_at: myConvo.last_read_at,
+      otherUserId: profile.id,
+      userInfo: {
+        full_name: profile.full_name,
+        avatar_url: profile.avatar_url,
+        username: profile.username
+      }
+    };
+  }).filter(Boolean);
+
+  // Sıralama
+  return result.sort((a: any, b: any) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
 }
 
-/**
- * Kullanıcı adı veya isme göre kullanıcı arar.
- */
 export async function searchUsers(query: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

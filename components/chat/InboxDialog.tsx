@@ -1,12 +1,13 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-import { X, MessageCircle, Loader2, Search, Plus, ArrowLeft, User, Edit } from 'lucide-react';
+import { X, MessageCircle, Loader2, Search, ArrowLeft, User, Edit } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getUserConversations, searchUsers } from '@/app/actions/chat'; 
 import ChatDialog from './ChatDialog';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
+import { createClient } from '@/utils/supabase/client';
 
 interface InboxDialogProps {
   isOpen: boolean;
@@ -27,16 +28,36 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
   // Seçilen sohbet
   const [selectedChat, setSelectedChat] = useState<{id: string, name: string, avatar?: string} | null>(null);
 
-  // 1. Sohbetleri Yükle
+  const supabase = createClient();
+
+  // 1. Sohbetleri Yükle ve Realtime Dinle
   useEffect(() => {
     if (isOpen && view === 'list') {
-      setLoading(true);
-      getUserConversations().then(data => {
-        setConversations(data);
-        setLoading(false);
-      });
+      const fetchConversations = async () => {
+        try {
+          const data = await getUserConversations();
+          setConversations(data);
+        } catch (error) {
+          console.error("Sohbetler yüklenirken hata:", error);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchConversations();
+
+      const channel = supabase
+        .channel('inbox-updates')
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'messages' },
+          () => { fetchConversations(); }
+        )
+        .subscribe();
+
+      return () => { supabase.removeChannel(channel); };
     }
-  }, [isOpen, view]);
+  }, [isOpen, view, supabase]);
 
   // 2. Kullanıcı Arama
   useEffect(() => {
@@ -67,40 +88,43 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
 
   const handleStartChat = (userId: string, name: string, avatar?: string) => {
       setSelectedChat({ id: userId, name, avatar });
-      onClose(); 
+      // ❌ onClose();  <-- BU SATIR SİLİNDİ! 
+      // Artık sohbet açılınca Inbox'ı tamamen kapatmıyoruz, sadece gizliyoruz.
+  };
+
+  const isUnread = (conv: any) => {
+    if (!conv.last_read_at) return true;
+    return new Date(conv.updated_at) > new Date(conv.last_read_at);
   };
 
   return (
     <>
       <AnimatePresence>
-        {isOpen && (
-          // Konumlandırma: Masaüstünde sağ alt, mobilde tam ekran
+        {/* ✅ KRİTİK DEĞİŞİKLİK: Sadece sohbet seçili DEĞİLSE listeyi göster */}
+        {isOpen && !selectedChat && (
           <div className="fixed inset-0 z-[60] flex items-end justify-center sm:justify-end sm:items-end sm:p-6 pointer-events-auto">
             
-            {/* Arkaplan Overlay */}
             <motion.div 
               initial={{ opacity: 0 }} 
               animate={{ opacity: 1 }} 
               exit={{ opacity: 0 }}
               onClick={onClose}
-              className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/20 backdrop-blur-[2px]"
             />
 
-            {/* --- PENCERE --- */}
             <motion.div
               initial={{ y: "100%", opacity: 0, scale: 0.95 }}
               animate={{ y: 0, opacity: 1, scale: 1 }}
               exit={{ y: "100%", opacity: 0, scale: 0.95 }}
               transition={{ type: "spring", damping: 25, stiffness: 300 }}
               className={`
-                relative flex flex-col bg-white overflow-hidden shadow-2xl border border-slate-100
-                w-full h-[92vh] rounded-t-3xl           /* Mobil */
-                sm:w-[400px] sm:h-[600px] sm:rounded-2xl /* Masaüstü */
+                relative flex flex-col bg-white overflow-hidden shadow-2xl border border-slate-200
+                w-full h-[92vh] rounded-t-3xl          
+                sm:w-[400px] sm:h-[600px] sm:rounded-2xl 
               `}
             >
-              
               {/* --- HEADER --- */}
-              <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-white z-10 shrink-0">
+              <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-white z-10 shrink-0 h-[72px]">
                 {view === 'search' ? (
                     <div className="flex items-center gap-3 w-full animate-in slide-in-from-right-4 fade-in">
                         <button onClick={() => setView('list')} className="p-2 -ml-2 hover:bg-slate-100 rounded-full text-slate-600 transition-colors">
@@ -112,7 +136,7 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
                                 autoFocus
                                 type="text" 
                                 placeholder="Kimi arıyorsun?" 
-                                className="w-full bg-slate-100 rounded-full py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-100 transition-all"
+                                className="w-full bg-slate-100 rounded-full py-2.5 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-orange-100 focus:bg-white transition-all border border-transparent focus:border-orange-200"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                             />
@@ -124,10 +148,9 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
                            Mesajlar
                         </h2>
                         <div className="flex items-center gap-1">
-                            {/* YENİ MESAJ BUTONU */}
                             <button 
                                 onClick={() => setView('search')}
-                                className="p-2.5 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-600 rounded-full transition-all active:scale-95 border border-transparent hover:border-blue-100"
+                                className="p-2.5 bg-slate-50 hover:bg-orange-50 text-slate-700 hover:text-orange-600 rounded-full transition-all active:scale-95 border border-transparent hover:border-orange-100"
                                 title="Yeni Mesaj"
                             >
                                 <Edit size={20} />
@@ -151,8 +174,8 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
                     <div className="space-y-1">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center h-40 text-slate-400 gap-3">
-                                <Loader2 className="animate-spin text-blue-500" size={28} />
-                                <span className="text-xs font-medium">Yükleniyor...</span>
+                                <Loader2 className="animate-spin text-orange-500" size={28} />
+                                <span className="text-xs font-medium">Sohbetler yükleniyor...</span>
                             </div>
                         ) : conversations.length === 0 ? (
                             <div className="flex flex-col items-center justify-center h-64 text-slate-400 text-center px-8">
@@ -163,7 +186,6 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
                                 <p className="text-sm text-slate-500 mt-2">
                                     Arkadaşlarına ulaşmak için sağ üstteki kaleme veya aşağıdaki butona bas.
                                 </p>
-                                {/* BOŞ DURUMDA SOHBET BAŞLATMA BUTONU */}
                                 <button 
                                     onClick={() => setView('search')}
                                     className="mt-6 px-6 py-2.5 bg-slate-900 text-white rounded-full text-sm font-medium hover:bg-slate-800 transition-all active:scale-95"
@@ -172,33 +194,46 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
                                 </button>
                             </div>
                         ) : (
-                            conversations.map((conv) => (
-                                <button
-                                    key={conv.id}
-                                    onClick={() => handleStartChat(conv.otherUserId, 'Kullanıcı')} 
-                                    className="w-full text-left p-3.5 hover:bg-slate-50 rounded-2xl transition-all flex items-center gap-4 group active:scale-[0.98]"
-                                >
-                                    <div className="relative">
-                                        <div className="w-14 h-14 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full flex-shrink-0 flex items-center justify-center border border-slate-100 shadow-sm group-hover:shadow-md transition-shadow">
-                                            <User className="text-slate-400" size={24} />
+                            conversations.map((conv) => {
+                                const otherUser = conv.userInfo || { full_name: 'Bilinmeyen Kullanıcı', avatar_url: null };
+                                const unread = isUnread(conv);
+
+                                return (
+                                    <button
+                                        key={conv.id}
+                                        onClick={() => handleStartChat(conv.otherUserId, otherUser.full_name, otherUser.avatar_url)} 
+                                        className={`w-full text-left p-3 hover:bg-slate-50 rounded-2xl transition-all flex items-center gap-3 group active:scale-[0.98] border border-transparent hover:border-slate-100 ${unread ? 'bg-orange-50/50' : ''}`}
+                                    >
+                                        <div className="relative shrink-0">
+                                            {otherUser.avatar_url ? (
+                                                <img 
+                                                    src={otherUser.avatar_url} 
+                                                    className="w-12 h-12 rounded-full object-cover border border-slate-100 shadow-sm" 
+                                                    alt="" 
+                                                />
+                                            ) : (
+                                                <div className="w-12 h-12 bg-gradient-to-br from-slate-100 to-slate-200 rounded-full flex items-center justify-center border border-slate-200 text-slate-500 font-bold text-lg">
+                                                    {otherUser.full_name?.[0]?.toUpperCase() || <User size={20} />}
+                                                </div>
+                                            )}
                                         </div>
-                                    </div>
-                                    
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex justify-between items-baseline mb-1">
-                                            <span className="font-bold text-slate-900 text-[15px] group-hover:text-blue-600 transition-colors truncate">
-                                                Kullanıcı {conv.otherUserId.slice(0, 4)}...
-                                            </span>
-                                            <span className="text-[11px] text-slate-400 font-medium whitespace-nowrap ml-2">
-                                                {formatDistanceToNow(new Date(conv.updated_at), { addSuffix: true, locale: tr })}
-                                            </span>
+                                        
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex justify-between items-baseline mb-0.5">
+                                                <span className={`text-[15px] group-hover:text-orange-600 transition-colors truncate ${unread ? 'font-bold text-slate-900' : 'font-medium text-slate-700'}`}>
+                                                    {otherUser.full_name}
+                                                </span>
+                                                <span className="text-[10px] text-slate-400 font-medium whitespace-nowrap ml-2">
+                                                    {conv.updated_at && formatDistanceToNow(new Date(conv.updated_at), { addSuffix: true, locale: tr })}
+                                                </span>
+                                            </div>
+                                            <p className={`text-sm truncate ${unread ? 'text-slate-900 font-semibold' : 'text-slate-500'}`}>
+                                                {conv.last_message || 'Bir mesaj gönderildi'}
+                                            </p>
                                         </div>
-                                        <p className="text-sm truncate text-slate-500">
-                                            {conv.last_message || '📎 Bir ek gönderildi'}
-                                        </p>
-                                    </div>
-                                </button>
-                            ))
+                                    </button>
+                                );
+                            })
                         )}
                     </div>
                 )}
@@ -207,7 +242,7 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
                 {view === 'search' && (
                     <div className="pt-2 animate-in fade-in zoom-in-95 duration-200">
                         {isSearching ? (
-                            <div className="flex justify-center py-12"><Loader2 className="animate-spin text-blue-500" /></div>
+                            <div className="flex justify-center py-12"><Loader2 className="animate-spin text-orange-500" /></div>
                         ) : searchResults.length > 0 ? (
                             <div className="space-y-1">
                                 <p className="px-4 text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Sonuçlar</p>
@@ -215,7 +250,7 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
                                     <button
                                         key={user.id}
                                         onClick={() => handleStartChat(user.id, user.full_name, user.avatar_url)}
-                                        className="w-full text-left p-3 hover:bg-blue-50 rounded-2xl transition-colors flex items-center gap-3 active:scale-[0.98]"
+                                        className="w-full text-left p-3 hover:bg-orange-50 rounded-2xl transition-colors flex items-center gap-3 active:scale-[0.98]"
                                     >
                                         {user.avatar_url ? (
                                             <img src={user.avatar_url} className="w-12 h-12 rounded-full object-cover border border-slate-200" alt="" />
@@ -244,22 +279,26 @@ export default function InboxDialog({ isOpen, onClose, currentUserId }: InboxDia
                         )}
                     </div>
                 )}
-
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* Seçilen Sohbet Penceresi */}
-      <ChatDialog 
-        isOpen={!!selectedChat}
-        onClose={() => setSelectedChat(null)}
-        recipientId={selectedChat?.id || ''}
-        recipientName={selectedChat?.name || ''}
-        recipientAvatar={selectedChat?.avatar}
-        currentUser={{ id: currentUserId }}
-      />
+      {/* Seçilen Sohbet Penceresi 
+         selectedChat olduğunda bu açılır, InboxDialog gizlenir (yukarıdaki !selectedChat sayesinde).
+         ChatDialog'daki "Geri Dön" butonu onClose'u tetikler -> setSelectedChat(null) yapar -> InboxDialog geri gelir.
+      */}
+      {selectedChat && (
+        <ChatDialog 
+            isOpen={!!selectedChat}
+            onClose={() => setSelectedChat(null)}
+            recipientId={selectedChat.id}
+            recipientName={selectedChat.name}
+            recipientAvatar={selectedChat.avatar}
+            currentUser={{ id: currentUserId }}
+        />
+      )}
     </>
   );
 }

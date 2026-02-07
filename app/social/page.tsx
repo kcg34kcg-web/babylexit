@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { 
   Users, TrendingUp, ArrowLeft, 
   Gavel, Home, ShoppingCart, Calendar,
-  Sparkles, User, BadgeCheck, ShieldCheck, Zap, Search, MessageCircle
+  Sparkles, User, Search, MessageCircle, Send // ✅ Send ikonu eklendi
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -15,11 +15,11 @@ import Link from "next/link";
 import { UserProfile } from "@/app/types";
 import CreatePost from "@/components/CreatePost";
 import InboxDialog from "@/components/chat/InboxDialog";
+import { cn } from "@/utils/cn";
 
-// ✅ YENİ: Drawer ve Çiçek İkonu (Popover yerine bunları kullanıyoruz)
 import { NotificationDrawer } from "@/components/notifications/NotificationDrawer";
-import { NotificationFlower } from "@/components/notifications/NotificationFlower"; 
-import { useNotifications } from "@/hooks/useNotifications"; // Bildirim sayısını almak için
+import { NotificationBell } from "@/components/notifications/NotificationBell"; 
+import { useNotifications } from "@/hooks/useNotifications";
 
 export default function LexwoowPage() {
   const router = useRouter();
@@ -32,11 +32,9 @@ export default function LexwoowPage() {
   const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events'>('woow');
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // STATE YÖNETİMİ
   const [isInboxOpen, setIsInboxOpen] = useState(false);
-  const [isNotificationOpen, setIsNotificationOpen] = useState(false); // ✅ YENİ: Bildirim Paneli State'i
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
-  // Bildirim sayısını çek (Buton üzerindeki kırmızı nokta/çiçek için)
   const { unreadCount } = useNotifications(user?.id);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -70,20 +68,11 @@ export default function LexwoowPage() {
     return () => clearTimeout(timer);
   }, [supabase]);
 
-  const renderBadge = (reputation: number = 0) => {
-    if (reputation >= 5000) return <ShieldCheck size={16} className="text-pink-500 fill-pink-50 ml-1 inline-block" />;
-    if (reputation >= 1000) return <Zap size={16} className="text-amber-400 fill-amber-50 ml-1 inline-block" />;
-    if (reputation >= 100) return <BadgeCheck size={16} className="text-blue-500 fill-blue-50 ml-1 inline-block" />;
-    return null;
-  };
-
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20 selection:bg-amber-100 font-sans relative">
       <Toaster position="top-center" />
       
-      {/* --- MODALLAR VE DRAWERLAR --- */}
-      
-      {/* 1. Mesajlaşma */}
+      {/* MODALLAR */}
       {user && (
         <InboxDialog 
           isOpen={isInboxOpen} 
@@ -91,8 +80,6 @@ export default function LexwoowPage() {
           currentUserId={user.id} 
         />
       )}
-
-      {/* 2. ✅ BİLDİRİM DRAWER (YENİ EKLENDİ) */}
       {user && (
         <NotificationDrawer 
           isOpen={isNotificationOpen} 
@@ -112,13 +99,12 @@ export default function LexwoowPage() {
         )}
       </AnimatePresence>
 
-      {/* --- HEADER (Mobil) --- */}
+      {/* HEADER (Mobil) */}
       <div className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-slate-200/60 p-4 shadow-sm lg:hidden">
         <div className="flex items-center gap-3">
           <button onClick={() => router.push('/')} className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-all active:scale-90">
             <ArrowLeft size={22} />
           </button>
-          
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
             <input 
@@ -129,117 +115,135 @@ export default function LexwoowPage() {
               className="w-full bg-slate-100/50 border border-slate-200 rounded-full py-2 pl-10 pr-4 outline-none focus:ring-2 focus:ring-amber-500/10 text-sm transition-all" 
             />
           </div>
-
           <button 
             onClick={() => setIsInboxOpen(true)}
             className="p-2 hover:bg-slate-100 rounded-full text-slate-600 relative transition-all active:scale-90"
           >
              <MessageCircle size={24} />
           </button>
-
-          {/* ✅ MOBİL BİLDİRİM BUTONU */}
           {user && (
-            <button 
-              onClick={() => setIsNotificationOpen(true)}
-              className="p-2 hover:bg-slate-100 rounded-full relative transition-all active:scale-90"
-            >
-               {/* Görsel olarak Çiçeği kullanıyoruz ama tıklamayı buton yönetiyor */}
-               <div className="pointer-events-none">
-                 <NotificationFlower hasUnread={unreadCount > 0} asDiv={true} /> 
-               </div>
-            </button>
+            <NotificationBell 
+                count={unreadCount} 
+                isOpen={isNotificationOpen}
+                onClick={() => setIsNotificationOpen(true)}
+            />
           )}
         </div>
       </div>
 
       <main className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-4 gap-8 mt-6">
         
-        {/* SOL KOLON */}
+        {/* SOL KOLON (Sidebar) */}
         <div className="hidden lg:block lg:col-span-1">
-           <div className="sticky top-8 space-y-6">
-              <div className="px-4 mb-8 flex items-center gap-2 text-amber-600">
+           {/* 'max-h' ve 'overflow-y-auto' ekledim, böylece ekran küçükse sidebar kaydırılabilir olur ve buton kaybolmaz */}
+           <div className="sticky top-8 space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto pr-2 scrollbar-hide"> 
+              <div className="px-4 mb-2 flex items-center gap-2 text-amber-600">
                  <Gavel size={32} />
                  <span className="font-bold text-2xl tracking-widest text-slate-900">LEXWOOW</span>
               </div>
 
-              <nav className="space-y-2">
+              <nav className="space-y-1">
                  <button 
                    onClick={() => { setActiveTab('woow'); setSearchTerm(""); setRefreshKey(prev => prev + 1); }} 
-                   className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'woow' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-slate-100'}`}
+                   className={cn(
+                     "flex items-center gap-4 px-4 py-3 text-xl font-bold rounded-full transition-all w-full text-left",
+                     activeTab === 'woow' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-slate-100'
+                   )}
                  >
-                    <Home size={26} />
+                    <div className="w-10 flex justify-center"><Home size={26} /></div>
                     <span>WOOW</span>
                  </button>
 
-                 {/* ✅ BİLDİRİMLER BUTONU (Düzeltildi) */}
+                 {/* ✅ BİLDİRİMLER */}
                  {user && (
                    <button 
                       onClick={() => setIsNotificationOpen(true)}
-                      className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:bg-slate-100 rounded-full transition-all w-full text-left group"
+                      className={cn(
+                        "flex items-center gap-4 px-4 py-3 text-xl font-medium rounded-full transition-all w-full text-left group",
+                        "text-slate-600 hover:bg-amber-50"
+                      )}
                    >
-                      <div className="pointer-events-none">
-                         <NotificationFlower hasUnread={unreadCount > 0} asDiv={true} />
-                      </div>
-                      <span className={`group-hover:text-slate-900 transition-colors ${unreadCount > 0 ? "font-bold text-slate-900" : ""}`}>
+                      <NotificationBell 
+                          count={unreadCount} 
+                          asDiv={true} 
+                      />
+                      
+                      <span className={cn(
+                        "transition-colors group-hover:text-slate-900",
+                        unreadCount > 0 ? "font-bold text-slate-900" : ""
+                      )}>
                         Bildirimler
                       </span>
                    </button>
                  )}
 
-                 <button className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-purple-600 hover:bg-purple-50 rounded-full transition-all w-full text-left group">
-                    <Sparkles size={26} className="group-hover:rotate-12 transition-transform" />
+                 <button className="flex items-center gap-4 px-4 py-3 text-xl font-medium text-purple-600 hover:bg-purple-50 rounded-full transition-all w-full text-left group">
+                    <div className="w-10 flex justify-center"><Sparkles size={26} className="group-hover:rotate-12 transition-transform" /></div>
                     <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-600 to-pink-500 font-bold">Geft-AI</span>
                  </button>
 
                  <button 
                    onClick={() => { setActiveTab('profile'); setSearchTerm(""); }} 
-                   className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${activeTab === 'profile' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-transparent'}`}
+                   className={cn(
+                     "flex items-center gap-4 px-4 py-3 text-xl font-bold rounded-full transition-all w-full text-left",
+                     activeTab === 'profile' ? 'bg-slate-900 text-white shadow-md' : 'bg-white text-slate-900 hover:bg-slate-50 border border-transparent'
+                   )}
                  >
-                    <User size={26} />
+                    <div className="w-10 flex justify-center"><User size={26} /></div>
                     <span>Hesabım</span>
                  </button>
 
                  <button 
                     onClick={() => setIsInboxOpen(true)}
-                    className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-all w-full text-left"
+                    className="flex items-center gap-4 px-4 py-3 text-xl font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 rounded-full transition-all w-full text-left"
                  >
-                    <MessageCircle size={26} />
+                    <div className="w-10 flex justify-center"><MessageCircle size={26} /></div>
                     <span>Mesajlar</span>
                  </button>
 
-                 <Link href="/market" className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:bg-slate-100 rounded-full transition-all w-full">
-                    <ShoppingCart size={26} />
+                 <Link href="/market" className="flex items-center gap-4 px-4 py-3 text-xl font-medium text-slate-600 hover:bg-slate-100 rounded-full transition-all w-full">
+                    <div className="w-10 flex justify-center"><ShoppingCart size={26} /></div>
                     <span>Market</span>
                  </Link>
 
                  <button 
                    onClick={() => { setActiveTab('events'); setSearchTerm(""); setRefreshKey(prev => prev + 1); }}
-                   className={`flex items-center gap-4 px-6 py-4 text-xl font-bold rounded-full transition-all w-full text-left ${
+                   className={cn(
+                     "flex items-center gap-4 px-4 py-3 text-xl font-bold rounded-full transition-all w-full text-left",
                      activeTab === 'events' 
                        ? 'bg-amber-500/10 text-amber-600 border border-amber-200' 
                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                   }`}
+                   )}
                  >
-                    <Calendar size={26} />
+                    <div className="w-10 flex justify-center"><Calendar size={26} /></div>
                     <span>Etkinlikler</span>
                  </button>
                  
-                 <button onClick={() => router.push('/')} className="flex items-center gap-4 px-6 py-4 text-xl font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-full transition-all w-full text-left mt-8">
-                    <ArrowLeft size={26} />
+                 <button onClick={() => router.push('/')} className="flex items-center gap-4 px-4 py-3 text-xl font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-full transition-all w-full text-left mt-2">
+                    <div className="w-10 flex justify-center"><ArrowLeft size={26} /></div>
                     <span>Ana Menü</span>
                  </button>
               </nav>
 
+              {/* ✅ GÖRÜŞ BİLDİR BUTONU (HİZALAMA DÜZELTİLDİ) */}
               <button 
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                className="w-full bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg py-4 rounded-full shadow-lg shadow-amber-500/30 transition-all active:scale-95 mt-4"
+                className={cn(
+                  "flex items-center gap-4 px-4 py-3 w-full text-left",
+                  "bg-amber-500 hover:bg-amber-600 text-white",
+                  "rounded-full shadow-lg shadow-amber-500/30 transition-all active:scale-95 mt-4 group"
+                )}
               >
-                Görüş Bildir
+                {/* İkon kutusu ekleyerek yazıyı yukarıdaki menülerle hizaladık */}
+                <div className="w-10 flex justify-center">
+                   <Send size={24} className="group-hover:translate-x-1 transition-transform" /> 
+                </div>
+                <span className="font-bold text-lg">Görüş Bildir</span>
               </button>
            </div>
         </div>
 
-        {/* ORTA KOLON (İçerik değişmedi) */}
+        {/* ORTA KOLON */}
         <div className="lg:col-span-2 space-y-8 pb-20">
           {user && (
             <div className="animate-in fade-in slide-in-from-top-4">
@@ -269,7 +273,7 @@ export default function LexwoowPage() {
           />
         </div>
 
-        {/* SAĞ KOLON (İçerik değişmedi) */}
+        {/* SAĞ KOLON */}
         <div className="hidden lg:block lg:col-span-1">
           <div className="sticky top-8 space-y-6">
              <div className="relative mb-6">

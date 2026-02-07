@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useOptimistic, startTransition } from 'react';
+import { useState, useEffect, useOptimistic, startTransition, useRef } from 'react';
 import { createClient } from '@/utils/supabase/client';
 import { sendMessage, markMessagesAsRead, getMessages } from '@/app/actions/chat';
 import MessageList from './MessageList';
@@ -19,11 +19,33 @@ export default function ChatWindow({ conversationId, initialMessages, currentUse
   const [page, setPage] = useState(0);
   const supabase = createClient();
   
+  // 1. REF: En alt noktayı işaretlemek için
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
   const [optimisticMessages, addOptimisticMessage] = useOptimistic(
     messages,
     (state, newMessage) => [...state, newMessage]
   );
 
+  // 2. KAYDIRMA FONKSİYONU
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // 3. OTOMATİK KAYDIRMA TETİKLEYİCİSİ
+  // Son mesaj değiştiğinde (yeni mesaj gelince/gidince) aşağı kaydır.
+  // Eski mesajlar yüklendiğinde (loadMore) son mesaj değişmediği için aşağı atmaz.
+  const lastMessage = optimisticMessages[optimisticMessages.length - 1];
+  useEffect(() => {
+    scrollToBottom();
+  }, [lastMessage?.id]); // Sadece son mesajın ID'si değişirse çalışır
+
+  // İlk açılışta kaydırma
+  useEffect(() => {
+    scrollToBottom();
+  }, []);
+
+  // Supabase Realtime Aboneliği
   useEffect(() => {
     const channel = supabase
       .channel(`chat:${conversationId}`)
@@ -95,23 +117,26 @@ export default function ChatWindow({ conversationId, initialMessages, currentUse
   };
 
   return (
-    // h-full ile ebeveynin (page.tsx) yüksekliğini tam dolduruyoruz.
+    // LAYOUT YAPISI (Input büyümesi ve Overlay sorununu çözen kısım)
+    // flex-col: Alt alta dizer.
+    // h-full: Tüm yüksekliği kaplar.
     <div className={`flex flex-col h-full w-full bg-white relative ${className}`}>
         
         {/* MESAJ LİSTESİ */}
-        {/* flex-1: Boşluğu doldur. */}
-        {/* min-h-0: Input büyüdüğünde burası sıkışarak küçülür (Aşağı taşmayı engeller). */}
+        {/* min-h-0: Input büyürse burası küçülür (Eski mesajların üstünü kapatmaz, listeyi yukarı iter) */}
         <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50 relative w-full">
             <MessageList 
                 messages={optimisticMessages} 
                 currentUserId={currentUser.id} 
                 onLoadMore={loadMore}
             />
+            
+            {/* Çapa: Scroll buraya hedeflenir */}
+            <div ref={messagesEndRef} className="h-1" />
         </div>
 
         {/* INPUT ALANI */}
-        {/* shrink-0: Input alanı ASLA ezilmez, yüksekliği neyse o kadar yer kaplar. */}
-        {/* pb-safe: iPhone'larda alttaki siyah çizgi (Home indicator) için boşluk bırakır. */}
+        {/* shrink-0: Asla ezilmez, boyutu neyse odur. */}
         <div className="shrink-0 w-full bg-white border-t border-slate-100 z-20 pb-[env(safe-area-inset-bottom)]">
             <ChatInput conversationId={conversationId} onSend={handleSendMessage} />
         </div>

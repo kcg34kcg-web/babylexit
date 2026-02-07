@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect } from 'react';
-import { X, Maximize2, Minimize2, Loader2, Minus } from 'lucide-react';
+import { X, Maximize2, Minimize2, Loader2, Minus, ArrowLeft } from 'lucide-react'; // ✅ ArrowLeft eklendi
 import { motion, AnimatePresence } from 'framer-motion';
 import ChatWindow from './ChatWindow';
 import { getMessages, startConversation } from '@/app/actions/chat';
+import Link from 'next/link';
 
 interface ChatDialogProps {
   isOpen: boolean;
@@ -22,7 +23,6 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
   const [initialMessages, setInitialMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Pencere açıldığında sohbeti başlat
   useEffect(() => {
     if (isOpen && currentUser && !conversationId) {
       setLoading(true);
@@ -51,8 +51,6 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
             opacity: 1, 
             y: isMinimized ? 'calc(100% - 60px)' : 0, 
             scale: 1,
-            // DÜZELTME: Mobilde '100dvh' yerine 'inset-0' kullanıyoruz.
-            // Bu sayede klavye açılınca pencere otomatik boyutlanır.
             ...isExpanded ? { 
                 position: 'fixed', inset: 0, borderRadius: 0, zIndex: 50
             } : { 
@@ -63,35 +61,56 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
           }}
           exit={{ opacity: 0, y: 100, scale: 0.95 }}
           transition={{ type: "spring", damping: 25, stiffness: 300 }}
-          // TEMA GÜNCELLEMESİ: bg-slate-900 yerine bg-white (Beyaz Tema)
           className="bg-white shadow-2xl border-x border-t border-slate-200 overflow-hidden flex flex-col"
         >
-          {/* --- HEADER (BEYAZ TEMA) --- */}
+          {/* --- HEADER --- */}
           <div 
             className="flex items-center justify-between p-3 bg-white border-b border-slate-100 cursor-pointer select-none"
             onClick={() => {
                 if(isMinimized) setIsMinimized(false);
             }}
           >
-            <div className="flex items-center gap-3">
-               <div className="relative">
-                   {recipientAvatar ? (
-                       <img src={recipientAvatar} className="w-9 h-9 rounded-full object-cover border border-slate-200" alt="" />
-                   ) : (
-                       <div className="w-9 h-9 rounded-full bg-orange-100 border border-orange-200" />
-                   )}
-                   <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></div>
-               </div>
-               <div>
-                   <h3 className="text-sm font-bold text-slate-900">{recipientName}</h3>
-                   <span className="text-[11px] text-slate-500 block leading-none mt-0.5">
-                       {isMinimized ? 'Sohbeti açmak için tıkla' : 'Çevrimiçi'}
-                   </span>
-               </div>
+            {/* SOL TARAF: Geri Butonu + Profil */}
+            <div className="flex items-center gap-2">
+                {/* ✅ GERİ DÖN BUTONU */}
+                <button 
+                    onClick={(e) => { 
+                        e.stopPropagation(); 
+                        onClose(); // Pencereyi kapatır, böylece alttaki Inbox görünür
+                    }}
+                    className="p-1.5 -ml-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                    title="Geri Dön (Inbox)"
+                >
+                    <ArrowLeft size={20} />
+                </button>
+
+                {/* PROFİL LİNKİ */}
+                <Link 
+                    href={`/profile/${recipientId}`}
+                    className="flex items-center gap-3 group"
+                    onClick={(e) => e.stopPropagation()} 
+                >
+                   <div className="relative">
+                       {recipientAvatar ? (
+                           <img src={recipientAvatar} className="w-9 h-9 rounded-full object-cover border border-slate-200 group-hover:opacity-80 transition-opacity" alt="" />
+                       ) : (
+                           <div className="w-9 h-9 rounded-full bg-orange-100 border border-orange-200 group-hover:bg-orange-200 transition-colors" />
+                       )}
+                       <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 border-2 border-white rounded-full"></div>
+                   </div>
+                   <div>
+                       <h3 className="text-sm font-bold text-slate-900 group-hover:text-orange-500 transition-colors underline-offset-2 group-hover:underline">
+                            {recipientName}
+                       </h3>
+                       <span className="text-[11px] text-slate-500 block leading-none mt-0.5 no-underline">
+                           {isMinimized ? 'Açmak için tıkla' : 'Çevrimiçi'}
+                       </span>
+                   </div>
+                </Link>
             </div>
 
+            {/* SAĞ TARAF: Pencere Kontrolleri */}
             <div className="flex items-center gap-1">
-                {/* İkon renkleri koyu yapıldı (slate-400 -> slate-500/hover:orange) */}
                 <button 
                     onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); setIsExpanded(false); }}
                     className="p-1.5 text-slate-400 hover:text-orange-500 hover:bg-orange-50 rounded-full transition-colors"
@@ -121,7 +140,6 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
           </div>
 
           {/* --- CONTENT --- */}
-          {/* bg-slate-950 yerine bg-white */}
           <div className={`flex-1 bg-white relative overflow-hidden ${isMinimized ? 'hidden' : 'flex flex-col'}`}>
             {loading ? (
                 <div className="h-full flex flex-col items-center justify-center text-slate-400 gap-3">
@@ -134,7 +152,7 @@ export default function ChatDialog({ isOpen, onClose, recipientId, recipientName
                         conversationId={conversationId} 
                         initialMessages={initialMessages} 
                         currentUser={currentUser} 
-                        className="h-full w-full" // ChatWindow'un tüm alanı kaplamasını sağla
+                        className="h-full w-full" 
                     />
                 )
             )}

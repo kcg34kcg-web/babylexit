@@ -19,17 +19,21 @@ export default function ChatInput({ conversationId, onSend }: ChatInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Textarea Yükseklik Ayarı
+  // 1. DÜZELTME: Textarea Yükseklik Ayarı (Titremesiz)
   useEffect(() => {
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      // Max yükseklik 150px (yaklaşık 6 satır). Daha fazlasında scroll çıkar.
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Önce yüksekliği sıfırla ki küçülme varsa algılasın
+      textarea.style.height = 'auto';
+      // Sonra içeriğe göre ayarla (Max 150px)
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`;
     }
   }, [content]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // 2. DÜZELTME: 'e' parametresi opsiyonel yapıldı (Hem form hem klavye tetikleyebilsin diye)
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    
     if ((!content.trim() && !selectedFile) || content.length > MAX_CHARS || isSending) return;
 
     setIsSending(true);
@@ -40,22 +44,30 @@ export default function ChatInput({ conversationId, onSend }: ChatInputProps) {
 
     try {
       await onSend(formData);
+      
+      // Başarılı olursa temizle
       setContent('');
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
-      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+      
+      // Not: useEffect(content) zaten yüksekliği otomatk sıfırlayacak,
+      // buraya ekstra kod yazmaya gerek yok.
+      
     } catch (error) {
       console.error(error);
       toast.error('Mesaj gönderilemedi.');
     } finally {
       setIsSending(false);
+      // İşlem bitince inputa tekrar odaklan (kullanıcı deneyimi için)
+      textareaRef.current?.focus();
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSubmit(e);
+      // Argümansız çağırıyoruz, TypeScript kızmıyor
+      handleSubmit();
     }
   };
 
@@ -63,7 +75,7 @@ export default function ChatInput({ conversationId, onSend }: ChatInputProps) {
   const isOverLimit = charsRemaining < 0;
 
   return (
-    <div className="px-3 py-3 w-full relative">
+    <div className="px-3 py-3 w-full relative bg-white">
       
       {/* Dosya Önizleme */}
       {selectedFile && (
@@ -78,9 +90,10 @@ export default function ChatInput({ conversationId, onSend }: ChatInputProps) {
         </div>
       )}
 
+      {/* items-end: Butonların hep en altta kalmasını sağlar */}
       <form onSubmit={handleSubmit} className="flex items-end gap-2">
         
-        {/* Dosya Butonu (Aşağıda Sabit) */}
+        {/* Dosya Butonu */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -101,7 +114,7 @@ export default function ChatInput({ conversationId, onSend }: ChatInputProps) {
             flex-1 bg-slate-50 rounded-2xl overflow-hidden transition-all duration-200
             border border-slate-200 
             focus-within:border-orange-500 focus-within:bg-white
-            focus-within:ring-0 focus-within:shadow-none
+            focus-within:ring-0 focus-within:shadow-sm
         `}>
             <textarea
               ref={textareaRef}
@@ -109,17 +122,16 @@ export default function ChatInput({ conversationId, onSend }: ChatInputProps) {
               onChange={(e) => setContent(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Bir mesaj yazın..."
-              className="w-full p-3 bg-transparent text-slate-900 placeholder:text-slate-400 resize-none scrollbar-hide !outline-none !ring-0 !border-none !shadow-none focus:ring-0 focus:outline-none"
+              className="w-full p-3 bg-transparent text-slate-900 placeholder:text-slate-400 resize-none scrollbar-hide !outline-none focus:ring-0 block leading-normal"
               rows={1}
-              style={{ minHeight: "48px", maxHeight: "150px" }} 
+              style={{ minHeight: "48px", maxHeight: "76px" }} 
             />
         </div>
 
-        {/* Gönder Butonu (Aşağıda Sabit) */}
+        {/* Gönder Butonu */}
         <button
           type="submit"
           disabled={isSending || isOverLimit || (!content.trim() && !selectedFile)}
-          // mb-[2px] ile input kutusunun alt çizgisiyle görsel olarak hizalıyoruz.
           className={`p-3 rounded-full mb-[2px] transition-all duration-200 flex items-center justify-center shrink-0
             ${(isSending || isOverLimit || (!content.trim() && !selectedFile))
               ? 'bg-slate-100 text-slate-300 cursor-not-allowed' 
