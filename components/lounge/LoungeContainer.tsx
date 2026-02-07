@@ -7,11 +7,11 @@ import { cn } from '@/utils/cn';
 import { PulseFooter } from './ui/PulseFooter';
 
 // --- MODÜLLER (ARTIK AKTİF) ---
-import { TriviaCard } from './modules/TriviaCard';
-import { WisdomQuote } from './modules/WisdomQuote';
-import { ZenBreathing } from './modules/ZenBreathing';
-import { SmartReader } from './modules/SmartReader';
-import { MiniGame } from './modules/MiniGame';
+import { TriviaCard } from '@/components/lounge/modules/TriviaCard';
+import { WisdomQuote } from '@/components/lounge/modules/WisdomQuote';
+import { ZenBreathing } from '@/components/lounge/modules/ZenBreathing';
+import { SmartReader } from '@/components/lounge/modules/SmartReader';
+import { MiniGame } from '@/components/lounge/modules/MiniGame'
 
 type LoungeMode = 'trivia' | 'wisdom' | 'zen' | 'read' | 'game';
 

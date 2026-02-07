@@ -18,7 +18,8 @@ import {
 import Link from 'next/link';
 import { submitQuestion } from '@/app/actions/submit-question';
 import { suggestSimilarQuestions } from '@/app/actions/search';
-import { AILoadingOverlay } from '@/components/ai-loading-overlay';
+// YENİ: LoungeContainer import edildi (Mutlak yol kullanın)
+import LoungeContainer from '@/components/lounge/LoungeContainer';
 
 export default function AskPage() {
   // UI State
@@ -26,6 +27,9 @@ export default function AskPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showEffect, setShowEffect] = useState<'ai' | 'community' | null>(null);
   
+  // Görünüm State'i: 'form' | 'lounge'
+  const [viewState, setViewState] = useState<'form' | 'lounge'>('form');
+
   const [targetType, setTargetType] = useState<'ai' | 'community' | null>(null);
 
   // Arama ve Limit State'leri
@@ -37,8 +41,9 @@ export default function AskPage() {
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   
-  // YENİ EKLENEN STATE: İşlem bittiğinde oluşan ID'yi burada tutacağız
-  const [finishedQuestionId, setFinishedQuestionId] = useState<string | null>(null);
+  // YENİ: AI İşlem Durumu
+  const [questionId, setQuestionId] = useState<string | null>(null);
+  const [isAiFinished, setIsAiFinished] = useState(false);
 
   // Limit Tanımları
   const LIMITS = {
@@ -123,65 +128,122 @@ export default function AskPage() {
 
     // Yükleme Başlıyor
     setIsSubmitting(true);
-    setFinishedQuestionId(null); // ID'yi sıfırla (Yeni işlem için)
+    setQuestionId(null); 
+    setIsAiFinished(false);
 
+    // Kredi Düşme Animasyonu
     if (activeTarget === 'ai') setShowEffect('ai');
     else setShowEffect('community');
 
-    try {
-      // --- ZAMANLAYICI ---
-      // AI ise en az 4 saniye bekle (Oyun oynansın diye)
-      // Topluluk ise bekleme yok
-      const minWaitTime = activeTarget === 'ai' ? 4000 : 0;
-      
-      const timerPromise = new Promise(resolve => setTimeout(resolve, minWaitTime));
-      const submissionPromise = submitQuestion(formData);
+    // --- YENİ MANTIK BAŞLIYOR ---
+    
+    if (activeTarget === 'ai') {
+        // 1. Hemen Lounge Moduna Geç (Optimistic UI) 🚀
+        setViewState('lounge');
+    }
 
-      // İki işlemin de bitmesini bekle
-      const [_, result] = await Promise.all([timerPromise, submissionPromise]);
+    try {
+      // 2. Soruyu Kaydet (Hızlı işlem)
+      const result = await submitQuestion(formData);
 
       if (result?.error) {
          toast.error(result.error);
          setIsSubmitting(false);
          setShowEffect(null);
          setTargetType(null);
-      } else if (result?.success && result?.questionId) {
-        
-        // --- KRİTİK GÜNCELLEME BURADA ---
+         setViewState('form'); // Hata varsa forma geri dön
+         return;
+      } 
+      
+      if (result?.success && result?.questionId) {
+        setQuestionId(result.questionId);
+
         if (activeTarget === 'ai') {
-            // Eğer AI ise: Yönlendirme YAPMA.
-            // Sadece ID'yi kaydet ki Overlay "Bitti" moduna geçsin.
-            setFinishedQuestionId(result.questionId);
-            toast.success("Analiz Tamamlandı! Raporunuz hazır.");
-            // isSubmitting'i FALSE YAPMIYORUZ! Overlay ekranda kalsın.
+            // 3. AI'ı Arka Planda Tetikle (Fire & Forget) 🔥
+            triggerAI(result.questionId);
+            
+            // 4. Dinlemeye Başla (Cevap geldi mi?)
+            listenForCompletion(result.questionId);
         } else {
             // Eğer Topluluk ise: Eski usul hemen yönlendir.
             toast.success('Soru topluluğa iletildi!');
             router.push(`/questions/${result.questionId}`); 
         }
       }
+
     } catch (error) {
       console.error(error);
       toast.error('Beklenmedik bir hata oluştu.');
       setIsSubmitting(false);
       setShowEffect(null);
       setTargetType(null);
+      setViewState('form');
     }
   };
 
+  // --- AI YARDIMCI FONKSİYONLAR ---
+
+  // AI Tetikleyici
+  const triggerAI = async (id: string) => {
+    try {
+        await fetch('/api/trigger-ai', {
+            method: 'POST',
+            body: JSON.stringify({ questionId: id }),
+            headers: { 'Content-Type': 'application/json' }
+        });
+    } catch (e) {
+        console.error("AI Tetikleme Hatası:", e);
+    }
+  };
+
+  // Bitişi Dinle (Supabase Realtime)
+  const listenForCompletion = (id: string) => {
+    const channel = supabase
+      .channel('question-status-check')
+      .on(
+        'postgres_changes',
+        { 
+          event: 'UPDATE', 
+          schema: 'public', 
+          table: 'questions', 
+          filter: `id=eq.${id}` 
+        },
+        (payload) => {
+          // Eğer statüs "answered" olduysa işlem bitmiştir
+          if (payload.new.status === 'answered') {
+             setIsAiFinished(true); // Lounge'a "Bitti" sinyali gönder
+             toast.success("Analiz Tamamlandı! 🧠");
+             supabase.removeChannel(channel);
+          }
+        }
+      )
+      .subscribe();
+  };
+
+  // Lounge'dan Çıkış (Sonucu Gör Butonu)
+  const handleLoungeComplete = () => {
+     if (questionId) {
+        router.push(`/questions/${questionId}`);
+     }
+  };
+
+  // --- RENDER ---
+
+  // Eğer Lounge modundaysak, sadece LoungeContainer'ı render et
+  if (viewState === 'lounge') {
+      return (
+        <LoungeContainer 
+           isFinished={isAiFinished} 
+           onComplete={handleLoungeComplete} 
+        />
+      );
+  }
+
+  // Normal Form Görünümü
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 relative overflow-hidden">
       
-      {/* --- AI BEKLEME EKRANI (GÜNCELLENDİ) --- */}
-      {/* finishedQuestionId doluysa Overlay 'Bitti' modunda açılır */}
-      {isSubmitting && targetType === 'ai' && (
-        <AILoadingOverlay 
-            isFinished={!!finishedQuestionId} 
-            redirectUrl={finishedQuestionId ? `/questions/${finishedQuestionId}` : '/'}
-        />
-      )}
-
-      {/* KREDİ EFEKTİ (Sadece topluluk için, AI için zaten overlay var) */}
+      {/* KREDİ EFEKTİ (Sadece topluluk için, AI için Lounge var) */}
       {showEffect && targetType !== 'ai' && (
         <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
           <div className="animate-float-up text-6xl font-black text-orange-500 drop-shadow-xl bg-white/90 backdrop-blur-sm px-8 py-4 rounded-3xl border border-orange-100">
@@ -289,7 +351,7 @@ export default function AskPage() {
                            </div>
                            <div className="text-xs text-slate-500 group-hover:text-indigo-400 font-medium flex items-center gap-2">
                              <span className="font-bold bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
-                               %{Math.round(q.similarity * 100)}
+                               %{Math.round(q.similarity * 1)}
                              </span>
                              <span className="line-clamp-1 opacity-70">{q.content.substring(0, 40)}...</span>
                            </div>

@@ -10,18 +10,26 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
-// Modeller
-// Moderasyon ve analiz için hızlı model (Flash)
-const flashModel = genAI.getGenerativeModel({ 
+// --- MODELLER ---
+
+// 1. JSON Modeli (Moderasyon ve Analiz için) - MEVCUT
+const flashJSONModel = genAI.getGenerativeModel({ 
   model: "gemini-2.0-flash", 
   generationConfig: { responseMimeType: "application/json" } 
 });
 
-// Vektör işlemleri için embedding modeli
+// 2. Metin Modeli (Akıllı Cevap İçin - YENİ EKLENDİ)
+// JSON zorlaması olmadan normal metin/markdown üretir.
+const textModel = genAI.getGenerativeModel({ 
+  model: "gemini-2.0-flash" 
+});
+
+// 3. Vektör Modeli (Embedding için) - MEVCUT
 const embeddingModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
+
 // ---------------------------------------------------------
-// 1. İÇERİK GÜVENLİK KONTROLÜ (MODERASYON)
+// 1. İÇERİK GÜVENLİK KONTROLÜ (MODERASYON) - MEVCUT KOD
 // ---------------------------------------------------------
 export async function checkContentSafety(text: string) {
   const prompt = `
@@ -46,19 +54,17 @@ export async function checkContentSafety(text: string) {
   `;
 
   try {
-    const result = await flashModel.generateContent(prompt);
+    const result = await flashJSONModel.generateContent(prompt);
     const responseText = result.response.text().replace(/```json|```/g, "").trim();
     return JSON.parse(responseText);
   } catch (error) {
     console.error("Moderation Error:", error);
-    // Hata durumunda kullanıcıyı engellememek için (fail-open) veya güvenli olsun diye engellemek (fail-closed) senin tercihin.
-    // Şimdilik güvenli varsayıyoruz:
     return { isSafe: true, reason: "" }; 
   }
 }
 
 // ---------------------------------------------------------
-// 2. VEKTÖR OLUŞTURMA
+// 2. VEKTÖR OLUŞTURMA - MEVCUT KOD
 // ---------------------------------------------------------
 export async function generateEmbedding(text: string) {
   try {
@@ -72,7 +78,7 @@ export async function generateEmbedding(text: string) {
 }
 
 // ---------------------------------------------------------
-// 3. CEVAP ANALİZİ VE PUANLAMA
+// 3. CEVAP ANALİZİ VE PUANLAMA - MEVCUT KOD
 // ---------------------------------------------------------
 export async function analyzeAnswer(answerId: string, content: string, questionTitle: string) {
   const supabase = await createClient();
@@ -93,7 +99,7 @@ export async function analyzeAnswer(answerId: string, content: string, questionT
   `;
 
   try {
-    const result = await flashModel.generateContent(prompt);
+    const result = await flashJSONModel.generateContent(prompt);
     const responseText = result.response.text().replace(/```json|```/g, "").trim();
     const data = JSON.parse(responseText);
 
@@ -106,5 +112,90 @@ export async function analyzeAnswer(answerId: string, content: string, questionT
   } catch (error) {
     console.error("AI Analysis Error:", error);
     return { success: false };
+  }
+}
+
+// ---------------------------------------------------------
+// 4. AKILLI CEVAP ÜRETME (YENİ - OMNI ADAPTIVE ENGINE)
+// ---------------------------------------------------------
+// Bu fonksiyon 'submit-question.ts' dosyasından buraya taşındı.
+// Lounge ekranı beklerken arka planda bu fonksiyon çalışacak.
+export async function generateSmartAnswer(questionTitle: string, questionContent: string) {
+  
+  const systemPrompt = `
+### SYSTEM CORE IDENTITY ###
+You are the **Omni-Adaptive Intelligence Engine**. Your function is to analyze the user's input, detect the specific domain, and instantiate the most appropriate expert persona.
+
+**CURRENT CONTEXT:**
+- Question Title: "${questionTitle}"
+- Question Content: "${questionContent}"
+- Current Date: ${new Date().toLocaleDateString('tr-TR')}
+
+---
+
+### 🛑 UNIVERSAL OUTPUT CONSTRAINTS (SUPREME RULES) 🛑
+**These rules override all other instructions:**
+1. **MAXIMUM 2 PARAGRAPHS:** Your entire response must be strictly limited to 2 paragraphs.
+2. **NO FLUFF:** Remove all filler words. Be concise, dense, and direct.
+3. **LANGUAGE:** Respond in the language of the user's question (Turkish/English).
+
+---
+
+### PHASE 1: DOMAIN DETECTION & PERSONA SWITCH ###
+**Analyze the input. IF the domain is LAW (Hukuk), execute MODULE A. For all other domains, execute MODULE B.**
+
+---
+
+### 🔴 MODULE A: LAW & JURISPRUDENCE (STRICT ALGORITHM) ###
+*Triggered when context implies: Legal, Statutes, Court Rulings, Rights, Penalties.*
+
+**ROLE:** You are a **Senior Legal Assistant** with academic rigor. Your tone is didactic, objective, terminologically precise (Turkish Legal Terminology), and direct. NO small talk.
+
+**DECISION TREE (Follow Strictly):**
+**1. MODE DETECTION:**
+   * **MODE A: POSITIVE LAW (Current TR Law):** Apply currently in force statutes.
+   * **MODE B: THEORETICAL / HISTORY:** Use historical/philosophical sources.
+
+**3. MODULE A REQUIREMENTS:**
+   * **Citations:** MANDATORY. (e.g., "TBK m. 112").
+   * **Disclaimer:** Append: "⚖️ *Yasal Uyarı: Bu bilgi hukuki mütalaa değildir.*"
+
+---
+
+### 🔵 MODULE B: ALL OTHER DOMAINS (ADAPTIVE EXPERT) ###
+*Triggered when context is: Engineering, Health, General Culture, Science, etc.*
+
+**1. DYNAMIC PERSONA:**
+   * **Engineering:** Senior Principal Engineer.
+   * **Health:** Medical Research Analyst. (Must end with: "⚠️ *Uyarı: Doktor değilim.*")
+   * **General:** Objective Expert.
+
+---
+### EXECUTION INSTRUCTION ###
+Apply the Supreme Rules (Max 2 Paragraphs). Detect domain. Generate response.
+`;
+
+  try {
+    // Burada textModel kullanıyoruz çünkü çıktı metin formatında olmalı (JSON değil)
+    const result = await textModel.generateContent({
+      contents: [
+        { 
+          role: 'user', 
+          parts: [{ text: systemPrompt }] 
+        }
+      ]
+    });
+
+    const textAnswer = result.response.text();
+    
+    if (!textAnswer) {
+      throw new Error("Yapay zeka boş cevap döndürdü.");
+    }
+
+    return textAnswer; 
+
+  } catch (error: any) {
+    console.error("Generate Smart Answer Error:", error);
+    return `Yapay zeka servisine şu an ulaşılamıyor. Lütfen daha sonra tekrar deneyin. (Hata: ${error.message || 'Bilinmeyen Hata'})`;
   }
 }
