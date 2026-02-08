@@ -2,13 +2,13 @@
 
 import { useRef, useEffect, useState } from 'react';
 import Image from 'next/image';
-import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play } from 'lucide-react';
+import { Heart, MessageCircle, Share2, Volume2, VolumeX, Play, MapPin, Music } from 'lucide-react';
 import { cn } from '@/utils/cn';
 import { VideoData } from '@/app/types/video';
 
 interface VideoItemProps {
   data: VideoData;
-  isActive: boolean; // Ekranda görünen video bu mu?
+  isActive: boolean; 
 }
 
 export default function VideoItem({ data, isActive }: VideoItemProps) {
@@ -16,31 +16,23 @@ export default function VideoItem({ data, isActive }: VideoItemProps) {
   const [isMuted, setIsMuted] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
 
-  // Aktiflik Durumu Değişince (Ekrana girince/çıkınca)
   useEffect(() => {
     if (!videoRef.current) return;
-
     if (isActive) {
-      // Ekrana girdi: Oynat
       const playPromise = videoRef.current.play();
       if (playPromise !== undefined) {
         playPromise
           .then(() => setIsPlaying(true))
-          .catch((error) => {
-            console.log("Otomatik oynatma engellendi (Kullanıcı etkileşimi bekleniyor):", error);
-            setIsPlaying(false);
-          });
+          .catch(() => setIsPlaying(false));
       }
     } else {
-      // Ekrandan çıktı: Durdur ve başa sar
       videoRef.current.pause();
-      videoRef.current.currentTime = 0; // Başa sar (TikTok mantığı)
+      videoRef.current.currentTime = 0;
       setIsPlaying(false);
     }
   }, [isActive]);
 
   const toggleMute = () => setIsMuted(!isMuted);
-
   const togglePlay = () => {
     if (!videoRef.current) return;
     if (isPlaying) {
@@ -53,42 +45,39 @@ export default function VideoItem({ data, isActive }: VideoItemProps) {
   };
 
   return (
-    // DÜZELTME: bg-black yerine bg-transparent yaptık
-    <div className="relative w-full h-[100dvh] snap-start bg-transparent overflow-hidden flex items-center justify-center">
+    <div className="relative w-full h-[100dvh] snap-start bg-transparent overflow-hidden flex items-center justify-center group">
       
-      {/* 1. VİDEO KATMANI */}
+      {/* 1. VİDEO */}
       <video
         ref={videoRef}
         src={data.video_url}
         poster={data.thumbnail_url}
-        // DÜZELTME: object-cover yerine max-h-full max-w-full yaparak
-        // eğer video dikey değilse yanlardan taşmamasını, arka planın görünmesini sağladık.
-        // Tam ekran dolması isteniyorsa 'object-cover' geri alınabilir.
         className="h-full w-full object-cover"
         loop
-        playsInline // iOS için kritik
-        muted={isMuted} // Tarayıcı politikası için başlangıçta true olmalı
+        playsInline 
+        muted={isMuted} 
         onClick={togglePlay}
-        preload="auto" // Progressive MP4 için önemli
+        preload="auto"
       />
 
-      {/* 2. OVERLAY (Koyu Gradyan) - Yazıların okunması için */}
-      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60 pointer-events-none" />
+      {/* 2. GÖLGE KATMANI (Alttan yukarı) */}
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/80 pointer-events-none" />
 
-      {/* 3. OYNAT/DURDUR İKONU (Ortada beliren) */}
+      {/* 3. OYNAT BUTONU (Orta) */}
       {!isPlaying && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="bg-black/40 p-4 rounded-full backdrop-blur-sm">
+          <div className="bg-black/40 p-4 rounded-full backdrop-blur-md border border-white/10 animate-pulse">
             <Play className="w-8 h-8 text-white fill-white" />
           </div>
         </div>
       )}
 
-      {/* 4. SAĞ TARAFTAKİ AKSİYON BUTONLARI */}
-      <div className="absolute right-4 bottom-20 flex flex-col items-center gap-6 z-20">
-        {/* Profil Resmi */}
-        <div className="relative group cursor-pointer">
-          <div className="w-12 h-12 rounded-full border-2 border-white p-[1px] overflow-hidden">
+      {/* 4. SAĞ MENÜ (Etkileşim) */}
+      <div className="absolute right-4 bottom-24 flex flex-col items-center gap-6 z-20">
+        
+        {/* Avatar */}
+        <div className="relative cursor-pointer transition hover:scale-110">
+          <div className="w-12 h-12 rounded-full border-2 border-white p-[2px]">
              <Image 
                src={data.user.avatar_url || '/placeholder.png'} 
                alt={data.user.username} 
@@ -97,61 +86,72 @@ export default function VideoItem({ data, isActive }: VideoItemProps) {
                className="object-cover w-full h-full rounded-full"
              />
           </div>
-          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-red-500 rounded-full p-0.5">
-             <div className="w-3 h-3 bg-red-500 rounded-full animate-ping absolute" />
-             <div className="w-3 h-3 bg-red-500 rounded-full relative" />
+          <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-rose-500 rounded-full p-0.5">
+             <div className="w-3 h-3 bg-rose-500 rounded-full animate-ping absolute" />
+             <div className="w-3 h-3 bg-rose-500 rounded-full relative" />
           </div>
         </div>
 
-        {/* Beğeni */}
-        <div className="flex flex-col items-center gap-1 cursor-pointer">
-          <div className="p-2 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/20 transition">
-             <Heart 
-               size={28} 
-               className={cn("transition-colors", data.is_liked ? "fill-red-500 text-red-500" : "text-white")} 
-             />
+        {/* Butonlar */}
+        {[
+          { icon: Heart, count: data.stats.likes, color: data.is_liked ? 'text-rose-500 fill-rose-500' : 'text-white' },
+          { icon: MessageCircle, count: data.stats.comments, color: 'text-white' },
+          { icon: Share2, label: 'Paylaş', color: 'text-white' }
+        ].map((item, i) => (
+          <div key={i} className="flex flex-col items-center gap-1 cursor-pointer group/btn">
+            <div className="p-2.5 rounded-full bg-white/10 backdrop-blur-md border border-white/5 hover:bg-white/20 transition-all active:scale-90">
+               <item.icon size={26} className={item.color} />
+            </div>
+            <span className="text-white text-[10px] font-bold drop-shadow-md">
+              {item.count !== undefined ? item.count : item.label}
+            </span>
           </div>
-          <span className="text-white text-xs font-bold drop-shadow-md">{data.stats.likes}</span>
-        </div>
+        ))}
 
-        {/* Yorum */}
-        <div className="flex flex-col items-center gap-1 cursor-pointer">
-          <div className="p-2 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/20 transition">
-             <MessageCircle size={28} className="text-white" />
-          </div>
-          <span className="text-white text-xs font-bold drop-shadow-md">{data.stats.comments}</span>
-        </div>
-
-        {/* Paylaş */}
-        <div className="flex flex-col items-center gap-1 cursor-pointer">
-          <div className="p-2 rounded-full bg-white/10 backdrop-blur-md hover:bg-white/20 transition">
-             <Share2 size={28} className="text-white" />
-          </div>
-          <span className="text-white text-xs font-bold drop-shadow-md">Paylaş</span>
-        </div>
-        
-        {/* Ses Kontrolü */}
-        <button onClick={(e) => { e.stopPropagation(); toggleMute(); }} className="mt-4 p-2 bg-black/50 rounded-full">
+        <button onClick={(e) => { e.stopPropagation(); toggleMute(); }} className="mt-2 p-2.5 bg-black/40 rounded-full backdrop-blur-sm border border-white/10">
             {isMuted ? <VolumeX className="text-white" size={20}/> : <Volume2 className="text-white" size={20}/>}
         </button>
       </div>
 
-      {/* 5. ALT BİLGİ ALANI */}
-      <div className="absolute left-4 bottom-6 right-16 z-20 text-white">
-        <h3 className="font-bold text-lg mb-2 drop-shadow-md">@{data.user.username}</h3>
-        <p className="text-sm opacity-90 line-clamp-2 leading-relaxed drop-shadow-md mb-3">
+      {/* 5. SOL ALT BİLGİ (Metadata) */}
+      <div className="absolute left-4 bottom-8 right-16 z-20 text-white space-y-3">
+        
+        {/* Kullanıcı ve Konum */}
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="font-bold text-lg drop-shadow-md hover:underline cursor-pointer">@{data.user.username}</h3>
+            {/* Tarih Bilgisi (Basit haliyle) */}
+            <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded text-white/80">
+               {data.created_at ? new Date(data.created_at).toLocaleDateString('tr-TR') : 'Bugün'}
+            </span>
+          </div>
+          
+          {data.location && (
+            <div className="flex items-center gap-1 text-xs text-rose-200 bg-rose-500/20 w-fit px-2 py-1 rounded-full backdrop-blur-sm mb-2">
+              <MapPin size={12} /> {data.location}
+            </div>
+          )}
+        </div>
+
+        {/* Açıklama */}
+        <p className="text-sm opacity-90 line-clamp-3 leading-relaxed drop-shadow-sm font-light">
           {data.description}
         </p>
         
-        {/* Müzik Animasyonu (Süs) */}
-        <div className="flex items-center gap-2 text-xs font-medium opacity-80">
-           <div className="flex gap-0.5 items-end h-3">
-              <div className="w-0.5 h-full bg-white animate-[music-bar_0.5s_ease-in-out_infinite]" />
-              <div className="w-0.5 h-2 bg-white animate-[music-bar_0.6s_ease-in-out_infinite]" />
-              <div className="w-0.5 h-3 bg-white animate-[music-bar_0.7s_ease-in-out_infinite]" />
+        {/* Müzik (Marquee Efekti) */}
+        <div className="flex items-center gap-3">
+           <div className="p-1.5 bg-white/10 rounded-full animate-spin-slow">
+              <Music size={14} />
            </div>
-           <span>Orijinal Ses - {data.user.username}</span>
+           <div className="overflow-hidden w-40">
+             <div className="flex gap-2 text-xs font-medium opacity-90 whitespace-nowrap animate-marquee">
+               <span>{data.music_meta?.title || 'Orijinal Ses'}</span>
+               <span className="text-white/50">•</span>
+               <span>{data.music_meta?.artist || data.user.username}</span>
+             </div>
+           </div>
         </div>
+
       </div>
     </div>
   );
