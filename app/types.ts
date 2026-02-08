@@ -1,8 +1,6 @@
 // app/types.ts
 
 // --- 0. SHARED PRIMITIVES & ENUMS (The Foundation) ---
-// Critique Addressed: "ID values repeatedly typed as string", "Timestamps repeated", "Inline enums"
-
 export type UUID = string; // Semantic alias for strings that are database IDs
 export type ISODateString = string; // e.g., "2024-02-07T10:00:00Z"
 export type ReactionType = 'woow' | 'doow' | 'adil';
@@ -14,9 +12,6 @@ export type EventLocation = CoordinateLocation | string | null;
 export type EventStatus = 'upcoming' | 'live' | 'archived';
 
 // --- 1. SHARED INTERFACES (Mixins) ---
-// Critique Addressed: "Reaction counters separated", "Duplicate types"
-
-// Standardizes how we track interactions across Posts and Comments
 export interface InteractionStats {
   woow_count: number;
   doow_count: number;
@@ -24,7 +19,6 @@ export interface InteractionStats {
   // Note: comment_count/reply_count are specific to the entity, so they stay on the main type
 }
 
-// Standardizes how we display author info
 export interface AuthorDetails {
   author_name: string;
   author_username?: string;
@@ -47,15 +41,15 @@ export interface PostData extends InteractionStats, AuthorDetails {
   // Event / Living Ticket Logic
   is_event?: boolean;
   event_date?: ISODateString | null;
-  event_location?: EventLocation; // Now uses the clean type defined above
+  event_location?: EventLocation;
   event_status?: EventStatus;
 
   // Interactions (Extended from InteractionStats)
   comment_count: number;
-  my_reaction: ReactionType | null; // Uses shared ReactionType
+  my_reaction: ReactionType | null;
   
   // State & Flags
-  score?: number; // Kept optional to match your current system flow
+  score?: number;
   is_private?: boolean;
   is_following_author?: boolean;
 }
@@ -70,7 +64,7 @@ export interface FlatComment extends InteractionStats {
   
   content: string;
 
-  // Author Info (Manually listed to match your exact DB join structure)
+  // Author Info
   author_name: string;
   author_avatar: string;
   author_username?: string;
@@ -78,7 +72,7 @@ export interface FlatComment extends InteractionStats {
   // Interactions
   reply_count: number;
   my_reaction: ReactionType | null;
-  score: number; // Required in comments per your existing logic
+  score: number;
 }
 
 // --- 4. PROFILE STRUCTURES ---
@@ -93,30 +87,37 @@ export interface UserProfile {
   reputation?: number;
   credits?: number;
 
-  // Privacy Settings
+  // Privacy Settings (Base)
   is_private: boolean;           
+  // Note: These might be redundant here if using ExtendedProfile strictly, 
+  // but kept for backward compatibility if needed.
   is_social_private?: boolean;   
   is_academic_private?: boolean; 
 }
 
-// Extended Profile (Private data)
-// Critique Addressed: "Mixes private and public data".
-// We keep inheritance for now to not break your profile page, 
-// but clarify that these fields are only available to the owner.
+// ✅ GÜNCELLEME: İstenilen alanlar eklendi
+export interface ExtendedProfile extends UserProfile {
+  is_social_private?: boolean;
+  is_academic_private?: boolean;
+  
+  // YENİ EKLENENLER:
+  ai_endorsements?: number;    // AI Onay Sayısı
+  community_upvotes?: number;  // Topluluk Beğeni Sayısı
+}
+
+// Extended Profile (Private data / Owner view)
 export interface Profile extends UserProfile {
   phone?: string | null;
   address?: string | null;
   updated_at?: ISODateString;
 }
 
-// --- 5. POLL STRUCTURES (NEW & IMPROVED) ---
-// Critique Addressed: "Lacks aggregate fields"
-
+// --- 5. POLL STRUCTURES ---
 export interface PollOption {
   id: UUID;
   poll_id: UUID;
   option_text: string;
-  vote_count: number; // Denormalized count
+  vote_count: number;
   display_order: number;
 }
 
@@ -134,8 +135,8 @@ export interface Poll {
   options: PollOption[];
   
   // Context
-  user_vote?: UUID | null; // The option_id the user voted for
+  user_vote?: UUID | null;
   
-  // Analytics (Added as optional for future scalability)
+  // Analytics
   total_votes?: number; 
 }

@@ -21,7 +21,9 @@ import {
   PenTool,
   BookOpen, 
   PlayCircle,
-  ArrowRight
+  ArrowRight,
+  Heart,  // YENİ EKLENDİ
+  Award   // YENİ EKLENDİ
 } from 'lucide-react';
 
 interface Profile {
@@ -29,6 +31,8 @@ interface Profile {
   full_name: string;
   reputation: number;
   credits: number;
+  community_upvotes?: number; // YENİ
+  ai_endorsements?: number;   // YENİ
 }
 
 interface Question {
@@ -67,10 +71,10 @@ export default function DashboardPage() {
       }
       setUser(user);
 
-      // Profil verisi
+      // Profil verisi (community_upvotes ve ai_endorsements eklendi)
       const { data: profileData } = await supabase
         .from('profiles')
-        .select('id, full_name, reputation, credits')
+        .select('id, full_name, reputation, credits, community_upvotes, ai_endorsements')
         .eq('id', user.id)
         .single();
       if (profileData) setProfile(profileData);
@@ -143,14 +147,63 @@ export default function DashboardPage() {
         </div>
         
         <div className="flex gap-4 overflow-x-auto pb-2 md:pb-0 w-full md:w-auto">
-          <div className="bg-white border border-slate-200 px-6 py-3 rounded-2xl min-w-[140px] shadow-sm">
-            <span className="text-slate-500 text-xs uppercase tracking-wider font-bold">Reputasyon</span>
-            <div className="text-2xl font-bold text-amber-600 flex items-center gap-2">
-              <TrendingUp size={20} /> {profile?.reputation || 0}
+          
+          {/* --- YENİ GELİŞMİŞ REPÜTASYON KARTI --- */}
+          <div className="bg-white border border-slate-200 p-5 rounded-2xl min-w-[260px] shadow-sm flex flex-col justify-between relative overflow-hidden">
+            
+            {/* Arka Plan Süsü */}
+            <div className="absolute top-0 right-0 w-16 h-16 bg-gradient-to-br from-slate-100 to-transparent rounded-bl-full opacity-50"></div>
+
+            {/* 1. ÜST KISIM: TOPLAM SKOR */}
+            <div className="mb-3">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-slate-400 text-[10px] uppercase tracking-widest font-bold">Genel Repütasyon</span>
+                {/* Yeşil ok, puan artıyormuş hissi verir */}
+                <span className="text-[10px] text-green-500 bg-green-50 px-1.5 py-0.5 rounded font-bold">Canlı</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-3xl font-black text-slate-800 tracking-tight">
+                  {profile?.reputation || 0}
+                </span>
+                <span className="text-xs text-slate-400 font-medium">puan</span>
+              </div>
+            </div>
+
+            {/* 2. ALT KISIM: İKİLİ GÜÇ GÖSTERGESİ (Motor + Kaporta) */}
+            <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
+              
+              {/* SOL: TOPLULUK (Kalp) */}
+              <div className="flex items-center gap-2.5 flex-1 group" title="Topluluktan gelen beğeniler">
+                <div className="bg-orange-50 text-orange-500 p-2 rounded-lg group-hover:bg-orange-500 group-hover:text-white transition-all duration-300">
+                  <Heart size={16} fill="currentColor" className="group-hover:scale-110 transition-transform"/>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-bold text-slate-700 leading-none">
+                    {profile?.community_upvotes || 0}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-bold mt-0.5">TOPLULUK</span>
+                </div>
+              </div>
+
+              {/* SAĞ: OTORİTE (AI Rozeti) */}
+              <div className="flex items-center gap-2.5 flex-1 group border-l border-slate-100 pl-3" title="Yapay Zeka Referansları">
+                <div className="bg-indigo-50 text-indigo-600 p-2 rounded-lg group-hover:bg-indigo-600 group-hover:text-white transition-all duration-300">
+                  <Award size={16} className="group-hover:scale-110 transition-transform"/>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-sm font-bold text-slate-700 leading-none">
+                    {profile?.ai_endorsements || 0}
+                  </span>
+                  <span className="text-[9px] text-slate-400 font-bold mt-0.5">OTORİTE</span>
+                </div>
+              </div>
+
             </div>
           </div>
-          <div className="bg-white border border-slate-200 px-6 py-3 rounded-2xl min-w-[140px] shadow-sm">
-            <span className="text-slate-500 text-xs uppercase tracking-wider font-bold">Kredi</span>
+          {/* --- REPÜTASYON KARTI SONU --- */}
+
+          <div className="bg-white border border-slate-200 px-6 py-3 rounded-2xl min-w-[140px] shadow-sm flex flex-col justify-center">
+            <span className="text-slate-500 text-xs uppercase tracking-wider font-bold mb-1">Kredi</span>
             <div className="text-2xl font-bold text-slate-900 flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-green-600"></div> {profile?.credits || 0}
             </div>
@@ -278,8 +331,6 @@ export default function DashboardPage() {
                   
                   <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
                     
-                    {/* YENİ EKLENEN KISIM: FavoriteButton Bileşeni */}
-                    {/* Artık manuel buton yok. Bu bileşen veritabanı işini kendi hallediyor. */}
                     <FavoriteButton 
                       itemId={q.id} 
                       initialIsFavorited={favorites.includes(q.id)} 

@@ -2,7 +2,17 @@
 
 import { useOptimistic, startTransition } from 'react';
 import { createClient } from '@/utils/supabase/client'; 
-import { ChevronUp, ChevronDown, CheckCircle2, Bot, Sparkles, ShieldCheck, AlertTriangle } from 'lucide-react'; // Yeni ikonlar eklendi
+import { 
+  ChevronUp, 
+  ChevronDown, 
+  Bot, 
+  Sparkles, 
+  ShieldCheck, 
+  AlertTriangle,
+  Award,
+  User,
+  CheckCircle2
+} from 'lucide-react';
 import { cn } from '@/utils/cn';
 
 interface AnswerCardProps {
@@ -16,8 +26,9 @@ interface AnswerCardProps {
         full_name: string;
         username?: string;
         avatar_url?: string;
+        ai_endorsements?: number;
     };
-    ai_score?: number; // Opsiyonel: Eğer backend'den geliyorsa kullanabiliriz
+    ai_score?: number;
   };
   currentUserVote?: number;
   initialNetScore: number;
@@ -27,7 +38,7 @@ interface AnswerCardProps {
 export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUserId }: AnswerCardProps) {
   const supabase = createClient();
 
-  // --- OYLAMA MANTIĞI (MEVCUT KOD KORUNDU) ---
+  // --- OYLAMA MANTIĞI ---
   const [optimisticVote, addOptimisticVote] = useOptimistic(
     { vote: currentUserVote || 0, score: initialNetScore },
     (state, newVote: number) => {
@@ -49,16 +60,10 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
 
     try {
       const finalVote = optimisticVote.vote === voteType ? 0 : voteType;
-
       if (finalVote === 0) {
-        await supabase
-          .from('votes')
-          .delete()
-          .match({ user_id: currentUserId, answer_id: answer.id });
+        await supabase.from('votes').delete().match({ user_id: currentUserId, answer_id: answer.id });
       } else {
-        await supabase
-          .from('votes')
-          .upsert(
+        await supabase.from('votes').upsert(
             { user_id: currentUserId, answer_id: answer.id, vote_type: finalVote },
             { onConflict: 'user_id, answer_id' }
           );
@@ -69,39 +74,41 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
   };
 
   const isAI = answer.is_ai_generated;
-
-  // Kullanıcı Bilgileri
   const authorName = answer.profiles?.full_name || "İsimsiz Kullanıcı";
   const authorUsername = answer.profiles?.username;
   const authorAvatar = answer.profiles?.avatar_url;
+  const aiEndorsements = answer.profiles?.ai_endorsements || 0;
 
   return (
     <div className={cn(
-      "relative rounded-xl border p-6 transition-all",
+      "relative rounded-2xl border p-5 sm:p-6 transition-all duration-300",
       isAI 
-        ? "bg-blue-50/40 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800 shadow-[0_0_15px_rgba(59,130,246,0.1)]" 
-        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800"
+        ? "bg-gradient-to-br from-indigo-50/50 to-white border-indigo-100 shadow-sm" // AI Kartı: Hafif İndigo
+        : "bg-white border-slate-200 hover:shadow-md shadow-sm" // Kullanıcı Kartı: Temiz Beyaz
     )}>
       
       <div className="flex gap-4 md:gap-6">
-        {/* --- SOL TARA: OYLAMA SÜTUNU --- */}
-        <div className="flex flex-col items-center gap-1 min-w-[3rem]">
+        
+        {/* --- SOL TARAF: OYLAMA SÜTUNU (Gri Kutu İçinde) --- */}
+        <div className="flex flex-col items-center gap-1 p-2 bg-slate-50 border border-slate-100 rounded-xl h-fit min-w-[3.5rem]">
           <button 
             onClick={() => handleVote(1)}
             disabled={!currentUserId}
             className={cn(
-              "p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors",
-              optimisticVote.vote === 1 ? "text-green-600" : "text-slate-400"
+              "p-1.5 rounded-lg transition-all active:scale-90",
+              optimisticVote.vote === 1 
+                ? "bg-green-100 text-green-600" 
+                : "text-slate-400 hover:bg-white hover:text-amber-500 hover:shadow-sm"
             )}
           >
-            <ChevronUp size={32} strokeWidth={2.5} />
+            <ChevronUp size={24} strokeWidth={3} />
           </button>
           
           <span className={cn(
-            "font-bold text-lg",
+            "font-black text-lg",
             optimisticVote.vote === 1 && "text-green-600",
-            optimisticVote.vote === -1 && "text-red-600",
-            optimisticVote.vote === 0 && "text-slate-700 dark:text-slate-300"
+            optimisticVote.vote === -1 && "text-red-500",
+            optimisticVote.vote === 0 && "text-slate-700"
           )}>
             {optimisticVote.score}
           </span>
@@ -110,52 +117,67 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
             onClick={() => handleVote(-1)}
             disabled={!currentUserId}
             className={cn(
-              "p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors",
-              optimisticVote.vote === -1 ? "text-red-600" : "text-slate-400"
+              "p-1.5 rounded-lg transition-all active:scale-90",
+              optimisticVote.vote === -1 
+                ? "bg-red-100 text-red-600" 
+                : "text-slate-400 hover:bg-white hover:text-amber-500 hover:shadow-sm"
             )}
           >
-            <ChevronDown size={32} strokeWidth={2.5} />
+            <ChevronDown size={24} strokeWidth={3} />
           </button>
         </div>
 
         {/* --- SAĞ TARAF: İÇERİK ALANI --- */}
-        <div className="flex-1 space-y-3">
+        <div className="flex-1 min-w-0">
           
-          {/* 1. HEADER (KİM YAZDI?) */}
-          <div className="flex items-center gap-3 mb-3">
+          {/* 1. HEADER */}
+          <div className="flex items-center gap-3 mb-4">
             {isAI ? (
-              // AI HEADER
+              // AI HEADER (Lacivert/İndigo Temalı)
               <>
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                <div className="w-11 h-11 rounded-full bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-200 ring-4 ring-indigo-50">
                   <Bot className="text-white w-6 h-6" />
                 </div>
                 <div>
-                   <div className="flex items-center gap-2">
-                     <span className="text-sm font-bold text-blue-700 dark:text-blue-400">Babylexit Intelligence</span>
-                     <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200">
-                        <Sparkles size={10} /> PREMIUM
+                   <div className="flex items-center gap-2 flex-wrap">
+                     <span className="text-base font-black text-slate-900">Babylexit Intelligence</span>
+                     <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 uppercase tracking-wide">
+                        <Sparkles size={10} fill="currentColor" /> Premium
                      </span>
                    </div>
-                   <span className="text-xs text-slate-500">Otomatik Analiz Sistemi</span>
+                   <span className="text-xs font-medium text-indigo-600/80">Yapay Zeka Destekli Analiz</span>
                 </div>
               </>
             ) : (
-              // USER HEADER
+              // USER HEADER (Temiz Tasarım)
               <>
-                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden flex items-center justify-center border border-slate-200 dark:border-slate-700 text-sm font-bold text-slate-500">
+                <div className="w-11 h-11 rounded-full bg-white border border-slate-200 flex items-center justify-center overflow-hidden shadow-sm">
                    {authorAvatar ? (
                        <img src={authorAvatar} alt={authorName} className="w-full h-full object-cover" />
                    ) : (
-                       authorName.charAt(0).toUpperCase()
+                       <User className="text-slate-300 w-6 h-6" />
                    )}
                 </div>
                 <div className="flex flex-col leading-tight">
-                   <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                       {authorName}
-                   </span>
-                   {authorUsername && (
-                       <span className="text-xs text-slate-500 font-medium">@{authorUsername}</span>
-                   )}
+                   {/* İsim ve Rozetler */}
+                   <div className="flex items-center gap-2">
+                     <span className="text-base font-bold text-slate-900">
+                        {authorName}
+                     </span>
+                     
+                     {/* Otorite Rozeti (Lacivert) */}
+                     {aiEndorsements > 5 && (
+                       <div className="flex items-center gap-1 bg-indigo-50 text-indigo-700 px-1.5 py-0.5 rounded text-[10px] font-bold border border-indigo-100" title="Yüksek Otorite">
+                         <Award size={12} /> Uzman
+                       </div>
+                     )}
+                   </div>
+
+                   <div className="flex items-center gap-2 text-xs text-slate-500">
+                      {authorUsername && <span className="font-medium">@{authorUsername}</span>}
+                      <span className="w-1 h-1 rounded-full bg-slate-300"></span>
+                      <span>{new Date(answer.created_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', hour: '2-digit', minute:'2-digit' })}</span>
+                   </div>
                 </div>
               </>
             )}
@@ -163,18 +185,20 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
 
           {/* 2. İÇERİK METNİ */}
           <div className={cn(
-            "prose prose-slate dark:prose-invert max-w-none text-slate-800 dark:text-slate-200 leading-relaxed whitespace-pre-line",
-            isAI && "text-[15px]" // AI fontu bir tık daha okunaklı olsun
+            "prose prose-slate max-w-none text-slate-700 leading-relaxed whitespace-pre-line text-[15px]",
+            isAI && "text-slate-800"
           )}>
             {answer.content}
           </div>
 
-          {/* 3. AI UYARI KUTUSU (Sadece AI ise göster) */}
+          {/* 3. AI UYARI KUTUSU (Turuncu Temalı) */}
           {isAI && (
-            <div className="mt-4 flex gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-100 dark:border-amber-900/30">
-              <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-800 dark:text-amber-500">
-                <p className="font-bold mb-0.5">Yasal Bilgilendirme</p>
+            <div className="mt-5 flex gap-3 p-4 rounded-xl bg-orange-50 border border-orange-100/60">
+              <div className="bg-orange-100 p-1.5 rounded-full h-fit">
+                <AlertTriangle className="w-4 h-4 text-orange-600" />
+              </div>
+              <div className="text-xs text-slate-600 space-y-1">
+                <p className="font-bold text-orange-800 uppercase tracking-wide text-[10px]">Yasal Uyarı</p>
                 <p>
                   Bu cevap yapay zeka tarafından üretilmiştir ve profesyonel hukuki/tıbbi tavsiye yerine geçmez. 
                   Lütfen bilgileri yetkili bir uzmanla teyit ediniz.
@@ -183,19 +207,15 @@ export function AnswerCard({ answer, currentUserVote, initialNetScore, currentUs
             </div>
           )}
 
-          {/* 4. FOOTER (Metadata) */}
-          <div className="flex items-center justify-between pt-4 border-t border-slate-100 dark:border-slate-800 mt-2">
-             <div className="flex items-center gap-2 text-xs text-slate-500">
-               {isAI ? (
-                 <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400 font-medium">
-                   <ShieldCheck size={14} />
-                   Onaylı Sistem Cevabı
-                 </span>
-               ) : (
-                 <span>{new Date(answer.created_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', hour: '2-digit', minute:'2-digit' })}</span>
-               )}
-             </div>
-          </div>
+          {/* 4. FOOTER */}
+          {isAI && (
+            <div className="flex items-center justify-end mt-4 pt-3 border-t border-indigo-100/50">
+               <span className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-full">
+                 <ShieldCheck size={14} />
+                 Doğrulanmış Sistem Cevabı
+               </span>
+            </div>
+          )}
 
         </div>
       </div>
