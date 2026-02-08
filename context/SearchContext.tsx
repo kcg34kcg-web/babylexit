@@ -2,9 +2,9 @@
 
 import React, { createContext, useContext, useState, useCallback, ReactNode, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
+import { toast } from 'react-hot-toast'; // Toast kütüphanen hangisiyse onu kullan (sonner veya react-hot-toast)
 import { submitQuestion } from '@/app/actions/submit-question';
-import { createClient } from '@/utils/supabase/client'; // Supabase istemcisi eklendi
+import { createClient } from '@/utils/supabase/client';
 
 interface SearchResult {
   questionId: string;
@@ -15,7 +15,7 @@ interface SearchResult {
 
 interface SearchContextType {
   isAnalyzing: boolean;
-  isReady: boolean; // Cevap hazır mı?
+  isReady: boolean;
   searchResult: SearchResult | null;
   error: string | null;
   performSearch: (formData: FormData) => Promise<void>;
@@ -26,14 +26,13 @@ const SearchContext = createContext<SearchContextType | undefined>(undefined);
 
 export function SearchProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const supabase = createClient(); // İstemci tarafı supabase
+  const supabase = createClient();
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Dinleyicileri temizlemek için ref
   const channelRef = useRef<any>(null);
 
   const resetSearch = useCallback(() => {
@@ -48,31 +47,25 @@ export function SearchProvider({ children }: { children: ReactNode }) {
   }, [supabase]);
 
   const performSearch = useCallback(async (formData: FormData) => {
-    // 1. Durumu Sıfırla
     setIsAnalyzing(true);
     setIsReady(false);
     setError(null);
     
-    // Önceki dinleyici varsa temizle
     if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
         channelRef.current = null;
     }
 
-    // 2. OPTIMISTIC UI: Hemen Lounge'a gönder
+    // 1. Lounge'a Gönder
     router.push('/lounge');
 
     try {
-      // 3. Soruyu Veritabanına Kaydet (Server Action)
+      // 2. Soruyu Kaydet
       const result = await submitQuestion(formData);
 
-      if (result.error) {
-        throw new Error(result.error);
-      }
+      if (result.error) throw new Error(result.error);
 
       const qId = result.questionId;
-
-      // Sonuç verisini kaydet (henüz 'isReady' yapmıyoruz!)
       setSearchResult({
         questionId: qId,
         newCredits: result.newCredits,
@@ -80,17 +73,24 @@ export function SearchProvider({ children }: { children: ReactNode }) {
         success: true
       });
 
-      // 4. AI MOTORUNU TETİKLE (Önemli Adım!) 🚀
-      // Server Action sadece kaydeder, bu API çağrısı ise AI'ı çalıştırır.
+      // 3. AI Tetikle
       fetch('/api/trigger-ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ questionId: qId }),
-      }).catch(err => console.error("AI Tetikleme Hatası:", err));
+      }).catch(err => console.error("AI Hata:", err));
 
+      // -----------------------------------------------------------
+      // 🧪 GELİŞTİRİCİ TEST MODU (Backend çalışmasa bile butonu açar)
+      // Bu bloğu canlıya (production) alırken silebilirsin.
+      setTimeout(() => {
+        setIsReady(true);
+        setIsAnalyzing(false);
+        // toast.success("Test Modu: Cevap hazır varsayıldı 🛠️");
+      }, 6000); // 6 Saniye sonra butonu açar
+      // -----------------------------------------------------------
 
-      // 5. CANLI DİNLEME BAŞLAT (Realtime Listener) 👂
-      // Veritabanında bu sorunun statüsü 'answered' olana kadar bekle.
+      // 4. Gerçek Dinleme (Realtime)
       const channel = supabase
         .channel(`waiting-room-${qId}`)
         .on(
@@ -102,16 +102,11 @@ export function SearchProvider({ children }: { children: ReactNode }) {
             filter: `id=eq.${qId}` 
           },
           (payload) => {
-            const newStatus = payload.new.status;
-            // Eğer statü 'answered' olursa işlem bitmiştir
-            if (newStatus === 'answered') {
-                setIsReady(true); // Yeşil butonu yak! ✅
+            if (payload.new.status === 'answered') {
+                setIsReady(true);
                 setIsAnalyzing(false);
                 toast.success("Analiz Tamamlandı!");
-                
-                // Dinlemeyi bırak
                 supabase.removeChannel(channel);
-                channelRef.current = null;
             }
           }
         )
@@ -120,25 +115,15 @@ export function SearchProvider({ children }: { children: ReactNode }) {
       channelRef.current = channel;
 
     } catch (err: any) {
-      console.error("Search Context Error:", err);
-      setError(err.message || "Bir hata oluştu.");
+      console.error(err);
+      setError(err.message || "Hata");
       setIsAnalyzing(false);
-      toast.error(err.message || "İşlem başarısız.");
-      
-      // Hata durumunda Dashboard'a geri dönmeyi önerebiliriz
-      // veya Lounge içinde hata mesajı gösterebiliriz.
+      toast.error("İşlem başarısız.");
     }
   }, [router, supabase]);
 
   return (
-    <SearchContext.Provider value={{ 
-      isAnalyzing, 
-      isReady, 
-      searchResult, 
-      error, 
-      performSearch,
-      resetSearch
-    }}>
+    <SearchContext.Provider value={{ isAnalyzing, isReady, searchResult, error, performSearch, resetSearch }}>
       {children}
     </SearchContext.Provider>
   );
