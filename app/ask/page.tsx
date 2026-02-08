@@ -2,7 +2,7 @@
 
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import { 
   Loader2, 
@@ -18,7 +18,8 @@ import {
 import Link from 'next/link';
 import { submitQuestion } from '@/app/actions/submit-question';
 import { suggestSimilarQuestions } from '@/app/actions/search';
-import LoungeContainer from '@/components/lounge/LoungeContainer';
+// 1. Context'i import ediyoruz
+import { useSearchContext } from '@/context/SearchContext';
 
 export default function AskPage() {
   // UI State
@@ -26,9 +27,6 @@ export default function AskPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [showEffect, setShowEffect] = useState<'ai' | 'community' | null>(null);
   
-  // Görünüm State'i: 'form' | 'lounge'
-  const [viewState, setViewState] = useState<'form' | 'lounge'>('form');
-
   const [targetType, setTargetType] = useState<'ai' | 'community' | null>(null);
 
   // Arama ve Limit State'leri
@@ -39,13 +37,6 @@ export default function AskPage() {
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
-  // YENİ: AI İşlem Durumu
-  const [questionId, setQuestionId] = useState<string | null>(null);
-  const [isAiFinished, setIsAiFinished] = useState(false);
-
-  // Polling (Düzenli Kontrol) Temizliği için Ref
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Limit Tanımları
   const LIMITS = {
@@ -55,6 +46,9 @@ export default function AskPage() {
 
   const router = useRouter();
   const supabase = createClient();
+  
+  // 2. Context kancasını kullanıyoruz
+  const { performSearch } = useSearchContext();
 
   // --- 1. KREDİ KONTROLÜ ---
   useEffect(() => {
@@ -103,13 +97,6 @@ export default function AskPage() {
     return () => clearTimeout(delayDebounceFn);
   }, [title]);
 
-  // Sayfadan çıkılırsa polling'i durdur
-  useEffect(() => {
-    return () => {
-        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    };
-  }, []);
-
   // --- 2. GÖNDERİM FONKSİYONU ---
   const handleClientSubmit = async (formData: FormData) => {
     let targetVal = formData.get('target') as string;
@@ -135,10 +122,7 @@ export default function AskPage() {
       return;
     }
 
-    // Yükleme Başlıyor
     setIsSubmitting(true);
-    setQuestionId(null); 
-    setIsAiFinished(false);
 
     // Kredi Düşme Animasyonu
     if (activeTarget === 'ai') setShowEffect('ai');
@@ -146,13 +130,26 @@ export default function AskPage() {
 
     // --- YENİ MANTIK BAŞLIYOR ---
     
+    // EĞER HEDEF AI İSE: İşi Global Context'e devret
     if (activeTarget === 'ai') {
-        // 1. Hemen Lounge Moduna Geç (Optimistic UI) 🚀
-        setViewState('lounge');
+        try {
+            // performSearch: 
+            // 1. Sizi hemen /lounge sayfasına atacak (Router Push)
+            // 2. Arka planda işlemi başlatacak
+            await performSearch(formData);
+            
+            // Bizim işimiz bitti, sayfa değişecek.
+            return;
+        } catch (error) {
+            console.error(error);
+            setIsSubmitting(false);
+            setShowEffect(null);
+            return;
+        }
     }
 
+    // EĞER HEDEF TOPLULUK İSE: Eski usul devam et
     try {
-      // 2. Soruyu Kaydet (Hızlı işlem)
       const result = await submitQuestion(formData);
 
       if (result?.error) {
@@ -160,24 +157,12 @@ export default function AskPage() {
          setIsSubmitting(false);
          setShowEffect(null);
          setTargetType(null);
-         setViewState('form'); // Hata varsa forma geri dön
          return;
       } 
       
       if (result?.success && result?.questionId) {
-        setQuestionId(result.questionId);
-
-        if (activeTarget === 'ai') {
-            // 3. AI'ı Arka Planda Tetikle (Fire & Forget) 🔥
-            triggerAI(result.questionId);
-            
-            // 4. Dinlemeye Başla (Cevap geldi mi?)
-            listenForCompletion(result.questionId);
-        } else {
-            // Eğer Topluluk ise: Eski usul hemen yönlendir.
-            toast.success('Soru topluluğa iletildi!');
-            router.push(`/questions/${result.questionId}`); 
-        }
+         toast.success('Soru topluluğa iletildi!');
+         router.push(`/questions/${result.questionId}`); 
       }
 
     } catch (error) {
@@ -186,102 +171,15 @@ export default function AskPage() {
       setIsSubmitting(false);
       setShowEffect(null);
       setTargetType(null);
-      setViewState('form');
     }
-  };
-
-  // --- AI YARDIMCI FONKSİYONLAR ---
-
-  // AI Tetikleyici
-  const triggerAI = async (id: string) => {
-    try {
-        await fetch('/api/trigger-ai', {
-            method: 'POST',
-            body: JSON.stringify({ questionId: id }),
-            headers: { 'Content-Type': 'application/json' }
-        });
-    } catch (e) {
-        console.error("AI Tetikleme Hatası:", e);
-    }
-  };
-
-  // Bitişi Dinle (Supabase Realtime + POLLING)
-  const listenForCompletion = (id: string) => {
-    let isCompleted = false;
-
-    // YÖNTEM 1: Realtime Dinleyici (Hızlı Tepki)
-    const channel = supabase
-      .channel('question-status-check')
-      .on(
-        'postgres_changes',
-        { 
-          event: 'UPDATE', 
-          schema: 'public', 
-          table: 'questions', 
-          filter: `id=eq.${id}` 
-        },
-        (payload) => {
-          // Eğer statüs "answered" olduysa işlem bitmiştir
-          if (payload.new.status === 'answered' && !isCompleted) {
-             isCompleted = true;
-             setIsAiFinished(true); // Lounge'a "Bitti" sinyali gönder (Buton çıkar)
-             toast.success("Analiz Tamamlandı! 🧠");
-             supabase.removeChannel(channel);
-             if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          }
-        }
-      )
-      .subscribe();
-
-    // YÖNTEM 2: Polling (Yedek Güç - İnternet yavaşsa veya soket koptuysa kurtarır)
-    pollIntervalRef.current = setInterval(async () => {
-        if (isCompleted) {
-            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-            return;
-        }
-
-        // Veritabanına doğrudan soruyoruz: "Bitti mi?"
-        const { data } = await supabase
-            .from('questions')
-            .select('status')
-            .eq('id', id)
-            .single();
-        
-        if (data?.status === 'answered') {
-            isCompleted = true;
-            setIsAiFinished(true); // Lounge'a "Bitti" sinyali gönder (Buton çıkar)
-            toast.success("Analiz Tamamlandı! (Kontrol)");
-            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-            supabase.removeChannel(channel);
-        }
-    }, 3000); // Her 3 saniyede bir kontrol et
-  };
-
-  // Lounge'dan Çıkış (Sonucu Gör Butonu)
-  const handleLoungeComplete = () => {
-     if (questionId) {
-        router.push(`/questions/${questionId}`);
-     }
   };
 
   // --- RENDER ---
-
-  // Eğer Lounge modundaysak, sadece LoungeContainer'ı render et
-  if (viewState === 'lounge') {
-      return (
-        <LoungeContainer 
-           isFinished={isAiFinished} 
-           onComplete={handleLoungeComplete} 
-        />
-      );
-  }
-
-  // Normal Form Görünümü
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 relative overflow-hidden">
       
-      {/* KREDİ EFEKTİ (Sadece topluluk için, AI için Lounge var) */}
-      {showEffect && targetType !== 'ai' && (
+      {/* KREDİ EFEKTİ */}
+      {showEffect && (
         <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
           <div className="animate-float-up text-6xl font-black text-orange-500 drop-shadow-xl bg-white/90 backdrop-blur-sm px-8 py-4 rounded-3xl border border-orange-100">
             -{showEffect === 'ai' ? '3' : '1'} Kredi
@@ -467,14 +365,13 @@ export default function AskPage() {
             </button>
           </div>
 
-          {/* STANDART LOADING (Sadece Topluluk seçiliyse) */}
-          {isSubmitting && targetType !== 'ai' && (
+          {/* LOADING OVERLAY */}
+          {isSubmitting && (
             <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center z-50 rounded-[2rem]">
               <Loader2 className="animate-spin text-orange-500 w-12 h-12 mb-4" />
               <span className="text-slate-800 font-bold text-lg animate-pulse">
-                 Topluluğa Gönderiliyor...
+                 {targetType === 'ai' ? 'Lounge Hazırlanıyor...' : 'Topluluğa Gönderiliyor...'}
               </span>
-              <span className="text-slate-500 text-sm mt-2">Lütfen bekleyiniz</span>
             </div>
           )}
 

@@ -1,64 +1,70 @@
 'use client';
 
-import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Sparkles } from 'lucide-react';
+import { ArrowRight, Sparkles, BrainCircuit } from 'lucide-react';
 
-const LOADING_MESSAGES = [
-  "Nöronlar ateşleniyor...",
-  "Hukuki veri okyanusu taranıyor...",
-  "Emsal kararlar analiz ediliyor...",
-  "Mantıksal sentez yapılıyor...",
-  "Cevap hazırlanıyor..."
-];
+interface PulseFooterProps {
+  isReady: boolean;
+  onComplete: () => void;
+}
 
-export const PulseFooter = () => {
-  const [msgIndex, setMsgIndex] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setMsgIndex((prev) => (prev + 1) % LOADING_MESSAGES.length);
-    }, 2500); // Her 2.5 saniyede bir mesaj değişir
-    return () => clearInterval(interval);
-  }, []);
-
+export default function PulseFooter({ isReady, onComplete }: PulseFooterProps) {
   return (
-    <div className="w-full bg-slate-950/80 backdrop-blur-md border-t border-slate-800 p-4 absolute bottom-0 left-0 z-50">
-      <div className="max-w-md mx-auto w-full">
+    <div className="w-full mt-auto pt-6 flex flex-col items-center justify-center relative h-24">
+      <AnimatePresence mode="wait">
         
-        {/* Mesaj Animasyonu */}
-        <div className="h-6 relative overflow-hidden flex justify-center items-center mb-3">
-          <AnimatePresence mode='wait'>
-            <motion.div
-              key={msgIndex}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-              className="flex items-center gap-2 text-xs font-mono text-cyan-400/80 uppercase tracking-widest"
-            >
-              <Sparkles size={12} className="animate-pulse" />
-              {LOADING_MESSAGES[msgIndex]}
-            </motion.div>
-          </AnimatePresence>
-        </div>
-
-        {/* Neon Progress Bar (Knight Rider Style) */}
-        <div className="h-1 w-full bg-slate-900 rounded-full overflow-hidden relative shadow-[0_0_10px_rgba(34,211,238,0.1)]">
+        {/* DURUM 1: HAZIR (YEŞİL BUTON) */}
+        {isReady ? (
+          <motion.button
+            key="ready-btn"
+            initial={{ scale: 0.8, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onComplete}
+            className="group relative flex items-center gap-3 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-white rounded-full font-bold text-lg shadow-[0_0_30px_rgba(16,185,129,0.4)] transition-all"
+          >
+            <Sparkles className="animate-pulse" />
+            <span>Analiz Tamamlandı! Sonucu Gör</span>
+            <ArrowRight className="group-hover:translate-x-1 transition-transform" />
+            
+            {/* Arka plandaki yanıp sönen halka */}
+            <span className="absolute inset-0 rounded-full border-2 border-white/50 animate-ping opacity-20"></span>
+          </motion.button>
+        ) : (
+          
+          /* DURUM 2: DÜŞÜNÜYOR (KNIGHT RIDER BAR) */
           <motion.div
-            className="absolute top-0 bottom-0 w-1/3 bg-gradient-to-r from-transparent via-cyan-500 to-transparent blur-[2px]"
-            animate={{
-              x: ["-100%", "300%"],
-            }}
-            transition={{
-              repeat: Infinity,
-              duration: 1.5,
-              ease: "linear",
-            }}
-          />
-        </div>
-        
-      </div>
+            key="loading-bar"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="w-full max-w-md flex flex-col items-center gap-3"
+          >
+            <div className="flex items-center gap-2 text-indigo-300 text-sm font-medium tracking-wider uppercase animate-pulse">
+              <BrainCircuit size={16} />
+              <span>Yapay Zeka Analiz Ediyor...</span>
+            </div>
+
+            {/* Yükleme Çubuğu Kapsayıcısı */}
+            <div className="w-full h-1.5 bg-slate-800/50 rounded-full overflow-hidden relative backdrop-blur-sm border border-white/5">
+              {/* Kayan Işık (Knight Rider) */}
+              <motion.div
+                animate={{ x: ["-100%", "100%"] }}
+                transition={{ 
+                  duration: 1.5, 
+                  repeat: Infinity, 
+                  ease: "easeInOut",
+                  repeatType: "mirror" // Gidip gelme efekti
+                }}
+                className="w-1/2 h-full bg-gradient-to-r from-transparent via-indigo-500 to-transparent blur-[2px]"
+              />
+            </div>
+          </motion.div>
+        )}
+
+      </AnimatePresence>
     </div>
   );
-};
+}

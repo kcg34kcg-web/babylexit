@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ToastProvider from "@/components/toast-provider";
 import ThemeManager from "@/components/ThemeManager";
+// 1. ADIM: Context'i içe aktar
+import { SearchProvider } from "@/context/SearchContext"; 
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,14 +29,15 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        // EKLENDİ: Eklenti kaynaklı hataları önlemek için bu satır şart
         suppressHydrationWarning={true}
-        // Mevcut kodların (className vb.) aynen korundu
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[var(--background)] text-[var(--foreground)]`}
       >
-        <ThemeManager />
-        <ToastProvider />
-        {children}
+        {/* 2. ADIM: Tüm uygulamayı (Provider, Manager ve Children) kapsayacak şekilde sarmala */}
+        <SearchProvider>
+            <ThemeManager />
+            <ToastProvider />
+            {children}
+        </SearchProvider>
       </body>
     </html>
   );

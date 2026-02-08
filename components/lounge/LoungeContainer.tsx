@@ -1,125 +1,98 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Brain, Gamepad2, Wind, BookOpen, Quote, CheckCircle, ArrowRight } from 'lucide-react';
-import { cn } from '@/utils/cn';
-import { PulseFooter } from './ui/PulseFooter';
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { useSearchContext } from '@/context/SearchContext';
 
-import { TriviaCard } from '@/components/lounge/modules/TriviaCard';
-import { WisdomQuote } from '@/components/lounge/modules/WisdomQuote';
-import { ZenBreathing } from '@/components/lounge/modules/ZenBreathing';
-import { SmartReader } from '@/components/lounge/modules/SmartReader';
-import { MiniGame } from '@/components/lounge/modules/MiniGame';
+// UI Bileşenleri
+import AuroraBackground from './ui/AuroraBackground';
+import PulseFooter from './ui/PulseFooter';
 
-type LoungeMode = 'trivia' | 'wisdom' | 'zen' | 'read' | 'game';
+// Modüller (İçerik Kartları) - Bunları bir sonraki adımda (Phase 3) detaylandıracağız
+// Şimdilik "Placeholder" (yer tutucu) olarak basit metinler koyacağız.
+import { Brain, Quote, Wind, Gamepad2, FileText } from 'lucide-react';
 
-interface LoungeContainerProps {
-  isFinished: boolean;      
-  onComplete: () => void;   
-}
+export default function LoungeContainer() {
+  const router = useRouter();
+  
+  // 1. Global Durumu Çek
+  const { isReady, searchResult } = useSearchContext();
+  
+  // 2. Tab Yönetimi (Kullanıcı beklerken sekmeler arasında gezebilir)
+  const [activeTab, setActiveTab] = useState<'trivia' | 'quote' | 'zen' | 'game' | 'read'>('trivia');
 
-export default function LoungeContainer({ isFinished, onComplete }: LoungeContainerProps) {
-  const [activeMode, setActiveMode] = useState<LoungeMode>('trivia');
-
-  const getGradient = () => {
-    switch (activeMode) {
-      case 'game': return 'from-amber-900/40 via-purple-900/40 to-slate-900';
-      case 'zen': return 'from-emerald-900/40 via-teal-900/40 to-slate-900';
-      case 'wisdom': return 'from-indigo-900/40 via-slate-900 to-black';
-      case 'read': return 'from-blue-900/40 via-slate-900 to-slate-950';
-      default: return 'from-violet-900/40 via-fuchsia-900/40 to-slate-900';
+  // Sonuç Sayfasına Git
+  const handleComplete = () => {
+    if (searchResult?.questionId) {
+      router.push(`/questions/${searchResult.questionId}`);
+    } else {
+        // Hata durumunda veya ID yoksa dashboard'a at
+        router.push('/dashboard');
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 text-white overflow-hidden transition-colors duration-1000 font-sans">
+    <AuroraBackground>
       
-      {/* 1. DİNAMİK ARKA PLAN */}
-      <div className={cn("absolute inset-0 bg-gradient-to-br transition-all duration-1000", getGradient())} />
-      
-      <motion.div 
-        animate={{ scale: [1, 1.2, 1], rotate: [0, 10, -10, 0], opacity: [0.3, 0.5, 0.3] }}
-        transition={{ duration: 15, repeat: Infinity, ease: "easeInOut" }}
-        className="absolute -top-[20%] -left-[20%] w-[70%] h-[70%] bg-purple-600/20 rounded-full blur-[120px] mix-blend-screen pointer-events-none"
-      />
-      
-      {/* 2. ANA SAHNE */}
-      <div className="relative z-10 flex-1 flex flex-col items-center justify-center p-4 w-full max-w-2xl mx-auto">
-        <AnimatePresence mode="wait">
-          <motion.div
-             key={activeMode}
-             initial={{ opacity: 0, y: 10, scale: 0.98 }}
-             animate={{ opacity: 1, y: 0, scale: 1 }}
-             exit={{ opacity: 0, y: -10, scale: 1.02, transition: { duration: 0.2 } }}
-             transition={{ duration: 0.4, ease: "easeOut" }}
-             className="w-full"
-          >
-             {activeMode === 'trivia' && <TriviaCard />}
-             {activeMode === 'wisdom' && <WisdomQuote />}
-             {activeMode === 'zen' && <ZenBreathing />}
-             {activeMode === 'read' && <SmartReader />}
-             {activeMode === 'game' && <MiniGame />}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {/* 3. NAVİGASYON */}
-      <div className="relative z-20 px-6 pb-24 flex justify-center">
-        <div className="bg-slate-900/40 backdrop-blur-2xl border border-white/10 rounded-2xl p-1.5 flex gap-1 shadow-2xl max-w-md w-full ring-1 ring-white/5">
-           <NavButton active={activeMode === 'trivia'} onClick={() => setActiveMode('trivia')} icon={<Brain size={20}/>} label="Bilgi" />
-           <NavButton active={activeMode === 'wisdom'} onClick={() => setActiveMode('wisdom')} icon={<Quote size={20}/>} label="Bilgelik" />
-           <NavButton active={activeMode === 'zen'} onClick={() => setActiveMode('zen')} icon={<Wind size={20}/>} label="Nefes" />
-           <NavButton active={activeMode === 'read'} onClick={() => setActiveMode('read')} icon={<BookOpen size={20}/>} label="Okuma" />
-           <NavButton active={activeMode === 'game'} onClick={() => setActiveMode('game')} icon={<Gamepad2 size={20}/>} label="Oyun" />
+      {/* --- ÜST KISIM: LOGO & NAVİGASYON --- */}
+      <header className="flex flex-col md:flex-row items-center justify-between gap-6 mb-8">
+        <div className="text-center md:text-left">
+          <h1 className="text-3xl font-black tracking-tighter bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">
+            Living Lounge
+          </h1>
+          <p className="text-indigo-300/60 text-xs font-medium tracking-widest uppercase">
+            AI Analiz Merkezi
+          </p>
         </div>
-      </div>
 
-      {/* 4. ALT DURUM ÇUBUĞU */}
-      <PulseFooter />
+        {/* Tab Menüsü */}
+        <nav className="flex items-center gap-1 bg-white/5 p-1 rounded-full backdrop-blur-md border border-white/10">
+          <TabButton id="trivia" icon={Brain} active={activeTab} onClick={setActiveTab} />
+          <TabButton id="quote" icon={Quote} active={activeTab} onClick={setActiveTab} />
+          <TabButton id="zen" icon={Wind} active={activeTab} onClick={setActiveTab} />
+          <TabButton id="read" icon={FileText} active={activeTab} onClick={setActiveTab} />
+          <TabButton id="game" icon={Gamepad2} active={activeTab} onClick={setActiveTab} />
+        </nav>
+      </header>
 
-      {/* 5. SONUÇ BİLDİRİMİ (YESIL BUTON) */}
-      <AnimatePresence>
-        {isFinished && (
-           <motion.div 
-              initial={{ y: 100, opacity: 0 }} 
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: 100 }}
-              className="absolute bottom-20 left-0 right-0 flex justify-center z-50 px-4 pointer-events-none"
-           >
-              <button 
-                  onClick={onComplete}
-                  className="pointer-events-auto bg-emerald-500 hover:bg-emerald-400 text-white pl-6 pr-8 py-3 rounded-full font-bold shadow-lg shadow-emerald-500/40 animate-bounce flex items-center gap-3 group transition-all hover:scale-105 cursor-pointer"
-              >
-                  <div className="bg-white/20 p-1 rounded-full"><CheckCircle size={18} className="text-white" /></div>
-                  
-                  {/* İSTENEN METİN GÜNCELLEMESİ */}
-                  <span className="text-sm">Analiz Tamamlandı! Yönlendiriliyorsunuz...</span>
-                  
-                  <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-              </button>
-           </motion.div>
-        )}
-      </AnimatePresence>
+      {/* --- ORTA KISIM: DEĞİŞEN İÇERİK (PHASE 3'TE BURAYI DOLDURACAĞIZ) --- */}
+      <main className="flex-1 w-full relative flex flex-col items-center justify-center">
+         <div className="text-center space-y-4 animate-in fade-in zoom-in duration-500">
+            <div className="inline-flex p-4 rounded-3xl bg-white/5 border border-white/10 text-indigo-300">
+               {activeTab === 'trivia' && <Brain size={48} />}
+               {activeTab === 'quote' && <Quote size={48} />}
+               {activeTab === 'zen' && <Wind size={48} />}
+               {activeTab === 'read' && <FileText size={48} />}
+               {activeTab === 'game' && <Gamepad2 size={48} />}
+            </div>
+            <h2 className="text-2xl font-bold text-white">Modül Yükleniyor...</h2>
+            <p className="text-white/40 max-w-md mx-auto">
+               (Phase 3'te buraya gerçek interaktif modülleri ekleyeceğiz. Şu an sadece altyapı hazır.)
+            </p>
+         </div>
+      </main>
 
-    </div>
+      {/* --- ALT KISIM: AKILLI FOOTER --- */}
+      <PulseFooter isReady={isReady} onComplete={handleComplete} />
+
+    </AuroraBackground>
   );
 }
 
-function NavButton({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+// Küçük Yardımcı Bileşen: Tab Butonu
+function TabButton({ id, icon: Icon, active, onClick }: any) {
+  const isActive = active === id;
   return (
     <button
-      onClick={onClick}
-      className={cn(
-        "flex-1 flex flex-col items-center justify-center py-3 rounded-xl transition-all duration-300 relative overflow-hidden group",
-        active ? "text-white bg-white/10 shadow-inner" : "text-white/40 hover:bg-white/5 hover:text-white/70"
-      )}
+      onClick={() => onClick(id)}
+      className={`p-3 rounded-full transition-all duration-300 relative ${
+        isActive ? 'text-white bg-indigo-600 shadow-lg shadow-indigo-500/30' : 'text-white/40 hover:text-white hover:bg-white/10'
+      }`}
     >
-      {active && <motion.div layoutId="activeTab" className="absolute inset-0 bg-white/5 rounded-xl" />}
-      <div className={cn("mb-1 transition-transform duration-300 relative z-10", active ? "scale-110 text-cyan-300" : "group-hover:scale-110")}>
-        {icon}
-      </div>
-      <span className="text-[9px] font-bold uppercase tracking-wider relative z-10">{label}</span>
+      <Icon size={20} />
+      {isActive && (
+        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-white rounded-full" />
+      )}
     </button>
   );
 }
