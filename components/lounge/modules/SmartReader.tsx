@@ -4,7 +4,8 @@ import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Clock, ChevronRight, RefreshCw } from 'lucide-react';
 
-// ✅ DOĞRU IMPORT: src/data.ts dosyasını çeker
+// ✅ DOĞRU IMPORT: data.ts dosyasından veriyi çeker
+// Eğer TypeScript 'Article' bulunamadı derse, data.ts dosyanızda "export interface Article..." olduğundan emin olun.
 import { ARTICLE_DATA, Article } from '@/data';
 
 // --- YARDIMCI FONKSİYON: KARIŞTIRMA (SHUFFLE) ---
@@ -17,8 +18,9 @@ function shuffleArray(array: Article[]) {
   return newArray;
 }
 
-export const SmartReader = () => {
-  // Başlangıçta boş array ile başla, useEffect'te doldur
+// ⚠️ DÜZELTME BURADA: LoungeContainer ile uyum için "export default function" yapıldı
+export default function SmartReader() {
+  // Başlangıçta boş array ile başla, useEffect'te doldur (Hydration hatasını önler)
   const [readingList, setReadingList] = useState<Article[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [progress, setProgress] = useState(0);
@@ -27,7 +29,9 @@ export const SmartReader = () => {
 
   // Sayfa yüklendiğinde listeyi karıştır
   useEffect(() => {
-    setReadingList(shuffleArray(ARTICLE_DATA));
+    // ARTICLE_DATA var mı kontrol et, yoksa boş dizi kullan
+    const data = ARTICLE_DATA || [];
+    setReadingList(shuffleArray(data));
     setIsMounted(true);
   }, []);
 
@@ -42,7 +46,7 @@ export const SmartReader = () => {
 
   const handleNext = () => {
     if (activeIndex === readingList.length - 1) {
-        setReadingList(shuffleArray(ARTICLE_DATA)); // Liste bitince yeniden karıştır
+        setReadingList(shuffleArray(ARTICLE_DATA || [])); // Liste bitince yeniden karıştır
         setActiveIndex(0);
     } else {
         setActiveIndex((prev) => prev + 1);
@@ -70,6 +74,9 @@ export const SmartReader = () => {
   }
 
   const article = readingList[activeIndex];
+
+  // Hata koruması: Eğer makale yoksa boş dön
+  if (!article) return null;
 
   return (
     <div className="w-full h-[400px] bg-slate-900/50 rounded-3xl border border-white/10 relative overflow-hidden flex flex-col shadow-2xl backdrop-blur-md">
@@ -103,7 +110,7 @@ export const SmartReader = () => {
       <div 
         ref={scrollRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto p-6 pt-24 scroll-smooth scrollbar-hide"
+        className="flex-1 overflow-y-auto p-6 pt-28 scroll-smooth scrollbar-hide"
       >
         <AnimatePresence mode='wait'>
             <motion.div
@@ -143,4 +150,4 @@ export const SmartReader = () => {
 
     </div>
   );
-};
+}

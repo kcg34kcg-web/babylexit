@@ -1,106 +1,330 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Wind } from 'lucide-react';
+import { Wind, Play, Pause, Settings2, CheckCircle2 } from 'lucide-react';
+import { cn } from '@/utils/cn';
 
+// --- TİP TANIMLAMALARI ---
 type BreathPhase = 'inhale' | 'hold-in' | 'exhale' | 'hold-out';
 
-const PHASES: Record<BreathPhase, { label: string; duration: number; scale: number; color: string }> = {
-  'inhale':    { label: "Nefes Al...", duration: 4000, scale: 1.5, color: "from-emerald-400 to-teal-300" },
-  'hold-in':   { label: "Tut...",      duration: 2000, scale: 1.5, color: "from-emerald-500 to-teal-400" },
-  'exhale':    { label: "Nefes Ver...",duration: 4000, scale: 1.0, color: "from-cyan-400 to-blue-300" },
-  'hold-out':  { label: "Bekle...",    duration: 1000, scale: 1.0, color: "from-cyan-500 to-blue-400" }
+interface BreathingPattern {
+  id: string;
+  name: string;
+  description: string;
+  cycle: {
+    inhale: number;
+    'hold-in': number;
+    exhale: number;
+    'hold-out': number;
+  };
+}
+
+// --- BİLİMSEL NEFES TEKNİKLERİ ---
+const PATTERNS: BreathingPattern[] = [
+  {
+    id: 'box',
+    name: '',
+    description: 'Odaklanma ve stres yönetimi için idealdir.',
+    cycle: { inhale: 4000, 'hold-in': 4000, exhale: 4000, 'hold-out': 4000 }
+  },
+  {
+    id: 'relax',
+    name: '4-7-8 Tekniği',
+    description: 'Derin rahatlama ve uykuya geçişi kolaylaştırır.',
+    cycle: { inhale: 4000, 'hold-in': 7000, exhale: 8000, 'hold-out': 0 }
+  },
+  {
+    id: 'balance',
+    name: 'Denge (Coherent)',
+    description: 'Kalp ritmini düzenler, zihni sakinleştirir.',
+    cycle: { inhale: 5500, 'hold-in': 0, exhale: 5500, 'hold-out': 0 }
+  }
+];
+
+// Phase Konfigürasyonları (Renk ve Metinler)
+const PHASE_CONFIG: Record<BreathPhase, { label: string; color: string; scale: number }> = {
+  'inhale':    { label: "Nefes Al",    color: "from-emerald-400 to-teal-300", scale: 1.5 },
+  'hold-in':   { label: "Tut",         color: "from-emerald-500 to-teal-400", scale: 1.5 },
+  'exhale':    { label: "Nefes Ver",   color: "from-blue-400 to-indigo-400",  scale: 1.0 },
+  'hold-out':  { label: "Bekle",       color: "from-blue-500 to-indigo-500",  scale: 1.0 }
 };
 
-export const ZenBreathing = () => {
+export default function ZenBreathing() {
+  const [activePattern, setActivePattern] = useState<BreathingPattern>(PATTERNS[0]);
   const [phase, setPhase] = useState<BreathPhase>('inhale');
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  const [timeLeft, setTimeLeft] = useState(0); // Geri sayım için
 
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
+  // Ref'ler (Zamanlayıcıları temizlemek için)
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-    const runCycle = () => {
-      const currentConfig = PHASES[phase];
-      
-      // Haptic Feedback (Mobil Titreşim) - Sadece destekleyen tarayıcılarda
-      if (typeof navigator !== 'undefined' && navigator.vibrate) {
-        navigator.vibrate(50); // Hafif bir tık
+  // --- FAZ GEÇİŞ MANTIĞI ---
+  const nextPhase = useCallback(() => {
+    setPhase((prev) => {
+      // Bir sonraki fazı belirle
+      let next: BreathPhase = 'inhale';
+      if (prev === 'inhale') next = 'hold-in';
+      else if (prev === 'hold-in') next = 'exhale';
+      else if (prev === 'exhale') next = 'hold-out';
+      else next = 'inhale';
+
+      // Eğer seçilen teknikte o fazın süresi 0 ise (örn: hold-out yoksa) atla
+      if (activePattern.cycle[next] === 0) {
+        if (next === 'inhale') return 'hold-in'; // (Teorik olarak inhale 0 olamaz ama güvenlik için)
+        if (next === 'hold-in') return 'exhale';
+        if (next === 'exhale') return 'hold-out';
+        if (next === 'hold-out') return 'inhale';
       }
+      return next;
+    });
+  }, [activePattern]);
 
-      timeoutId = setTimeout(() => {
-        setPhase((prev) => {
-          if (prev === 'inhale') return 'hold-in';
-          if (prev === 'hold-in') return 'exhale';
-          if (prev === 'exhale') return 'hold-out';
-          return 'inhale';
-        });
-      }, currentConfig.duration);
+  // --- TİTREŞİM (HAPTIC) ---
+  const triggerHaptic = useCallback(() => {
+    if (typeof navigator !== 'undefined' && navigator.vibrate) {
+      navigator.vibrate(50);
+    }
+  }, []);
+
+  // --- ANA DÖNGÜ ---
+  useEffect(() => {
+    if (!isPlaying) {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      return;
+    }
+
+    const duration = activePattern.cycle[phase];
+    
+    // Eğer faz süresi 0 ise hemen sonrakine geç (Recursive koruması için setTimeout içinde)
+    if (duration === 0) {
+        nextPhase();
+        return;
+    }
+
+    // Faz başladığında titreşim ver
+    triggerHaptic();
+
+    // Geri sayım sayacı
+    let elapsed = 0;
+    setTimeLeft(duration / 1000);
+    
+    intervalRef.current = setInterval(() => {
+      elapsed += 100;
+      setTimeLeft(Math.max(0, Math.ceil((duration - elapsed) / 1000)));
+    }, 100);
+
+    // Faz değişimi zamanlayıcısı
+    timeoutRef.current = setTimeout(() => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      nextPhase();
+    }, duration);
+
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
     };
+  }, [phase, activePattern, isPlaying, nextPhase, triggerHaptic]);
 
-    runCycle();
-    return () => clearTimeout(timeoutId);
-  }, [phase]);
+  // Mod değiştiğinde sıfırla
+  const changePattern = (pattern: BreathingPattern) => {
+    setActivePattern(pattern);
+    setPhase('inhale');
+    setIsPlaying(true);
+    setShowSettings(false);
+  };
 
-  const config = PHASES[phase];
+  const config = PHASE_CONFIG[phase];
 
   return (
-    <div className="w-full h-[360px] flex flex-col items-center justify-center relative overflow-hidden">
+    <div className="w-full h-full min-h-[400px] flex flex-col items-center justify-center relative bg-slate-900/50 rounded-3xl border border-white/5 overflow-hidden shadow-2xl backdrop-blur-sm">
       
-      {/* Arka Plan Hareleri (Eko Efekti) */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-         <motion.div 
-            animate={{ scale: config.scale * 1.2, opacity: phase === 'inhale' ? 0.3 : 0 }}
-            transition={{ duration: 4, ease: "easeInOut" }}
-            className="w-48 h-48 rounded-full border border-white/10 absolute"
-         />
-         <motion.div 
-            animate={{ scale: config.scale * 1.4, opacity: phase === 'inhale' ? 0.1 : 0 }}
-            transition={{ duration: 4, delay: 0.2, ease: "easeInOut" }}
-            className="w-48 h-48 rounded-full border border-white/5 absolute"
-         />
+      {/* --- ARKA PLAN PARTİKÜLLERİ --- */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+         {[...Array(6)].map((_, i) => (
+            <motion.div
+              key={i}
+              className="absolute bg-white/5 rounded-full"
+              style={{
+                width: Math.random() * 100 + 50,
+                height: Math.random() * 100 + 50,
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+              }}
+              animate={{
+                y: [0, -50, 0],
+                opacity: [0.1, 0.3, 0.1],
+                scale: [1, 1.2, 1],
+              }}
+              transition={{
+                duration: Math.random() * 10 + 10,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
+            />
+         ))}
       </div>
 
-      {/* ANA NEFES KÜRESİ (BLOB) */}
-      <div className="relative z-10 w-48 h-48 flex items-center justify-center">
-        <motion.div
-          animate={{
-            scale: config.scale,
-            rotate: phase === 'inhale' ? 10 : -10, // Hafif dönme efekti
-          }}
-          transition={{
-            duration: config.duration / 1000,
-            ease: "easeInOut" 
-          }}
-          className={`w-full h-full rounded-full bg-gradient-to-br ${config.color} shadow-[0_0_50px_rgba(255,255,255,0.2)] flex items-center justify-center relative backdrop-blur-md`}
+      {/* --- ÜST KONTROLLER --- */}
+      <div className="absolute top-4 right-4 z-20">
+        <button 
+          onClick={() => setShowSettings(!showSettings)}
+          className="p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
         >
-           {/* İç sıvı efekti için ikinci katman */}
-           <motion.div 
-             animate={{ rotate: 360 }}
-             transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-             className="absolute inset-0 rounded-full opacity-30 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] mix-blend-overlay"
-           />
-           
-           <Wind className="text-white drop-shadow-md w-12 h-12" />
-        </motion.div>
+          <Settings2 size={20} />
+        </button>
       </div>
 
-      {/* YÖNLENDİRME METNİ */}
-      <div className="mt-12 h-10 flex items-center justify-center">
-         <AnimatePresence mode='wait'>
-            <motion.p
+      {/* --- AYARLAR MENÜSÜ (OVERLAY) --- */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="absolute inset-0 z-30 bg-slate-900/95 flex flex-col p-6 overflow-y-auto"
+          >
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-white font-bold text-lg">Nefes Modu Seçin</h3>
+              <button onClick={() => setShowSettings(false)} className="text-slate-400 hover:text-white">Kapat</button>
+            </div>
+            
+            <div className="space-y-3">
+              {PATTERNS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => changePattern(p)}
+                  className={cn(
+                    "w-full text-left p-4 rounded-xl border transition-all relative overflow-hidden group",
+                    activePattern.id === p.id 
+                      ? "bg-indigo-600/20 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.3)]" 
+                      : "bg-white/5 border-white/10 hover:bg-white/10"
+                  )}
+                >
+                  <div className="flex justify-between items-center mb-1">
+                    <span className={cn("font-bold", activePattern.id === p.id ? "text-indigo-400" : "text-white")}>
+                      {p.name}
+                    </span>
+                    {activePattern.id === p.id && <CheckCircle2 size={18} className="text-indigo-400" />}
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    {p.description}
+                  </p>
+                  {/* Zamanlama Özeti */}
+                  <div className="flex gap-2 mt-3 text-[10px] font-mono text-slate-500 uppercase tracking-widest">
+                    <span>IN: {p.cycle.inhale/1000}s</span> • 
+                    <span>HOLD: {p.cycle['hold-in']/1000}s</span> • 
+                    <span>OUT: {p.cycle.exhale/1000}s</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* --- ANA GÖRSEL --- */}
+      <div className="relative z-10 flex flex-col items-center">
+        
+        {/* Nefes Küresi */}
+        <div className="relative w-64 h-64 flex items-center justify-center">
+          
+          {/* Dış Halkalar (Eko) */}
+          <AnimatePresence>
+            {isPlaying && phase === 'inhale' && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0.5, scale: 1 }}
+                  animate={{ opacity: 0, scale: 2 }}
+                  transition={{ duration: 2, repeat: Infinity }}
+                  className="absolute inset-0 rounded-full border border-white/20"
+                />
+                <motion.div
+                  initial={{ opacity: 0.5, scale: 1 }}
+                  animate={{ opacity: 0, scale: 2 }}
+                  transition={{ duration: 2, delay: 0.5, repeat: Infinity }}
+                  className="absolute inset-0 rounded-full border border-white/10"
+                />
+              </>
+            )}
+          </AnimatePresence>
+
+          {/* Ana Blob */}
+          <motion.div
+            animate={{
+              scale: config.scale,
+              rotate: phase === 'inhale' ? 10 : phase === 'exhale' ? -10 : 0,
+            }}
+            transition={{
+              duration: activePattern.cycle[phase] / 1000,
+              ease: "easeInOut"
+            }}
+            className={cn(
+              "w-32 h-32 md:w-40 md:h-40 rounded-full flex items-center justify-center relative shadow-[0_0_60px_rgba(255,255,255,0.15)] bg-gradient-to-br backdrop-blur-xl transition-colors duration-1000",
+              config.color
+            )}
+          >
+            {/* İç Doku */}
+            <div className="absolute inset-0 rounded-full opacity-40 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] mix-blend-overlay" />
+            
+            {/* İkon */}
+            <Wind className="text-white w-10 h-10 drop-shadow-md z-10" />
+            
+            {/* Geri Sayım Sayacı (Küçük) */}
+            <div className="absolute -bottom-8 font-mono text-xs font-bold text-white/50">
+               {Math.ceil(timeLeft)}s
+            </div>
+          </motion.div>
+
+          {/* Progress Ring (İsteğe Bağlı Görselleştirme) */}
+          <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none opacity-20">
+             <circle
+               cx="50%" cy="50%" r="48%"
+               fill="none" stroke="white" strokeWidth="1"
+               strokeDasharray="10 10"
+             />
+          </svg>
+
+        </div>
+
+        {/* --- METİN VE DURUM --- */}
+        <div className="mt-8 text-center h-16">
+          <AnimatePresence mode='wait'>
+            <motion.div
               key={phase}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="text-2xl font-bold text-white tracking-widest uppercase font-mono"
+              className="flex flex-col items-center gap-2"
             >
-              {config.label}
-            </motion.p>
-         </AnimatePresence>
+              <h2 className="text-3xl font-black text-white tracking-widest uppercase">
+                {config.label}
+              </h2>
+              <p className="text-xs text-indigo-300 font-medium bg-indigo-950/50 px-3 py-1 rounded-full border border-indigo-500/30">
+                {activePattern.name}
+              </p>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
       </div>
-      
-      <p className="text-white/40 text-xs mt-2">Rahatla ve odaklan</p>
+
+      {/* --- ALT KONTROL (PLAY/PAUSE) --- */}
+      <div className="absolute bottom-6 z-20">
+        <button
+          onClick={() => setIsPlaying(!isPlaying)}
+          className="p-4 bg-white text-slate-900 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-all flex items-center justify-center"
+        >
+          {isPlaying ? <Pause size={24} fill="currentColor" /> : <Play size={24} fill="currentColor" className="ml-1" />}
+        </button>
+        <p className="text-[10px] text-white/30 text-center mt-2 font-medium uppercase tracking-wider">
+          {isPlaying ? "Devam Ediyor" : "Duraklatıldı"}
+        </p>
+      </div>
 
     </div>
   );
-};
+}

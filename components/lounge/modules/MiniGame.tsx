@@ -2,18 +2,16 @@
 
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Briefcase, RotateCcw, Skull, 
-  Gamepad2, Zap, Target, Volume2, VolumeX, Play 
-} from 'lucide-react';
+import { Briefcase, RotateCcw, Skull, Gamepad2, Zap, Target, Volume2, VolumeX, Play } from 'lucide-react';
 import { cn } from '@/utils/cn';
 
-// --- YENİ OYUNLARI IMPORT ET (LAZY LOADING YAPABİLİRİZ AMA ŞİMDİLİK DİREKT IMPORT DAHA HIZLI) ---
+// Oyun dosyalarını çağırıyoruz
 import JusticeRunner from './games/JusticeRunner';
 import EvidenceHunter from './games/EvidenceHunter';
 import LexPong from './games/LexPong';
 
-export const MiniGame = () => {
+// DÜZELTME: "export const" yerine "export default function" yapıldı
+export default function MiniGame() {
   const [activeGame, setActiveGame] = useState<'NONE' | 'RUNNER' | 'SNAKE' | 'PONG'>('NONE');
   const [lastScore, setLastScore] = useState(0);
   const [showGameOver, setShowGameOver] = useState(false);
@@ -63,20 +61,15 @@ export const MiniGame = () => {
     );
   }
 
-  // --- AKTİF OYUNU RENDER ET ---
   if (activeGame === 'RUNNER') return <div className="w-full h-[360px] rounded-3xl overflow-hidden shadow-2xl border border-white/10 bg-slate-900"><JusticeRunner onGameOver={handleGameOver} onBack={resetToMenu} /></div>;
   if (activeGame === 'SNAKE') return <div className="w-full h-[360px] rounded-3xl overflow-hidden shadow-2xl border border-white/10 bg-slate-900"><EvidenceHunter onGameOver={handleGameOver} onBack={resetToMenu} /></div>;
   if (activeGame === 'PONG') return <div className="w-full h-[360px] rounded-3xl overflow-hidden shadow-2xl border border-white/10 bg-slate-900"><LexPong onGameOver={handleGameOver} onBack={resetToMenu} /></div>;
 
-  // --- MENÜ EKRANI ---
   return (
     <div className="w-full h-[360px] bg-slate-950 rounded-3xl p-6 border border-slate-800 flex flex-col relative overflow-hidden">
-      
-      {/* Arka Plan */}
       <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 rounded-full blur-[80px] -z-10 pointer-events-none"></div>
       <div className="absolute bottom-0 left-0 w-64 h-64 bg-amber-600/10 rounded-full blur-[80px] -z-10 pointer-events-none"></div>
 
-      {/* Başlık */}
       <div className="flex items-center justify-between mb-8 z-10">
          <div className="flex items-center gap-3">
             <div className="p-2.5 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg shadow-indigo-500/20">
@@ -97,66 +90,45 @@ export const MiniGame = () => {
          </button>
       </div>
 
-      {/* Oyun Seçim Izgarası */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 z-10">
          <GameCard 
-            title="Adalet Koşusu" 
-            desc="Engellerden zıpla" 
+            title="Adalet Koşusu" desc="Engellerden zıpla" 
             icon={<Briefcase className="text-blue-400 w-6 h-6"/>} 
-            color="group-hover:bg-blue-500/10 group-hover:border-blue-500/30"
-            gradient="from-blue-500/20 to-transparent"
+            color="group-hover:bg-blue-500/10 group-hover:border-blue-500/30" gradient="from-blue-500/20 to-transparent"
             onClick={() => setActiveGame('RUNNER')}
          />
          <GameCard 
-            title="Delil Avcısı" 
-            desc="Klasik yılan oyunu" 
+            title="Delil Avcısı" desc="Klasik yılan oyunu" 
             icon={<Target className="text-emerald-400 w-6 h-6"/>} 
-            color="group-hover:bg-emerald-500/10 group-hover:border-emerald-500/30"
-            gradient="from-emerald-500/20 to-transparent"
+            color="group-hover:bg-emerald-500/10 group-hover:border-emerald-500/30" gradient="from-emerald-500/20 to-transparent"
             onClick={() => setActiveGame('SNAKE')}
          />
          <GameCard 
-            title="Duruşma Tenisi" 
-            desc="Yapay zekaya karşı" 
+            title="Duruşma Tenisi" desc="Yapay zekaya karşı" 
             icon={<Zap className="text-amber-400 w-6 h-6"/>} 
-            color="group-hover:bg-amber-500/10 group-hover:border-amber-500/30"
-            gradient="from-amber-500/20 to-transparent"
+            color="group-hover:bg-amber-500/10 group-hover:border-amber-500/30" gradient="from-amber-500/20 to-transparent"
             onClick={() => setActiveGame('PONG')}
          />
       </div>
-      
-      <div className="mt-4 text-center">
-         <span className="text-[10px] text-slate-600 font-mono uppercase tracking-widest bg-slate-900/50 px-3 py-1 rounded-full border border-slate-800">
-            v2.0 • Living Lounge Arcade
-         </span>
-      </div>
     </div>
   );
-};
+}
 
-// Alt Bileşen: Oyun Kartı
 const GameCard = ({ title, desc, icon, color, gradient, onClick }: any) => (
   <button 
     onClick={onClick}
     className={cn(
-      "relative flex flex-col items-start justify-between p-5 rounded-2xl border border-white/5 bg-slate-900/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl group overflow-hidden text-left h-full",
-      color
+      "relative flex flex-col items-start justify-between p-5 rounded-2xl border border-white/5 bg-slate-900/50 transition-all duration-300 hover:scale-[1.03] hover:shadow-xl group overflow-hidden text-left h-full", color
     )}
   >
      <div className={cn("absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-br", gradient)} />
-     
      <div className="relative z-10 w-full">
-        <div className="mb-4 p-3 bg-slate-950 rounded-xl shadow-inner inline-flex border border-white/5 group-hover:scale-110 transition-transform duration-300 origin-left">
-            {icon}
-        </div>
+        <div className="mb-4 p-3 bg-slate-950 rounded-xl shadow-inner inline-flex border border-white/5 group-hover:scale-110 transition-transform duration-300 origin-left">{icon}</div>
         <h3 className="text-slate-200 font-bold text-base mb-1 group-hover:text-white">{title}</h3>
         <p className="text-slate-500 text-xs leading-relaxed group-hover:text-slate-300">{desc}</p>
      </div>
-
      <div className="relative z-10 mt-4 self-end opacity-0 group-hover:opacity-100 transition-all duration-300 translate-x-2 group-hover:translate-x-0">
-        <div className="bg-white/10 p-1.5 rounded-full">
-            <Play size={12} className="text-white" fill="currentColor" />
-        </div>
+        <div className="bg-white/10 p-1.5 rounded-full"><Play size={12} className="text-white" fill="currentColor" /></div>
      </div>
   </button>
 );
