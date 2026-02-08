@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { 
   Users, TrendingUp, ArrowLeft, 
   Gavel, Home, ShoppingCart, Calendar,
-  Sparkles, User, Search, MessageCircle, Send 
+  Sparkles, User, Search, MessageCircle, Send,
+  Scale, Film // <--- YENİ: Film ikonu eklendi
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,8 +22,11 @@ import { NotificationDrawer } from "@/components/notifications/NotificationDrawe
 import { NotificationBell } from "@/components/notifications/NotificationBell"; 
 import { useNotifications } from "@/hooks/useNotifications";
 
-// ✅ YENİ IMPORT
+// ✅ IMPORTLAR GÜNCELLENDİ
 import DailyDebateWidget from "@/components/social/DailyDebateWidget";
+import DebateTab from "@/components/social/DebateTab";
+import * as HoverCard from '@radix-ui/react-hover-card';
+import { getDailyDebate } from "@/app/actions/debate"; // Veriyi ana sayfada çekmek için
 
 export default function LexwoowPage() {
   const router = useRouter();
@@ -32,7 +36,10 @@ export default function LexwoowPage() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [showTransition, setShowTransition] = useState(true);
     
-  const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events'>('woow');
+  // ✅ YENİ STATE: Münazara verisini burada tutup Widget'a hazır göndereceğiz
+  const [dailyDebateData, setDailyDebateData] = useState<any>(null);
+
+  const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events' | 'debate'>('woow');
   const [refreshKey, setRefreshKey] = useState(0);
 
   const [isInboxOpen, setIsInboxOpen] = useState(false);
@@ -52,6 +59,7 @@ export default function LexwoowPage() {
 
   useEffect(() => {
     const getUserAndProfile = async () => {
+      // 1. Kullanıcı Bilgisi
       const { data: { user: authUser } } = await supabase.auth.getUser();
       setUser(authUser);
 
@@ -63,6 +71,14 @@ export default function LexwoowPage() {
             .single();
         
         if (profileData) setProfile(profileData as any);
+      }
+
+      // ✅ 2. PERFORMANS AYARI: Münazara verisini sayfa yüklenirken sessizce çek
+      try {
+         const debateData = await getDailyDebate();
+         setDailyDebateData(debateData);
+      } catch (error) {
+         console.error("Debate data fetch error", error);
       }
     };
 
@@ -109,14 +125,9 @@ export default function LexwoowPage() {
             <ArrowLeft size={22} />
           </button>
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="Ara..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-slate-100/50 border border-slate-200 rounded-full py-2 pl-10 pr-4 outline-none focus:ring-2 focus:ring-amber-500/10 text-sm transition-all" 
-            />
+             <span className="font-bold text-slate-800 ml-2">
+                {activeTab === 'debate' ? 'Münazara Arenası' : 'Lexwoow'}
+             </span>
           </div>
           <button 
             onClick={() => setIsInboxOpen(true)}
@@ -156,10 +167,44 @@ export default function LexwoowPage() {
                     <span>WOOW</span>
                  </button>
 
-                 {/* ✅ GÜNÜN TARTIŞMASI WIDGET'I BURAYA EKLENDİ */}
-                 <div className="pt-2 pb-2">
-                    <DailyDebateWidget />
-                 </div>
+                 {/* ✅ GÜNCELLEME: HOVER CARD & PRELOADED DATA */}
+                 <HoverCard.Root openDelay={200} closeDelay={100}>
+                   
+                   {/* 1. Tetikleyici Buton */}
+                   <HoverCard.Trigger asChild>
+                     <button 
+                       onClick={() => { setActiveTab('debate'); setSearchTerm(""); }} 
+                       className={cn(
+                         "flex items-center gap-4 px-4 py-3 text-xl font-bold rounded-full transition-all w-full text-left outline-none relative",
+                         activeTab === 'debate' 
+                           ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md' 
+                           : 'bg-white text-slate-900 hover:bg-emerald-50 border border-transparent'
+                       )}
+                     >
+                        <div className="w-10 flex justify-center"><Scale size={26} /></div>
+                        <span>Münazara</span>
+                     </button>
+                   </HoverCard.Trigger>
+                   
+                   {/* 2. Açılan Ön İzleme Penceresi */}
+                   <HoverCard.Portal>
+                     <HoverCard.Content 
+                       side="right"       
+                       align="start"      
+                       sideOffset={20}    
+                       className="z-[9999] w-[320px] outline-none animate-in fade-in zoom-in-95 duration-200"
+                     >
+                       <HoverCard.Arrow className="fill-slate-800" width={16} height={8} />
+                       
+                       <div className="rounded-xl overflow-hidden shadow-2xl shadow-slate-900/40 border border-slate-700/50">
+                         {/* ✅ OPTİMİZASYON: Veriyi prop olarak gönderiyoruz */}
+                         <DailyDebateWidget preloadedData={dailyDebateData} /> 
+                       </div>
+                       
+                     </HoverCard.Content>
+                   </HoverCard.Portal>
+
+                 </HoverCard.Root>
 
                  {/* BİLDİRİMLER */}
                  {user && (
@@ -226,13 +271,24 @@ export default function LexwoowPage() {
                     <span>Etkinlikler</span>
                  </button>
                  
+                 {/* --- 🔥 YENİ EKLENEN REELS BUTONU --- */}
+                 <button 
+                   onClick={() => router.push('/reels')}
+                   className="flex items-center gap-4 px-4 py-3 text-xl font-medium text-slate-600 hover:bg-rose-50 hover:text-rose-600 rounded-full transition-all w-full text-left group"
+                 >
+                    <div className="w-10 flex justify-center">
+                       <Film size={26} className="group-hover:scale-110 transition-transform" />
+                    </div>
+                    <span className="font-bold">Reels Akışı</span>
+                 </button>
+                 {/* ---------------------------------- */}
+                 
                  <button onClick={() => router.push('/')} className="flex items-center gap-4 px-4 py-3 text-xl font-medium text-slate-600 hover:text-red-600 hover:bg-red-50 rounded-full transition-all w-full text-left mt-2">
                     <div className="w-10 flex justify-center"><ArrowLeft size={26} /></div>
                     <span>Ana Menü</span>
                  </button>
               </nav>
 
-              {/* GÖRÜŞ BİLDİR BUTONU */}
               <button 
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className={cn(
@@ -251,32 +307,54 @@ export default function LexwoowPage() {
 
         {/* ORTA KOLON */}
         <div className="lg:col-span-2 space-y-8 pb-20">
-          {user && (
-            <div className="animate-in fade-in slide-in-from-top-4">
-              <CreatePost userId={user.id} />
+          
+          {/* MANTIKSAL AYRIM: Eğer 'debate' sekmesi açıksa farklı içerik göster */}
+          {activeTab === 'debate' ? (
+            // --- MÜNAZARA ARAYÜZÜ ---
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+               <div className="mb-4 flex items-center justify-between">
+                  <h2 className="font-black text-xl text-slate-800 tracking-tight flex items-center gap-2">
+                     <Scale className="text-emerald-600" />
+                     MÜNAZARA ARENASI
+                  </h2>
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Canlı Tartışma</span>
+               </div>
+               
+               <DebateTab />
             </div>
+
+          ) : (
+            // --- STANDART AKIŞ ---
+            <>
+              {user && activeTab !== 'profile' && (
+                <div className="animate-in fade-in slide-in-from-top-4">
+                  <CreatePost userId={user.id} />
+                </div>
+              )}
+
+              <div className="flex items-center gap-3 px-2">
+                  <div className="h-[1px] flex-1 bg-slate-200"></div>
+                  <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
+                    <TrendingUp size={14} className="text-amber-500" />
+                    <span>
+                      {searchTerm 
+                        ? `"${searchTerm}" İÇİN SONUÇLAR` 
+                        : activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : activeTab === 'profile' ? 'PROFİLİM' : 'ETKİNLİK GÜNDEMİ'
+                      }
+                    </span>
+                  </div>
+                  <div className="h-[1px] flex-1 bg-slate-200"></div>
+              </div>
+
+              <PostList 
+                key={refreshKey} 
+                userId={activeTab === 'profile' ? user?.id : undefined} 
+                filter={activeTab === 'events' ? 'events' : 'all'} 
+                searchQuery={debouncedSearch} 
+              />
+            </>
           )}
 
-          <div className="flex items-center gap-3 px-2">
-              <div className="h-[1px] flex-1 bg-slate-200"></div>
-              <div className="flex items-center gap-2 text-slate-400 text-[10px] uppercase tracking-[0.3em] font-black">
-                <TrendingUp size={14} className="text-amber-500" />
-                <span>
-                  {searchTerm 
-                    ? `"${searchTerm}" İÇİN SONUÇLAR` 
-                    : activeTab === 'woow' ? 'KÜRSÜ AKIŞI' : activeTab === 'profile' ? 'PROFİLİM' : 'ETKİNLİK GÜNDEMİ'
-                  }
-                </span>
-              </div>
-              <div className="h-[1px] flex-1 bg-slate-200"></div>
-          </div>
-
-          <PostList 
-            key={refreshKey} 
-            userId={activeTab === 'profile' ? user?.id : undefined} 
-            filter={activeTab === 'events' ? 'events' : 'all'} 
-            searchQuery={debouncedSearch} 
-          />
         </div>
 
         {/* SAĞ KOLON */}
@@ -302,20 +380,6 @@ export default function LexwoowPage() {
                   <div key={g} className="group cursor-pointer">
                     <p className="text-[14px] font-bold text-slate-700 group-hover:text-amber-600 transition-colors">{g}</p>
                     <p className="text-[11px] text-slate-400 mt-1 font-medium">Meslektaşlar tartışıyor</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="bg-[#f1f5f9] border border-slate-200/50 rounded-[1.5rem] p-6 shadow-sm">
-              <h3 className="font-black text-[11px] text-slate-500 mb-5 flex items-center gap-2 uppercase tracking-widest">
-                <TrendingUp size={16} className="text-amber-500" /> Güncel Konular
-              </h3>
-              <div className="space-y-5">
-                {["Yapay Zeka Hukuku", "E-Ticaret", "KVKK", "Fikri Mülkiyet"].map((konu) => (
-                  <div key={konu} className="cursor-pointer group flex items-start gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 opacity-0 group-hover:opacity-100 transition-all"></div>
-                      <p className="text-[12px] text-slate-600 group-hover:text-slate-900 group-hover:translate-x-1 transition-all font-semibold">{konu}</p>
                   </div>
                 ))}
               </div>

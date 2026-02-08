@@ -3,55 +3,45 @@
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 
+// 1. GÜNÜN TARTIŞMASINI ÇEK
 export async function getDailyDebate() {
   const supabase = await createClient();
   const today = new Date().toISOString().split('T')[0];
 
-  // 1. Bugünün tartışmasını çek
-  let { data: debate, error } = await supabase
-    .from('daily_debates')
+  // ✅ Tablo adı güncellendi: social_daily_debates
+  const { data: debate, error } = await supabase
+    .from('social_daily_debates')
     .select('*')
     .eq('date', today)
     .single();
 
-  // Eğer bugünün kaydı yoksa (veya saat farkından dolayı), en son eklenen kaydı getir (Fallback)
-  if (!debate) {
-    const { data: latest } = await supabase
-      .from('daily_debates')
-      .select('*')
-      .order('date', { ascending: false })
-      .limit(1)
-      .single();
-    debate = latest;
-  }
+  if (error || !debate) return null;
 
-  if (!debate) return null;
-
-  // 2. Oyları Say
+  // ✅ Tablo adı güncellendi: social_debate_votes
   const { count: countA } = await supabase
-    .from('debate_votes')
+    .from('social_debate_votes')
     .select('*', { count: 'exact', head: true })
     .eq('debate_id', debate.id)
     .eq('choice', 'A');
 
   const { count: countB } = await supabase
-    .from('debate_votes')
+    .from('social_debate_votes')
     .select('*', { count: 'exact', head: true })
     .eq('debate_id', debate.id)
     .eq('choice', 'B');
 
-  // 3. Kullanıcının oy verip vermediğini kontrol et
+  // Kullanıcı oyu kontrolü
   const { data: { user } } = await supabase.auth.getUser();
   let userVote = null;
 
   if (user) {
     const { data: vote } = await supabase
-      .from('debate_votes')
+      .from('social_debate_votes')
       .select('choice')
       .eq('debate_id', debate.id)
       .eq('user_id', user.id)
       .single();
-    userVote = vote?.choice;
+    if (vote) userVote = vote.choice;
   }
 
   return {
@@ -65,19 +55,17 @@ export async function getDailyDebate() {
   };
 }
 
+// 2. OY VERME İŞLEMİ
 export async function voteDailyDebate(debateId: string, choice: 'A' | 'B') {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) return { error: "Giriş yapmalısınız." };
+  if (!user) return { error: "Oy vermek için giriş yapmalısınız." };
 
+  // ✅ Tablo adı güncellendi: social_debate_votes
   const { error } = await supabase
-    .from('debate_votes')
-    .insert({
-      debate_id: debateId,
-      user_id: user.id,
-      choice: choice
-    });
+    .from('social_debate_votes')
+    .insert({ debate_id: debateId, user_id: user.id, choice });
 
   if (error) {
     if (error.code === '23505') return { error: "Zaten oy kullandınız." };
@@ -86,4 +74,48 @@ export async function voteDailyDebate(debateId: string, choice: 'A' | 'B') {
 
   revalidatePath('/social');
   return { success: true };
+}
+
+// 3. YORUM GÖNDERME İŞLEMİ
+export async function postDebateComment(debateId: string, content: string, side: 'A' | 'B') {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) return { error: "Yorum yapmak için giriş yapmalısınız." };
+
+  // ✅ Tablo adı güncellendi: social_debate_comments
+  const { error } = await supabase
+    .from('social_debate_comments')
+    .insert({
+      debate_id: debateId,
+      user_id: user.id,
+      content,
+      side
+    });
+
+  if (error) return { error: "Yorum gönderilemedi." };
+  
+  revalidatePath('/social');
+  return { success: true };
+}
+
+// 4. YORUMLARI ÇEKME
+export async function getDebateComments(debateId: string) {
+  const supabase = await createClient();
+
+  // ✅ Tablo adı güncellendi: social_debate_comments
+  const { data: comments } = await supabase
+    .from('social_debate_comments')
+    .select(`
+      id,
+      content,
+      side,
+      created_at,
+      likes,
+      profiles (full_name, username, avatar_url)
+    `)
+    .eq('debate_id', debateId)
+    .order('created_at', { ascending: false });
+
+  return comments || [];
 }
