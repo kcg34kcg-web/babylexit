@@ -1,3 +1,4 @@
+// Dosya: lib/ai/providers/deepseek.ts
 import OpenAI from "openai";
 import { BaseProvider } from "./base";
 
@@ -8,7 +9,6 @@ export class DeepSeekProvider extends BaseProvider {
     super("DeepSeek V3", timeout);
     if (!process.env.DEEPSEEK_API_KEY) throw new Error("DEEPSEEK_API_KEY eksik!");
     
-    // DeepSeek OpenAI SDK'sı ile uyumludur
     this.client = new OpenAI({
       baseURL: 'https://api.deepseek.com',
       apiKey: process.env.DEEPSEEK_API_KEY

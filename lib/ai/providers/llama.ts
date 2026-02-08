@@ -1,3 +1,4 @@
+// Dosya: lib/ai/providers/llama.ts
 import Groq from "groq-sdk";
 import { BaseProvider } from "./base";
 
@@ -16,7 +17,7 @@ export class LlamaProvider extends BaseProvider {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      model: "llama3-70b-8192", // En performanslı model
+      model: "llama3-70b-8192", 
     });
     return completion.choices[0]?.message?.content || "";
   }

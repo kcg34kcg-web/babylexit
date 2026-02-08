@@ -4,7 +4,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/utils/supabase/server";
 import { redis } from "@/lib/redis";
 import { rewardUserForAIReference } from "./rewards";
-import { aiOrchestrator } from "@/lib/ai/orchestrator"; // <--- YENİ EKLENTİ
+// Doğru Import Yolu (Göreli Yol)
+import { aiOrchestrator } from "@/lib/ai/orchestrator";
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
@@ -227,16 +228,37 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
     return staticAnswer;
   }
 
-  // 3. ADIM: REDIS ÖNBELLEK (Maliyet: 0)
+  // 3. ADIM: AKILLI REDIS ÖNBELLEK (GÜNCELLENDİ 🚀)
   try {
-    const cachedAnswer = await redis.get(cacheKey);
-    if (cachedAnswer) {
-      console.log("⚡ REDIS HIT");
+    const cachedRaw = await redis.get(cacheKey);
+    if (cachedRaw) {
+      // Redis'te JSON obje olarak saklıyoruz ama kullanıcıya sadece metni dönüyoruz.
+      // Formatımız: { content: "...", provider: "Gemini", timestamp: 123456 }
+      
+      let finalAnswer = "";
+      try {
+        // Yeni formatı (JSON) parse etmeye çalış
+        const cachedObj = JSON.parse(cachedRaw);
+        
+        // Eğer obje ise ve içinde content varsa onu al
+        if (cachedObj && cachedObj.content) {
+             finalAnswer = cachedObj.content; 
+             console.log(`⚡ CACHE HIT: ${cachedObj.provider || 'Bilinmeyen'} kaynağından geldi.`);
+        } else {
+             // Eğer JSON değilse (eski tip düz string) olduğu gibi al
+             finalAnswer = cachedRaw;
+        }
+
+      } catch {
+        // JSON parse hatası olursa (eski tip düz string ise)
+        finalAnswer = cachedRaw; 
+      }
+
       logAIAction('redis', true, start); 
-      return cachedAnswer;
+      return finalAnswer; // Kullanıcı teknik detayı görmez!
     }
   } catch (e) {
-    console.warn("Redis bağlantı hatası (Cache atlandı).");
+    console.warn("Redis bağlantı hatası (Cache atlandı).", e);
   }
 
   // 4. ADIM: EMBEDDING ÜRETİMİ (Maliyet: Düşük - Tek Seferlik)
@@ -250,6 +272,7 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
       // a) Toplulukta var mı?
       const communityAnswer = await searchCommunityQuestions(embedding);
       if (communityAnswer) {
+        // Redis'e kaydet (Eski usül, çünkü bu statik bir metin)
         await redis.set(cacheKey, communityAnswer, 'EX', 86400);
         logAIAction('community', true, start); 
         return communityAnswer;
@@ -275,7 +298,6 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
   }
 
   // b) "Omni-Adaptive" Sistem Prompt'u (Bağlam olarak geçilecek)
-  // Not: Orchestrator'ın kendi temel prompt'u var, bu onun üzerine eklenecek.
   const customContext = `
 ### ÖZEL GÖREV TALİMATLARI ###
 Sen "Babylexit" platformunun **Omni-Adaptive Intelligence Engine** modülüsün.
@@ -303,8 +325,15 @@ GÖREVLER:
 
     // --- KAYIT İŞLEMLERİ ---
     
-    // 1. Redis'e kaydet
-    await redis.set(cacheKey, textAnswer, 'EX', 86400);
+    // 1. Redis'e Detaylı Kaydet (Akıllı Önbellek)
+    // { content, provider, timestamp } formatında JSON string olarak kaydet
+    await redis.set(cacheKey, JSON.stringify({
+        content: textAnswer,
+        provider: aiResult.provider, 
+        timestamp: Date.now()
+    }), 'EX', 86400); // 24 saat sakla
+
+    console.log(`✅ YENİ CEVAP: ${aiResult.provider} tarafından üretildi.`);
 
     // 2. Vektör Veritabanına kaydet (Kalıcı hafıza)
     if (embedding) {

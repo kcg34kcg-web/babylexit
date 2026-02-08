@@ -1,3 +1,4 @@
+// Dosya: lib/ai/providers/gpt4.ts
 import OpenAI from "openai";
 import { BaseProvider } from "./base";
 

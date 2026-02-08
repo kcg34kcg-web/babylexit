@@ -1,3 +1,4 @@
+// Dosya: lib/ai/orchestrator.ts
 import { SYSTEM_PROMPT, TIMEOUTS, AIResponse } from "./config";
 import { GeminiProvider } from "./providers/gemini";
 import { LlamaProvider } from "./providers/llama";
@@ -9,13 +10,7 @@ class AIOrchestrator {
   private providers: any[];
 
   constructor() {
-    // MODELLERİ BURAYA MALİYET/HIZ SIRASINA GÖRE DİZİYORUZ
-    // 1. Gemini (En ucuz)
-    // 2. Llama (En hızlı)
-    // 3. DeepSeek (Fiyat/Performans kralı)
-    // 4. Grok (Joker)
-    // 5. GPT-4 (Son çare)
-    
+    // MODELLERİ MALİYET/HIZ SIRASINA GÖRE DİZİYORUZ
     this.providers = [
       new GeminiProvider(TIMEOUTS.GEMINI),
       new LlamaProvider(TIMEOUTS.GROQ),
@@ -30,10 +25,10 @@ class AIOrchestrator {
    */
   async getAnswer(userQuestion: string, context: string = ""): Promise<AIResponse> {
     const fullSystemPrompt = context 
-      ? `${SYSTEM_PROMPT}\n\nİLGİLİ HUKUKİ BAĞLAM:\n${context}`
+      ? `${SYSTEM_PROMPT}\n\nİLGİLİ BAĞLAM:\n${context}`
       : SYSTEM_PROMPT;
 
-    console.log(`[AI Orchestrator] Analiz başlıyor: "${userQuestion.substring(0, 30)}..."`);
+    console.log(`[AI Orchestrator] Analiz başlıyor...`);
 
     for (let i = 0; i < this.providers.length; i++) {
       const provider = this.providers[i];
@@ -41,10 +36,10 @@ class AIOrchestrator {
       try {
         console.log(`👉 Deneniyor: ${provider.name} (Adım ${i + 1}/${this.providers.length})`);
         
-        // İsteği gönder
+        // İsteği gönder (Timeout korumalı)
         const content = await provider.execute(userQuestion, fullSystemPrompt);
 
-        // KONTROLLER (Refusal Check)
+        // KONTROLLER (Refusal & Boşluk Check)
         if (!content || content.length < 20) {
             throw new Error("Cevap çok kısa veya boş.");
         }
@@ -60,12 +55,12 @@ class AIOrchestrator {
         return {
           provider: provider.name,
           content: content,
-          isFallback: i > 0 // Eğer ilk model değilse true döner
+          isFallback: i > 0 // İlk model değilse "fallback" (yedek) sayılır
         };
 
       } catch (error: any) {
         console.warn(`❌ BAŞARISIZ (${provider.name}): ${error.message}`);
-        // Döngü devam eder, bir sonraki modele geçer...
+        // Döngü kırılmaz, bir sonraki modele (continue) geçer...
         continue;
       }
     }
@@ -73,7 +68,7 @@ class AIOrchestrator {
     // HİÇBİRİ CEVAP VEREMEZSE
     return {
       provider: "System",
-      content: "Şu an tüm yapay zeka sistemlerimiz aşırı yoğunluk veya teknik bir sorun nedeniyle yanıt veremiyor. Lütfen sorunuzu basitleştirerek tekrar deneyin veya bir süre bekleyin.",
+      content: "Şu an tüm yapay zeka sistemlerimiz aşırı yoğunluk nedeniyle yanıt veremiyor. Lütfen sorunuzu basitleştirerek tekrar deneyin.",
       isFallback: true
     };
   }

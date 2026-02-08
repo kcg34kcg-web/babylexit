@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.38.0",
+    "@google/generative-ai": "^0.24.1",
     "@react-google-maps/api": "^2.20.8",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.93.3",
@@ -59,7 +60,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/kcg34kcg-web/babylexit/issues"
   },

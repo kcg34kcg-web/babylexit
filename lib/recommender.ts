@@ -1,5 +1,3 @@
-import { createClient } from '@/utils/supabase/client';
-
 interface PostCandidate {
   id: string;
   author_id: string;
@@ -9,7 +7,7 @@ interface PostCandidate {
   is_following_author: boolean;
 }
 
-export class BabylexitRecommender {
+export class BabylexitRecommender { 
   static calculateScore(post: PostCandidate): number {
     const now = new Date();
     const created = new Date(post.created_at);
@@ -17,7 +15,7 @@ export class BabylexitRecommender {
     // Saate çevir (0'a bölünmeyi önlemek için minimum 0.1)
     const ageHours = Math.max(0.1, (now.getTime() - created.getTime()) / (1000 * 60 * 60));
 
-    // 1. TABAN PUAN (DÜZELTİLDİ)
+    // 1. TABAN PUAN
     // Yeni postlar 0 beğeni ile başlasa bile, onlara "50" başlangıç puanı veriyoruz.
     // Böylece 0 puanla elenmezler.
     const STARTER_BONUS = 50; 
@@ -32,7 +30,7 @@ export class BabylexitRecommender {
 
     // 3. GRAVİTE (Çekim Gücü)
     // Takip ettiklerin (0.8) daha yavaş düşer, yabancılar (1.8) daha hızlı düşer.
-    // Eğer is_following_author undefined gelirse (SQL hatası vs.), varsayılan 1.5 al.
+    // Eğer is_following_author undefined gelirse varsayılan 1.5 al.
     const gravity = post.is_following_author ? 0.8 : 1.5;
 
     // 4. FORMÜL

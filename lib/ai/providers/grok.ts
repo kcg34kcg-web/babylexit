@@ -1,3 +1,4 @@
+// Dosya: lib/ai/providers/grok.ts
 import OpenAI from "openai";
 import { BaseProvider } from "./base";
 
@@ -8,7 +9,6 @@ export class GrokProvider extends BaseProvider {
     super("Grok 2 (xAI)", timeout);
     if (!process.env.XAI_API_KEY) throw new Error("XAI_API_KEY eksik!");
 
-    // xAI, OpenAI SDK'sı ile tam uyumludur
     this.client = new OpenAI({
       baseURL: "https://api.x.ai/v1",
       apiKey: process.env.XAI_API_KEY,
@@ -21,7 +21,7 @@ export class GrokProvider extends BaseProvider {
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      model: "grok-2-latest", // En güncel kararlı sürüm
+      model: "grok-2-latest",
     });
     return completion.choices[0]?.message?.content || "";
   }
