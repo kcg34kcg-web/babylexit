@@ -37,7 +37,7 @@ export default function AuroraBackground({ children }: { children: React.ReactNo
         />
 
         {/* 3. Grid Dokusu (Teknoloji Hissi) */}
-        <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-[0.03] bg-center [mask-image:linear-gradient(180deg,white,rgba(255,255,255,0))]" />
+        <div className="bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]" />
         
       </div>
 

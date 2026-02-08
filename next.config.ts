@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Turbopack ayarını siliyoruz çünkü alttaki dosyayı silince buna gerek kalmayacak.
+  // Eğer özel bir ayar yapmıyorsanız burayı boş bırakmak en iyisidir.
   images: {
     remotePatterns: [
       {

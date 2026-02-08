@@ -7,44 +7,67 @@ import { GrokProvider } from "./providers/grok";
 import { GPT4Provider } from "./providers/gpt4";
 
 class AIOrchestrator {
-  private providers: any[];
+  private providers: any[] = [];
 
   constructor() {
-    // MODELLERİ MALİYET/HIZ SIRASINA GÖRE DİZİYORUZ
-    this.providers = [
-      new GeminiProvider(TIMEOUTS.GEMINI),
-      new LlamaProvider(TIMEOUTS.GROQ),
-      new DeepSeekProvider(TIMEOUTS.DEEPSEEK),
-      new GrokProvider(TIMEOUTS.GROK),
-      new GPT4Provider(TIMEOUTS.GPT4),
-    ];
+    // MODELLERİ GÜVENLİ BİR ŞEKİLDE YÜKLÜYORUZ
+    // Eğer birinin API Key'i yoksa hata verip uygulamayı çökertmek yerine
+    // o modeli listeye eklemeyi atlıyoruz.
+
+    this.tryAddProvider(() => new GeminiProvider(TIMEOUTS.GEMINI));
+    this.tryAddProvider(() => new LlamaProvider(TIMEOUTS.GROQ));
+    this.tryAddProvider(() => new DeepSeekProvider(TIMEOUTS.DEEPSEEK));
+    this.tryAddProvider(() => new GrokProvider(TIMEOUTS.GROK));
+    this.tryAddProvider(() => new GPT4Provider(TIMEOUTS.GPT4));
+
+    if (this.providers.length === 0) {
+      console.error("⚠️ HİÇBİR AI MODELİ YÜKLENEMEDİ! Lütfen .env dosyasını kontrol edin.");
+    }
+  }
+
+  private tryAddProvider(providerFactory: () => any) {
+    try {
+      const provider = providerFactory();
+      this.providers.push(provider);
+    } catch (error: any) {
+      // API Key eksikse buraya düşer, ama uygulama çökmez.
+      // Sadece konsola sessizce not düşeriz.
+      // console.log(`ℹ️ Model atlandı: ${error.message}`);
+    }
   }
 
   /**
-   * Soruya cevap bulana kadar tüm modelleri sırayla dener.
+   * Soruya cevap bulana kadar aktif modelleri dener.
    */
   async getAnswer(userQuestion: string, context: string = ""): Promise<AIResponse> {
+    if (this.providers.length === 0) {
+      return {
+        provider: "System",
+        content: "Sistem yapılandırma hatası: Aktif yapay zeka sağlayıcısı bulunamadı. (API Keys eksik)",
+        isFallback: true
+      };
+    }
+
     const fullSystemPrompt = context 
       ? `${SYSTEM_PROMPT}\n\nİLGİLİ BAĞLAM:\n${context}`
       : SYSTEM_PROMPT;
 
-    console.log(`[AI Orchestrator] Analiz başlıyor...`);
+    console.log(`[AI Orchestrator] Analiz başlıyor... (${this.providers.length} aktif model)`);
 
     for (let i = 0; i < this.providers.length; i++) {
       const provider = this.providers[i];
       
       try {
-        console.log(`👉 Deneniyor: ${provider.name} (Adım ${i + 1}/${this.providers.length})`);
+        console.log(`👉 Deneniyor: ${provider.name}`);
         
         // İsteği gönder (Timeout korumalı)
         const content = await provider.execute(userQuestion, fullSystemPrompt);
 
-        // KONTROLLER (Refusal & Boşluk Check)
+        // KONTROLLER
         if (!content || content.length < 20) {
             throw new Error("Cevap çok kısa veya boş.");
         }
         
-        // Temel filtreleme (Basit kelime bazlı)
         const lower = content.toLowerCase();
         if (content.length < 100 && (lower.includes("cannot fulfill") || lower.includes("yapay zeka modeli"))) {
              throw new Error("Model politik nedenlerle reddetti.");
@@ -55,12 +78,11 @@ class AIOrchestrator {
         return {
           provider: provider.name,
           content: content,
-          isFallback: i > 0 // İlk model değilse "fallback" (yedek) sayılır
+          isFallback: i > 0 
         };
 
       } catch (error: any) {
         console.warn(`❌ BAŞARISIZ (${provider.name}): ${error.message}`);
-        // Döngü kırılmaz, bir sonraki modele (continue) geçer...
         continue;
       }
     }
@@ -68,11 +90,11 @@ class AIOrchestrator {
     // HİÇBİRİ CEVAP VEREMEZSE
     return {
       provider: "System",
-      content: "Şu an tüm yapay zeka sistemlerimiz aşırı yoğunluk nedeniyle yanıt veremiyor. Lütfen sorunuzu basitleştirerek tekrar deneyin.",
+      content: "Şu an tüm yapay zeka sistemlerimiz aşırı yoğunluk nedeniyle yanıt veremiyor.",
       isFallback: true
     };
   }
 }
 
-// Singleton olarak dışa aktar (Her seferinde yeni class oluşturmasın)
+// Singleton olarak dışa aktar
 export const aiOrchestrator = new AIOrchestrator();
