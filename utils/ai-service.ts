@@ -1,21 +1,12 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { aiOrchestrator } from "@/lib/ai/orchestrator";
 
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-
-// DÜZELTME: Model ismi 'gemini-1.5-flash' olarak güncellendi (En uygun maliyetli sürüm)
-const model = genAI.getGenerativeModel({ 
-  model: "gemini-1.5-flash", 
-  generationConfig: {
-    temperature: 0.3, 
-  }
-});
+// NOT: Artık burada GoogleGenerativeAI SDK'sını doğrudan çağırmıyoruz.
+// Tüm  merkezi "Orchestrator" yönetiyor.
 
 /**
  * Sorular için profesyonel hukuki analiz (Community Note) oluşturur.
  */
 export async function generateAILegalNote(questionTitle: string, questionContent: string) {
-  // ... (Geri kalan kodlar aynı kalacak, sadece model tanımını düzelttik) ...
   const prompt = `
     Sen "Babylexit" platformunda görev yapan kıdemli bir Türk Avukatı ve Hukuk Profesörüsün.
     Aşağıdaki hukuki soruyu analiz et ve halkı bilgilendirici, tarafsız ve profesyonel bir "Hukuki Bilgi Notu" hazırla.
@@ -31,15 +22,19 @@ export async function generateAILegalNote(questionTitle: string, questionContent
   `;
 
   try {
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+    // ESKİSİ: const result = await model.generateContent(prompt);
+    // YENİSİ: Orchestrator kullanıyoruz (Hata verirse diğer modellere geçer)
+    const result = await aiOrchestrator.getAnswer(prompt);
+    return result.content;
   } catch (error) {
     console.error("Legal Note Hatası:", error);
     return "Hukuki analiz şu an oluşturulamıyor.";
   }
 }
 
-// ... (rateUserAnswer fonksiyonu aynı kalabilir) ...
+/**
+ * Kullanıcı cevabını puanlar ve geri bildirim verir.
+ */
 export async function rateUserAnswer(questionContent: string, userAnswer: string) {
   const prompt = `
     Sen uzman bir Türk Avukatısın. Bir kullanıcının aşağıdaki soruya verdiği cevabı değerlendir.
@@ -59,10 +54,14 @@ export async function rateUserAnswer(questionContent: string, userAnswer: string
   `;
 
   try {
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
+    // YENİSİ: Orchestrator ile cevap alıyoruz
+    const result = await aiOrchestrator.getAnswer(prompt);
+    
+    // Gelen cevabı temizleyip JSON'a çeviriyoruz
+    const responseText = result.content;
     const cleanJson = responseText.replace(/```json|```/g, "").trim();
     return JSON.parse(cleanJson);
+
   } catch (error) {
     console.error("Rating Hatası:", error);
     return { score: 0, feedback: "Değerlendirme şu an yapılamıyor." };

@@ -3,7 +3,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/utils/supabase/server";
 import { redis } from "@/lib/redis";
-import { rewardUserForAIReference } from "./rewards"; 
+import { rewardUserForAIReference } from "./rewards";
+import { aiOrchestrator } from "@/lib/ai/orchestrator"; // <--- YENİ EKLENTİ
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
@@ -13,21 +14,44 @@ if (!apiKey) {
 const genAI = new GoogleGenerativeAI(apiKey);
 
 // --- MODELLER ---
-
+// JSON Çıktısı gerektiren yan işler (Güvenlik, Analiz) için ucuz model kalıyor
 const flashJSONModel = genAI.getGenerativeModel({ 
   model: "gemini-1.5-flash", 
   generationConfig: { responseMimeType: "application/json" } 
 });
 
-const textModel = genAI.getGenerativeModel({ 
-  model: "gemini-1.5-flash" 
-});
+// NOT: `textModel` kaldırıldı çünkü artık Orchestrator kullanıyoruz.
 
 const embeddingModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
 
 // =========================================================
-// YEREL KURALLAR (ROUTER)
+// KATMAN 0-A: GÜVENLİK VE GİRİŞ KONTROLÜ (BEDAVA - REGEX)
+// =========================================================
+const BAD_PATTERNS = [
+  /küfür|hakaret|aptal|gerizekalı/i, 
+  /prompt injection|ignore previous/i, 
+  /sadasd|asdasd|123123/i 
+];
+
+function isBasicContentSafe(text: string): { isSafe: boolean; reason?: string } {
+  const lowerText = text.toLowerCase().trim();
+  
+  if (lowerText.length < 3) {
+    return { isSafe: false, reason: "Lütfen en az 3 harfli, anlamlı bir soru sorunuz." };
+  }
+
+  for (const pattern of BAD_PATTERNS) {
+    if (pattern.test(lowerText)) {
+      return { isSafe: false, reason: "Mesajınız topluluk kurallarına aykırı ifadeler veya geçersiz içerik barındırıyor." };
+    }
+  }
+
+  return { isSafe: true };
+}
+
+// =========================================================
+// KATMAN 0-B: YEREL KURALLAR (ROUTER)
 // =========================================================
 const STATIC_RULES = [
   {
@@ -54,8 +78,6 @@ const STATIC_RULES = [
 
 function checkLocalRules(text: string): string | null {
   const lowerText = text.toLowerCase().trim();
-  if (lowerText.length < 3) return "Lütfen biraz daha detaylı bir soru sorabilir misiniz?";
-
   for (const rule of STATIC_RULES) {
     if (rule.keywords.some(k => lowerText === k || (lowerText.includes(k) && lowerText.length < 30))) {
       return rule.response;
@@ -65,18 +87,17 @@ function checkLocalRules(text: string): string | null {
 }
 
 // =========================================================
-// YARDIMCI: LOGLAMA SİSTEMİ (METRICS)
+// YARDIMCI: LOGLAMA SİSTEMİ
 // =========================================================
 async function logAIAction(source: string, costSaved: boolean, startTime: number) {
-  // Bu fonksiyonu await etmeden çağıracağız (Fire-and-forget)
   (async () => {
     try {
       const duration = Date.now() - startTime;
       const supabase = await createClient();
       await supabase.from('ai_logs').insert({
-        source: source,          // 'router', 'redis', 'community', 'vector', 'api'
-        cost_saved: costSaved,   // true/false
-        latency_ms: duration,    // İşlem süresi (ms)
+        source: source,          
+        cost_saved: costSaved,   
+        latency_ms: duration,    
         created_at: new Date().toISOString()
       });
     } catch (error) {
@@ -85,9 +106,10 @@ async function logAIAction(source: string, costSaved: boolean, startTime: number
   })();
 }
 
-// ---------------------------------------------------------
-// 1. İÇERİK GÜVENLİK KONTROLÜ
-// ---------------------------------------------------------
+// =========================================================
+// YARDIMCI: LLM BAZLI GÜVENLİK KONTROLÜ (MALİYETLİ)
+// =========================================================
+// Sadece Regex'i geçen ama şüpheli durumlar için kullanılır
 export async function checkContentSafety(text: string) {
   const prompt = `
     Sen "Babylexit" hukuk ve topluluk platformunun içerik moderatörüsün.
@@ -96,13 +118,9 @@ export async function checkContentSafety(text: string) {
     KRİTERLER:
     - Küfür, ağır hakaret, aşağılama var mı?
     - Açıkça şiddet tehdidi veya fiziksel zarar verme isteği var mı?
-    - Yasadışı faaliyetlere (uyuşturucu, kaçakçılık vb.) teşvik var mı?
-    - Hukuki tartışma adabına uymayan cinsel içerik var mı?
+    - Yasadışı faaliyetlere teşvik var mı?
     YANIT FORMATI (JSON):
-    {
-      "isSafe": boolean, 
-      "reason": "string"
-    }
+    { "isSafe": boolean, "reason": "string" }
   `;
   try {
     const result = await flashJSONModel.generateContent(prompt);
@@ -114,9 +132,9 @@ export async function checkContentSafety(text: string) {
   }
 }
 
-// ---------------------------------------------------------
-// 2. VEKTÖR OLUŞTURMA
-// ---------------------------------------------------------
+// =========================================================
+// VEKTÖR OLUŞTURMA (MERKEZİ)
+// =========================================================
 export async function generateEmbedding(text: string) {
   try {
     const cleanText = text.replace(/\n/g, " ");
@@ -128,47 +146,12 @@ export async function generateEmbedding(text: string) {
   }
 }
 
-// ---------------------------------------------------------
-// 3. CEVAP ANALİZİ VE PUANLAMA
-// ---------------------------------------------------------
-export async function analyzeAnswer(answerId: string, content: string, questionTitle: string) {
+// =========================================================
+// KATMAN 0-C: HAFIZA ARAMALARI (RAG & COMMUNITY)
+// =========================================================
+
+async function searchVectorDB(embedding: number[]) {
   const supabase = await createClient();
-  const prompt = `
-    Sen "Babylexit" platformunda uzman bir asistan ve moderatörsün.
-    SORU: "${questionTitle}"
-    KULLANICI CEVABI: "${content}"
-    GÖREVİN:
-    1. Sorunun alanını tespit et (Hukuk, Genel, vb.).
-    2. Cevabı doğruluk açısından 0-100 arası puanla.
-    3. Eksik veya yanlış varsa düzelt.
-    4. Yorumun MAKSİMUM 2 PARAGRAF olsun. Profesyonel ve yapıcı ol.
-    YANIT FORMATI (JSON): 
-    {"score": 85, "critique": "Alan: [Alan]. \n\n Yorum..."}
-  `;
-  try {
-    const result = await flashJSONModel.generateContent(prompt);
-    const responseText = result.response.text().replace(/```json|```/g, "").trim();
-    const data = JSON.parse(responseText);
-    await supabase.from('answers').update({ 
-      ai_score: data.score, 
-      ai_feedback: data.critique 
-    }).eq('id', answerId);
-    return { success: true, data };
-  } catch (error) {
-    console.error("AI Analysis Error:", error);
-    return { success: false };
-  }
-}
-
-// ---------------------------------------------------------
-// 4. ARAMA FONKSİYONLARI (RAG & COMMUNITY)
-// ---------------------------------------------------------
-
-async function searchVectorDB(userQuestion: string) {
-  const supabase = await createClient();
-  const embedding = await generateEmbedding(userQuestion);
-  if (!embedding) return null;
-
   const { data: similarQuestions, error } = await supabase.rpc('match_similar_questions', {
     query_embedding: embedding,
     match_threshold: 0.85, 
@@ -184,11 +167,8 @@ async function searchVectorDB(userQuestion: string) {
   return null;
 }
 
-async function searchCommunityQuestions(userQuestion: string) {
+async function searchCommunityQuestions(embedding: number[]) {
   const supabase = await createClient();
-  const embedding = await generateEmbedding(userQuestion);
-  if (!embedding) return null;
-
   const { data: similarQuestions, error } = await supabase.rpc('match_community_questions', {
     query_embedding: embedding,
     match_threshold: 0.90, 
@@ -210,8 +190,8 @@ async function searchCommunityQuestions(userQuestion: string) {
 
     if (bestAnswer) {
       console.log(`👥 COMMUNITY HIT: "${similarQ.title}" bulundu.`);
-
-      // Ödül Sistemi (Background)
+      
+      // Ödül Sistemi
       if (bestAnswer.author_id) {
         rewardUserForAIReference(bestAnswer.author_id, bestAnswer.question_id)
           .catch(err => console.error("Ödül sistemi hatası:", err));
@@ -223,139 +203,166 @@ async function searchCommunityQuestions(userQuestion: string) {
   return null;
 }
 
-// ---------------------------------------------------------
-// 5. AKILLI CEVAP ÜRETME (LOGLAMA EKLENDİ)
-// ---------------------------------------------------------
+// =========================================================
+// ANA FONKSİYON: TAM ENTEGRE SİSTEM
+// =========================================================
 export async function generateSmartAnswer(questionTitle: string, questionContent: string) {
-  const start = Date.now(); // ⏱️ SÜRE BAŞLADI
+  const start = Date.now(); 
   const fullQuestion = `${questionTitle} ${questionContent}`;
   const cleanQuestion = fullQuestion.trim();
   const cacheKey = `smart_answer:${questionTitle.trim().toLowerCase().replace(/\s+/g, '_')}`;
 
-  // --- AŞAMA 1: YEREL KURALLAR (ROUTER) ---
+  // 1. ADIM: REGEX GÜVENLİK (Maliyet: 0)
+  const basicSafety = isBasicContentSafe(cleanQuestion);
+  if (!basicSafety.isSafe) {
+     logAIAction('security_block', true, start);
+     return `⚠️ ${basicSafety.reason}`;
+  }
+
+  // 2. ADIM: ROUTER (Maliyet: 0)
   const staticAnswer = checkLocalRules(cleanQuestion);
   if (staticAnswer) {
-    console.log("🚦 ROUTER HIT: Statik kural devreye girdi.");
-    logAIAction('router', true, start); // LOG: Cost Saved ✅
+    console.log("🚦 ROUTER HIT");
+    logAIAction('router', true, start); 
     return staticAnswer;
   }
 
-  // --- AŞAMA 2: REDIS (ÖNBELLEK) ---
+  // 3. ADIM: REDIS ÖNBELLEK (Maliyet: 0)
   try {
     const cachedAnswer = await redis.get(cacheKey);
     if (cachedAnswer) {
-      console.log("⚡ REDIS HIT: Cevap önbellekten çekildi.");
-      logAIAction('redis', true, start); // LOG: Cost Saved ✅
+      console.log("⚡ REDIS HIT");
+      logAIAction('redis', true, start); 
       return cachedAnswer;
     }
   } catch (e) {
     console.warn("Redis bağlantı hatası (Cache atlandı).");
   }
 
-  // --- AŞAMA 3: GÜVENLİK KONTROLÜ ---
+  // 4. ADIM: EMBEDDING ÜRETİMİ (Maliyet: Düşük - Tek Seferlik)
+  let embedding: number[] | null = null;
+  try {
+    embedding = await generateEmbedding(fullQuestion);
+  } catch (e) { console.error("Embedding hatası:", e); }
+
+  // 5. ADIM: HAFIZA TARAMASI (RAG)
+  if (embedding) {
+      // a) Toplulukta var mı?
+      const communityAnswer = await searchCommunityQuestions(embedding);
+      if (communityAnswer) {
+        await redis.set(cacheKey, communityAnswer, 'EX', 86400);
+        logAIAction('community', true, start); 
+        return communityAnswer;
+      }
+
+      // b) Vektör veritabanında var mı?
+      const vectorAnswer = await searchVectorDB(embedding);
+      if (vectorAnswer) {
+        await redis.set(cacheKey, vectorAnswer, 'EX', 86400);
+        logAIAction('vector', true, start); 
+        return vectorAnswer;
+      }
+  }
+
+  // ---------------------------------------------------------
+  // 6. ADIM: AI ORCHESTRATOR (ÇOKLU MODEL DESTEĞİ)
+  // ---------------------------------------------------------
+  
+  // a) AI Güvenlik Kontrolü (Derin Analiz - Ucuz Model ile)
   const safetyCheck = await checkContentSafety(fullQuestion);
   if (!safetyCheck.isSafe) {
     return `⚠️ Üzgünüm, sorunuzu yanıtlayamıyorum. ${safetyCheck.reason}`;
   }
 
-  // --- AŞAMA 4: TOPLULUK ARAMASI (ÖDÜL SİSTEMLİ) ---
-  const communityAnswer = await searchCommunityQuestions(fullQuestion);
-  if (communityAnswer) {
-    await redis.set(cacheKey, communityAnswer, 'EX', 86400);
-    logAIAction('community', true, start); // LOG: Cost Saved ✅
-    return communityAnswer;
-  }
+  // b) "Omni-Adaptive" Sistem Prompt'u (Bağlam olarak geçilecek)
+  // Not: Orchestrator'ın kendi temel prompt'u var, bu onun üzerine eklenecek.
+  const customContext = `
+### ÖZEL GÖREV TALİMATLARI ###
+Sen "Babylexit" platformunun **Omni-Adaptive Intelligence Engine** modülüsün.
+Tarih: ${new Date().toLocaleDateString('tr-TR')}
 
-  // --- AŞAMA 5: AI HAFIZASI (VECTOR DB) ---
-  const vectorAnswer = await searchVectorDB(fullQuestion);
-  if (vectorAnswer) {
-    await redis.set(cacheKey, vectorAnswer, 'EX', 86400);
-    logAIAction('vector', true, start); // LOG: Cost Saved ✅
-    return vectorAnswer;
-  }
-
-  // --- AŞAMA 6: GEMINI API (SON ÇARE - MALİYETLİ) ---
-  const systemPrompt = `
-### SYSTEM CORE IDENTITY ###
-You are the **Omni-Adaptive Intelligence Engine** for Babylexit. Your function is to analyze the user's input, detect the specific domain, and instantiate the most appropriate expert persona.
-**CURRENT CONTEXT:**
-- Question: "${fullQuestion}"
-- Current Date: ${new Date().toLocaleDateString('tr-TR')}
----
-### 🛑 UNIVERSAL OUTPUT CONSTRAINTS (SUPREME RULES) 🛑
-**These rules override all other instructions:**
-1. **MAXIMUM 2 PARAGRAPHS:** Your entire response must be strictly limited to 2 paragraphs.
-2. **NO FLUFF:** Remove all filler words. Be concise, dense, and direct.
-3. **LANGUAGE:** Respond in the language of the user's question (Turkish/English).
----
-### PHASE 1: DOMAIN DETECTION & PERSONA SWITCH ###
-**Analyze the input. IF the domain is LAW (Hukuk), execute MODULE A. For all other domains, execute MODULE B.**
----
-### 🔴 MODULE A: LAW & JURISPRUDENCE (STRICT ALGORITHM) ###
-*Triggered when context implies: Legal, Statutes, Court Rulings, Rights, Penalties.*
-**ROLE:** You are a **Senior Legal Assistant** with academic rigor. Your tone is didactic, objective, terminologically precise (Turkish Legal Terminology), and direct. NO small talk.
-**DECISION TREE (Follow Strictly):**
-**1. MODE DETECTION:**
-   * **MODE A: POSITIVE LAW (Current TR Law):** Apply currently in force statutes.
-   * **MODE B: THEORETICAL / HISTORY:** Use historical/philosophical sources.
-**3. MODULE A REQUIREMENTS:**
-   * **Citations:** MANDATORY. (e.g., "TBK m. 112").
-   * **Disclaimer:** Append: "⚖️ *Yasal Uyarı: Bu bilgi hukuki mütalaa değildir.*"
----
-### 🔵 MODULE B: ALL OTHER DOMAINS (ADAPTIVE EXPERT) ###
-*Triggered when context is: Engineering, Health, General Culture, Science, etc.*
-**1. DYNAMIC PERSONA:**
-   * **Engineering:** Senior Principal Engineer.
-   * **Health:** Medical Research Analyst. (Must end with: "⚠️ *Uyarı: Doktor değilim.*")
-   * **General:** Objective Expert.
----
-### EXECUTION INSTRUCTION ###
-Apply the Supreme Rules (Max 2 Paragraphs). Detect domain. Generate response.
-USER QUESTION: "${fullQuestion}"
+GÖREVLER:
+1. **ALAN TESPİTİ:** Soru HUKUK ile ilgiliyse "Kıdemli Hukuk Asistanı" moduna geç. Diğer konularda "Uzman Danışman" moduna geç.
+2. **FORMAT:** Maksimum 2 paragraf. Dolgu kelimeler yok.
+3. **HUKUK MODU:** Yürürlükteki Türk kanunlarını esas al. "TBK m. 112" gibi atıflar yap. Sonuna mutlaka "⚖️ *Yasal Uyarı: Bu bilgi hukuki mütalaa değildir.*" ekle.
+4. **SAĞLIK MODU:** Mutlaka "Doktor değilim" uyarısı ekle.
 `;
 
   try {
-    const result = await textModel.generateContent({
-      contents: [{ role: 'user', parts: [{ text: systemPrompt }] }]
-    });
+    // BURASI DEĞİŞTİ: Tek model yerine Orchestrator çağrılıyor
+    const aiResult = await aiOrchestrator.getAnswer(fullQuestion, customContext);
 
-    let textAnswer = result.response.text();
-    if (!textAnswer) throw new Error("Boş cevap");
-
-    if (!textAnswer.includes("Yasal Uyarı")) {
-        textAnswer += "\n\n> ⚖️ *Yasal Uyarı: Bu cevap yapay zeka tarafından oluşturulmuştur ve hukuki tavsiye niteliği taşımaz. Lütfen profesyonel bir avukata danışınız.*";
+    let textAnswer = aiResult.content;
+    
+    // Yasal uyarı garantisi (Eğer model unutursa biz ekleyelim)
+    if (fullQuestion.toLowerCase().includes("hukuk") || fullQuestion.toLowerCase().includes("dava") || fullQuestion.toLowerCase().includes("ceza")) {
+        if (!textAnswer.includes("Yasal Uyarı")) {
+            textAnswer += "\n\n> ⚖️ *Yasal Uyarı: Bu cevap yapay zeka tarafından oluşturulmuştur ve hukuki tavsiye niteliği taşımaz.*";
+        }
     }
 
     // --- KAYIT İŞLEMLERİ ---
     
-    // a) Redis'e kaydet
+    // 1. Redis'e kaydet
     await redis.set(cacheKey, textAnswer, 'EX', 86400);
 
-    // b) Vektör Veritabanına kaydet (Background)
-    (async () => {
-      try {
-        const embedding = await generateEmbedding(fullQuestion);
-        if (embedding) {
-          const supabase = await createClient();
-          await supabase.from('ai_knowledge_base').insert({
-            question_text: fullQuestion,
-            answer_text: textAnswer,
-            embedding: embedding
-          });
-          console.log("💾 KNOWLEDGE SAVED: Yeni bilgi vektör veritabanına işlendi.");
-        }
-      } catch (dbError) {
-        console.error("Vector DB save error (Background):", dbError);
-      }
-    })();
+    // 2. Vektör Veritabanına kaydet (Kalıcı hafıza)
+    if (embedding) {
+        (async () => {
+          try {
+              const supabase = await createClient();
+              await supabase.from('ai_knowledge_base').insert({
+                question_text: fullQuestion,
+                answer_text: textAnswer,
+                embedding: embedding,
+                provider: aiResult.provider // Hangi modelin cevapladığını da kaydedebiliriz!
+              });
+              console.log(`💾 KNOWLEDGE SAVED: Yeni bilgi (${aiResult.provider}) veritabanına işlendi.`);
+          } catch (dbError) {
+            console.error("Vector DB save error (Background):", dbError);
+          }
+        })();
+    }
 
-    // 🔴 LOG: Cost Saved = FALSE (Çünkü API kullandık)
-    logAIAction('api', false, start); 
+    // Başarı logu (Hangi modelin cevapladığını kaydet)
+    logAIAction(aiResult.provider.toLowerCase(), false, start); 
 
     return textAnswer; 
 
   } catch (error: any) {
     console.error("Generate Smart Answer Error:", error);
     return "Şu an sistemsel bir yoğunluk var, lütfen biraz sonra tekrar deneyiniz.";
+  }
+}
+
+// ---------------------------------------------------------
+// EXTRA: CEVAP ANALİZİ (İsteğe Bağlı)
+// ---------------------------------------------------------
+export async function analyzeAnswer(answerId: string, content: string, questionTitle: string) {
+  const supabase = await createClient();
+  const prompt = `
+    Sen "Babylexit" platformunda uzman bir asistan ve moderatörsün.
+    SORU: "${questionTitle}"
+    KULLANICI CEVABI: "${content}"
+    GÖREVİN:
+    1. Sorunun alanını tespit et (Hukuk, Genel, vb.).
+    2. Cevabı doğruluk açısından 0-100 arası puanla.
+    3. Eksik veya yanlış varsa düzelt.
+    4. Yorumun MAKSİMUM 2 PARAGRAF olsun.
+    YANIT FORMATI (JSON): 
+    {"score": 85, "critique": "Yorum..."}
+  `;
+  try {
+    const result = await flashJSONModel.generateContent(prompt);
+    const responseText = result.response.text().replace(/```json|```/g, "").trim();
+    const data = JSON.parse(responseText);
+    await supabase.from('answers').update({ 
+      ai_score: data.score, 
+      ai_feedback: data.critique 
+    }).eq('id', answerId);
+    return { success: true, data };
+  } catch (error) {
+    console.error("AI Analysis Error:", error);
+    return { success: false };
   }
 }

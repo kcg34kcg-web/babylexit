@@ -19,10 +19,12 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.33.0",
+    "groq-sdk": "^0.37.0",
     "ioredis": "^5.9.2",
     "lucide-react": "^0.563.0",
     "moment": "^2.30.1",
     "next": "16.1.6",
+    "openai": "^6.18.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.71.1",
@@ -44,5 +46,22 @@
     "supabase": "^2.74.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5"
-  }
+  },
+  "description": "This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kcg34kcg-web/babylexit.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kcg34kcg-web/babylexit/issues"
+  },
+  "homepage": "https://github.com/kcg34kcg-web/babylexit#readme"
 }
