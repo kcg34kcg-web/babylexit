@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { 
   Users, TrendingUp, ArrowLeft, 
   Gavel, Home, ShoppingCart, Calendar,
-  Sparkles, User, Search, MessageCircle, Send // ✅ Send ikonu eklendi
+  Sparkles, User, Search, MessageCircle, Send 
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,6 +20,9 @@ import { cn } from "@/utils/cn";
 import { NotificationDrawer } from "@/components/notifications/NotificationDrawer";
 import { NotificationBell } from "@/components/notifications/NotificationBell"; 
 import { useNotifications } from "@/hooks/useNotifications";
+
+// ✅ YENİ IMPORT
+import DailyDebateWidget from "@/components/social/DailyDebateWidget";
 
 export default function LexwoowPage() {
   const router = useRouter();
@@ -135,7 +138,6 @@ export default function LexwoowPage() {
         
         {/* SOL KOLON (Sidebar) */}
         <div className="hidden lg:block lg:col-span-1">
-           {/* 'max-h' ve 'overflow-y-auto' ekledim, böylece ekran küçükse sidebar kaydırılabilir olur ve buton kaybolmaz */}
            <div className="sticky top-8 space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto pr-2 scrollbar-hide"> 
               <div className="px-4 mb-2 flex items-center gap-2 text-amber-600">
                  <Gavel size={32} />
@@ -154,7 +156,12 @@ export default function LexwoowPage() {
                     <span>WOOW</span>
                  </button>
 
-                 {/* ✅ BİLDİRİMLER */}
+                 {/* ✅ GÜNÜN TARTIŞMASI WIDGET'I BURAYA EKLENDİ */}
+                 <div className="pt-2 pb-2">
+                    <DailyDebateWidget />
+                 </div>
+
+                 {/* BİLDİRİMLER */}
                  {user && (
                    <button 
                       onClick={() => setIsNotificationOpen(true)}
@@ -225,7 +232,7 @@ export default function LexwoowPage() {
                  </button>
               </nav>
 
-              {/* ✅ GÖRÜŞ BİLDİR BUTONU (HİZALAMA DÜZELTİLDİ) */}
+              {/* GÖRÜŞ BİLDİR BUTONU */}
               <button 
                 onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
                 className={cn(
@@ -234,7 +241,6 @@ export default function LexwoowPage() {
                   "rounded-full shadow-lg shadow-amber-500/30 transition-all active:scale-95 mt-4 group"
                 )}
               >
-                {/* İkon kutusu ekleyerek yazıyı yukarıdaki menülerle hizaladık */}
                 <div className="w-10 flex justify-center">
                    <Send size={24} className="group-hover:translate-x-1 transition-transform" /> 
                 </div>
