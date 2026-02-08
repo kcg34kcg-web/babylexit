@@ -12,7 +12,6 @@ import {
   FileText, 
   Heart,
   Flame, 
-  Home   
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -29,9 +28,20 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
     router.push('/login');
   };
 
-  // --- CSS STYLES (Animasyonlar + Scrollbar Gizleme) ---
+  // --- CSS STYLES ---
   const globalStyles = `
-    /* Ateş/Kıvılcım Animasyonu */
+    /* Arka Plan Işıltısı (Shimmer) */
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .animate-shimmer {
+      background: linear-gradient(90deg, rgba(251,191,36,0) 0%, rgba(251,191,36,0.1) 50%, rgba(251,191,36,0) 100%);
+      background-size: 200% 100%;
+      animation: shimmer 3s infinite linear;
+    }
+
+    /* Ateş Kıvılcımı */
     @keyframes rise {
       0% { transform: translateY(0) scale(1); opacity: 0; }
       50% { opacity: 1; }
@@ -48,25 +58,16 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       left: 50%;
       pointer-events: none;
     }
-    .spark:nth-child(1) { left: 40%; animation-duration: 1.2s; animation-delay: 0.1s; background-color: #f87171; }
-    .spark:nth-child(2) { left: 60%; animation-duration: 1.8s; animation-delay: 0.3s; background-color: #fb923c; }
-    .spark:nth-child(3) { left: 45%; animation-duration: 2.2s; animation-delay: 0.5s; background-color: #ef4444; }
-
-    /* Scrollbar Gizleme (Chrome, Safari, Opera, Firefox, IE, Edge) */
-    .no-scrollbar::-webkit-scrollbar {
-      display: none;
-    }
-    .no-scrollbar {
-      -ms-overflow-style: none;  /* IE and Edge */
-      scrollbar-width: none;  /* Firefox */
-    }
+    
+    /* Scrollbar Gizleme */
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   `;
 
-  // Navigasyon Listesi
   const navigation = [
     { name: 'Soru Sor', href: '/ask', icon: PlusSquare },
     { name: 'Cevapla', href: '/questions', icon: MessageSquare },
-    { name: 'Sorularım & Cevaplarım', href: '/my-content', icon: FileText },
+    { name: 'Sorularım&Cevaplarım', href: '/my-content', icon: FileText },
     { name: 'Favoriler', href: '/favorites', icon: Heart },
     { name: 'Yayınlar', href: '/publications', icon: BookOpen },
     { name: 'Market', href: '/market', icon: ShoppingCart },
@@ -74,116 +75,145 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   ];
 
   return (
-    <div className="flex min-h-screen bg-slate-950">
+    <div className="flex min-h-screen bg-[#F8FAFC]">
       <style jsx global>{globalStyles}</style>
 
-      {/* --- 1. MASAÜSTÜ YAN MENÜ (SIDEBAR) --- */}
-      <aside className="w-64 bg-slate-900 border-r border-slate-800 hidden md:flex flex-col fixed h-full z-10">
+      {/* --- SIDEBAR (Masaüstü) --- */}
+      <aside className="w-72 bg-white border-r border-slate-100 hidden md:flex flex-col fixed h-full z-20 shadow-[2px_0_30px_rgba(0,0,0,0.01)]">
         
-        {/* Logo Alanı */}
-        <div className="p-6 border-b border-slate-800">
-          <h1 className="text-2xl font-black bg-gradient-to-r from-amber-500 to-orange-600 bg-clip-text text-transparent tracking-tight">
+        {/* LOGO */}
+        <div className="p-8 pb-6">
+          <h1 
+            onClick={() => router.push('/dashboard')}
+            className="text-2xl font-extrabold bg-gradient-to-r from-amber-500 to-orange-600 bg-clip-text text-transparent cursor-pointer tracking-tight"
+          >
             Babylexit
           </h1>
-          <p className="text-[10px] text-slate-500 mt-1 font-medium tracking-wide">AI POWERED LEGAL ASSISTANT</p>
+          <p className="text-xs text-slate-400 mt-1.5 font-medium tracking-wide">Legal Assistant AI</p>
         </div>
 
-        {/* 'no-scrollbar' class eklendi -> Görsel çubuk gitti ama scroll çalışır */}
-        <nav className="flex-1 p-4 space-y-2 overflow-y-auto no-scrollbar">
+        {/* MENÜ */}
+        <nav className="flex-1 px-4 space-y-1 overflow-y-auto no-scrollbar">
           
-          {/* --- LEXWOOW BUTONU (CANLI TASARIM) --- */}
+          {/* --- LEXWOOW (CANLI & DİKKAT ÇEKİCİ) --- */}
           <Link
             href="/social" 
-            className={`group relative flex items-center gap-3 px-4 py-4 rounded-xl transition-all duration-300 mb-6 overflow-hidden
+            className={`group relative flex items-center gap-3 px-4 py-4 rounded-2xl transition-all duration-300 mb-6 overflow-hidden border
               ${pathname === '/social' 
-                ? 'bg-slate-800 border border-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.2)]' 
-                : 'bg-slate-900 border border-slate-800 hover:border-orange-500/50 hover:bg-slate-800'
+                ? 'bg-slate-900 border-slate-800 shadow-xl shadow-orange-500/20' // Aktif: Gece Modu
+                : 'bg-gradient-to-br from-amber-50 to-orange-50 border-orange-200 hover:shadow-lg hover:shadow-orange-500/10' // Pasif: Sıcak & Davetkar
               }
             `}
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-orange-600/10 to-rose-600/10 opacity-50 group-hover:opacity-100 transition-opacity duration-500" />
+            {/* Arka Plan Işıltısı (Sadece Pasifken çalışsın) */}
+            {pathname !== '/social' && <div className="absolute inset-0 animate-shimmer pointer-events-none" />}
             
-            <div className="absolute left-6 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-               <div className="spark"></div>
-               <div className="spark"></div>
-               <div className="spark"></div>
-            </div>
-
-            <div className={`relative z-10 p-2 rounded-lg transition-all duration-300 
-              ${pathname === '/social' ? 'bg-orange-500 text-white shadow-lg' : 'bg-slate-800 text-orange-500 group-hover:bg-orange-500 group-hover:text-white group-hover:shadow-[0_0_10px_#f97316]'}
-            `}>
-               <Flame size={20} className={pathname === '/social' ? 'animate-pulse' : 'group-hover:animate-bounce'} />
+            {/* İkon Kutusu */}
+            <div className={`p-2.5 rounded-xl transition-transform duration-300 group-hover:scale-110 shadow-sm
+              ${pathname === '/social' ? 'bg-orange-600 text-white' : 'bg-white text-orange-500'}`}>
+               <Flame size={20} className="fill-current animate-pulse" />
             </div>
             
             <div className="flex flex-col relative z-10">
-              <span className="font-black text-lg tracking-wide bg-gradient-to-r from-orange-400 via-rose-500 to-amber-500 bg-clip-text text-transparent group-hover:scale-105 transition-transform">
+              <span className={`text-[15px] font-black tracking-tight ${pathname === '/social' ? 'text-white' : 'text-slate-800'}`}>
                 Lexwoow
               </span>
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${pathname === '/social' ? 'text-slate-400' : 'text-orange-600/80'}`}>
+                Canlı Sohbet
+              </span>
             </div>
-          </Link>
-          {/* -------------------------------------------------- */}
 
-          {/* Diğer Menü Öğeleri */}
-          {navigation.map((item) => {
-            const isActive = pathname.startsWith(item.href);
+            {/* "CANLI" Rozeti (Sağ Üst Köşe) */}
+            <div className="absolute top-3 right-3 flex items-center gap-1">
+               <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+               </span>
+               {pathname !== '/social' && (
+                 <span className="text-[9px] font-black text-red-500 tracking-tighter animate-pulse">LIVE</span>
+               )}
+            </div>
+
+            {/* Kıvılcım Efekti (Sadece Aktifken) */}
+            {pathname === '/social' && (
+              <div className="absolute right-10 bottom-0 opacity-100">
+                 <div className="spark"></div>
+              </div>
+            )}
+          </Link>
+          {/* ------------------------------------------- */}
+
+          {/* STANDART LİNKLER (Sakin Tasarım) */}
+          <div className="space-y-1">
+            <span className="px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2 block opacity-80">Menü</span>
             
-            return (
-              <Link
-                key={item.name}
-                href={item.href}
-                className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all font-medium group ${
-                  isActive
-                    ? 'bg-amber-500/10 text-amber-500'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <item.icon size={20} className={`transition-colors ${isActive ? 'text-amber-500' : 'text-slate-500 group-hover:text-slate-300'}`} />
-                {item.name}
-              </Link>
-            );
-          })}
+            {navigation.map((item) => {
+              const isActive = pathname.startsWith(item.href);
+              
+              return (
+                <Link
+                  key={item.name}
+                  href={item.href}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative
+                    ${isActive
+                      ? 'bg-white text-amber-700 shadow-sm border border-amber-100'  
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 border border-transparent'
+                    }`}
+                >
+                  {/* Aktif İkon Rengi */}
+                  <item.icon 
+                    size={20} 
+                    strokeWidth={isActive ? 2.5 : 1.75} 
+                    className={`transition-colors ${isActive ? 'text-amber-500 fill-amber-50' : 'text-slate-400 group-hover:text-slate-600'}`} 
+                  />
+                  
+                  <span className={`text-[14px] ${isActive ? 'font-bold tracking-tight' : 'font-medium'}`}>
+                    {item.name}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
         </nav>
 
-        {/* Footer / Çıkış */}
-        <div className="p-4 border-t border-slate-800">
+        {/* FOOTER */}
+        <div className="p-4 border-t border-slate-100 bg-slate-50/50">
           <button
             onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-400 hover:bg-red-500/10 hover:text-red-400 rounded-xl transition-colors group"
+            className="flex items-center gap-3 px-4 py-3 w-full text-left text-slate-500 hover:bg-white hover:text-red-600 rounded-xl transition-colors font-medium text-[14px] group"
           >
-            <LogOut size={20} className="group-hover:text-red-400" />
-            <span className="font-medium">Çıkış Yap</span>
+            <LogOut size={18} strokeWidth={2} className="group-hover:text-red-500 text-slate-400" />
+            <span>Çıkış Yap</span>
           </button>
         </div>
       </aside>
 
-      {/* --- 2. MOBİL ALT MENÜ --- */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex justify-around items-center p-2 z-50 safe-area-pb">
-        
-        <Link href="/social" className={`flex flex-col items-center gap-1 p-2 rounded-lg ${pathname === '/social' ? 'text-orange-500' : 'text-slate-500'}`}>
-          <Flame size={22} className={pathname === '/social' ? 'fill-orange-500 animate-pulse' : ''} />
-          <span className="text-[10px] font-bold bg-gradient-to-r from-orange-400 to-rose-500 bg-clip-text text-transparent">Lexwoow</span>
+      {/* --- MOBİL MENÜ --- */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-lg border-t border-slate-100 flex justify-around items-center px-2 py-3 z-50 pb-safe shadow-[0_-5px_15px_rgba(0,0,0,0.02)]">
+        <Link href="/social" className="relative flex flex-col items-center gap-1 p-2 rounded-lg">
+           {/* Mobilde de dikkat çeksin */}
+           <div className="absolute -top-1 right-1 h-2 w-2 bg-red-500 rounded-full animate-pulse border border-white"></div>
+           <Flame size={24} className={`${pathname === '/social' ? 'fill-orange-500 text-orange-600' : 'text-slate-400'}`} strokeWidth={2} />
         </Link>
 
-        <Link href="/ask" className="flex flex-col items-center justify-center -mt-6">
-          <div className="bg-gradient-to-br from-amber-500 to-orange-600 p-3.5 rounded-full shadow-lg shadow-amber-500/30 text-white">
-             <PlusSquare size={24} />
-          </div>
-          <span className="text-[10px] font-medium text-slate-400 mt-1">Sor</span>
+        {/* Mobil Soru Sor Butonu */}
+        <Link href="/ask" className="relative -top-5">
+           <div className="bg-gradient-to-tr from-amber-500 to-orange-600 p-4 rounded-2xl shadow-lg shadow-orange-500/30 text-white transform transition active:scale-95">
+             <PlusSquare size={24} strokeWidth={2.5} />
+           </div>
         </Link>
 
-        <Link href="/questions" className={`flex flex-col items-center gap-1 p-2 rounded-lg ${pathname.startsWith('/questions') ? 'text-amber-500' : 'text-slate-500'}`}>
-          <MessageSquare size={22} />
-          <span className="text-[10px] font-medium">Cevapla</span>
+        <Link href="/questions" className={`flex flex-col items-center gap-1 p-2 rounded-lg ${pathname.startsWith('/questions') ? 'text-amber-600' : 'text-slate-400'}`}>
+          <MessageSquare size={22} strokeWidth={pathname.startsWith('/questions') ? 2.5 : 2} />
         </Link>
 
-        <Link href="/profile" className={`flex flex-col items-center gap-1 p-2 rounded-lg ${pathname.startsWith('/profile') ? 'text-amber-500' : 'text-slate-500'}`}>
-          <User size={22} />
-          <span className="text-[10px] font-medium">Profil</span>
+        <Link href="/profile" className={`flex flex-col items-center gap-1 p-2 rounded-lg ${pathname.startsWith('/profile') ? 'text-amber-600' : 'text-slate-400'}`}>
+          <User size={22} strokeWidth={pathname.startsWith('/profile') ? 2.5 : 2} />
         </Link>
       </nav>
 
-      {/* --- 3. ANA İÇERİK ALANI --- */}
-      <main className="flex-1 md:ml-64 relative pb-24 md:pb-0 min-h-screen">
+      {/* --- İÇERİK --- */}
+      <main className="flex-1 md:ml-72 relative pb-24 md:pb-0 min-h-screen">
         {children}
       </main>
     </div>

@@ -3,8 +3,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/utils/supabase/server";
 import { redis } from "@/lib/redis";
-import { rewardUserForAIReference } from "./rewards";
-// Doğru Import Yolu (Göreli Yol)
+// 1. GÜNCELLEME: Ödül sistemi yerine yeni Repütasyon sistemini import ediyoruz
+import { addReputation } from "./reputation"; 
 import { aiOrchestrator } from "@/lib/ai/orchestrator";
 
 const apiKey = process.env.GEMINI_API_KEY;
@@ -15,19 +15,16 @@ if (!apiKey) {
 const genAI = new GoogleGenerativeAI(apiKey);
 
 // --- MODELLER ---
-// JSON Çıktısı gerektiren yan işler (Güvenlik, Analiz) için ucuz model kalıyor
 const flashJSONModel = genAI.getGenerativeModel({ 
   model: "gemini-1.5-flash", 
   generationConfig: { responseMimeType: "application/json" } 
 });
 
-// NOT: `textModel` kaldırıldı çünkü artık Orchestrator kullanıyoruz.
-
 const embeddingModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
 
 // =========================================================
-// KATMAN 0-A: GÜVENLİK VE GİRİŞ KONTROLÜ (BEDAVA - REGEX)
+// KATMAN 0-A: GÜVENLİK VE GİRİŞ KONTROLÜ
 // =========================================================
 const BAD_PATTERNS = [
   /küfür|hakaret|aptal|gerizekalı/i, 
@@ -108,9 +105,8 @@ async function logAIAction(source: string, costSaved: boolean, startTime: number
 }
 
 // =========================================================
-// YARDIMCI: LLM BAZLI GÜVENLİK KONTROLÜ (MALİYETLİ)
+// YARDIMCI: LLM BAZLI GÜVENLİK KONTROLÜ
 // =========================================================
-// Sadece Regex'i geçen ama şüpheli durumlar için kullanılır
 export async function checkContentSafety(text: string) {
   const prompt = `
     Sen "Babylexit" hukuk ve topluluk platformunun içerik moderatörüsün.
@@ -168,6 +164,7 @@ async function searchVectorDB(embedding: number[]) {
   return null;
 }
 
+// 2. GÜNCELLEME: Repütasyon Tetikleyicisi Burada
 async function searchCommunityQuestions(embedding: number[]) {
   const supabase = await createClient();
   const { data: similarQuestions, error } = await supabase.rpc('match_community_questions', {
@@ -181,21 +178,26 @@ async function searchCommunityQuestions(embedding: number[]) {
   if (similarQuestions && similarQuestions.length > 0) {
     const similarQ = similarQuestions[0];
     
+    // Şema kontrolü: 'author_id' yerine 'user_id' kullanıldı (Database standardı)
     const { data: bestAnswer } = await supabase
       .from('answers')
-      .select('content, author_id, question_id')
+      .select('content, user_id, question_id') 
       .eq('question_id', similarQ.id)
-      .order('vote_count', { ascending: false })
+      .order('vote_count', { ascending: false }) // Not: Eğer 'vote_count' sütunu yoksa 'created_at' kullanın
       .limit(1)
       .maybeSingle();
 
     if (bestAnswer) {
       console.log(`👥 COMMUNITY HIT: "${similarQ.title}" bulundu.`);
       
-      // Ödül Sistemi
-      if (bestAnswer.author_id) {
-        rewardUserForAIReference(bestAnswer.author_id, bestAnswer.question_id)
-          .catch(err => console.error("Ödül sistemi hatası:", err));
+      // --- AI ENDORSEMENT (OTORİTE PUANI) ---
+      // Cevap sahibine 'AI_REFERENCE' (50 Puan) veriyoruz
+      if (bestAnswer.user_id) {
+        console.log(`🤖 AI Referans Tespit Etti: User ${bestAnswer.user_id}`);
+        
+        // Asenkron olarak puanı işle (Kullanıcıyı bekletme)
+        addReputation(bestAnswer.user_id, 'AI_REFERENCE', bestAnswer.question_id)
+          .catch(err => console.error("Repütasyon (AI Reference) hatası:", err));
       }
 
       return `**(Topluluk Arşivinden)**\n\nBu soru daha önce topluluğumuzda sorulmuştu. İşte topluluktan en çok beğenilen cevap:\n\n---\n${bestAnswer.content}\n---`;
@@ -213,14 +215,14 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
   const cleanQuestion = fullQuestion.trim();
   const cacheKey = `smart_answer:${questionTitle.trim().toLowerCase().replace(/\s+/g, '_')}`;
 
-  // 1. ADIM: REGEX GÜVENLİK (Maliyet: 0)
+  // 1. ADIM: REGEX GÜVENLİK
   const basicSafety = isBasicContentSafe(cleanQuestion);
   if (!basicSafety.isSafe) {
      logAIAction('security_block', true, start);
      return `⚠️ ${basicSafety.reason}`;
   }
 
-  // 2. ADIM: ROUTER (Maliyet: 0)
+  // 2. ADIM: ROUTER
   const staticAnswer = checkLocalRules(cleanQuestion);
   if (staticAnswer) {
     console.log("🚦 ROUTER HIT");
@@ -228,40 +230,30 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
     return staticAnswer;
   }
 
-  // 3. ADIM: AKILLI REDIS ÖNBELLEK (GÜNCELLENDİ 🚀)
+  // 3. ADIM: AKILLI REDIS ÖNBELLEK
   try {
     const cachedRaw = await redis.get(cacheKey);
     if (cachedRaw) {
-      // Redis'te JSON obje olarak saklıyoruz ama kullanıcıya sadece metni dönüyoruz.
-      // Formatımız: { content: "...", provider: "Gemini", timestamp: 123456 }
-      
       let finalAnswer = "";
       try {
-        // Yeni formatı (JSON) parse etmeye çalış
         const cachedObj = JSON.parse(cachedRaw);
-        
-        // Eğer obje ise ve içinde content varsa onu al
         if (cachedObj && cachedObj.content) {
              finalAnswer = cachedObj.content; 
              console.log(`⚡ CACHE HIT: ${cachedObj.provider || 'Bilinmeyen'} kaynağından geldi.`);
         } else {
-             // Eğer JSON değilse (eski tip düz string) olduğu gibi al
              finalAnswer = cachedRaw;
         }
-
       } catch {
-        // JSON parse hatası olursa (eski tip düz string ise)
         finalAnswer = cachedRaw; 
       }
-
       logAIAction('redis', true, start); 
-      return finalAnswer; // Kullanıcı teknik detayı görmez!
+      return finalAnswer;
     }
   } catch (e) {
     console.warn("Redis bağlantı hatası (Cache atlandı).", e);
   }
 
-  // 4. ADIM: EMBEDDING ÜRETİMİ (Maliyet: Düşük - Tek Seferlik)
+  // 4. ADIM: EMBEDDING ÜRETİMİ
   let embedding: number[] | null = null;
   try {
     embedding = await generateEmbedding(fullQuestion);
@@ -269,10 +261,9 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
 
   // 5. ADIM: HAFIZA TARAMASI (RAG)
   if (embedding) {
-      // a) Toplulukta var mı?
+      // a) Toplulukta var mı? (BURADA PUANLAMA YAPILIYOR)
       const communityAnswer = await searchCommunityQuestions(embedding);
       if (communityAnswer) {
-        // Redis'e kaydet (Eski usül, çünkü bu statik bir metin)
         await redis.set(cacheKey, communityAnswer, 'EX', 86400);
         logAIAction('community', true, start); 
         return communityAnswer;
@@ -288,16 +279,14 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
   }
 
   // ---------------------------------------------------------
-  // 6. ADIM: AI ORCHESTRATOR (ÇOKLU MODEL DESTEĞİ)
+  // 6. ADIM: AI ORCHESTRATOR
   // ---------------------------------------------------------
   
-  // a) AI Güvenlik Kontrolü (Derin Analiz - Ucuz Model ile)
   const safetyCheck = await checkContentSafety(fullQuestion);
   if (!safetyCheck.isSafe) {
     return `⚠️ Üzgünüm, sorunuzu yanıtlayamıyorum. ${safetyCheck.reason}`;
   }
 
-  // b) "Omni-Adaptive" Sistem Prompt'u (Bağlam olarak geçilecek)
   const customContext = `
 ### ÖZEL GÖREV TALİMATLARI ###
 Sen "Babylexit" platformunun **Omni-Adaptive Intelligence Engine** modülüsün.
@@ -311,12 +300,9 @@ GÖREVLER:
 `;
 
   try {
-    // BURASI DEĞİŞTİ: Tek model yerine Orchestrator çağrılıyor
     const aiResult = await aiOrchestrator.getAnswer(fullQuestion, customContext);
-
     let textAnswer = aiResult.content;
     
-    // Yasal uyarı garantisi (Eğer model unutursa biz ekleyelim)
     if (fullQuestion.toLowerCase().includes("hukuk") || fullQuestion.toLowerCase().includes("dava") || fullQuestion.toLowerCase().includes("ceza")) {
         if (!textAnswer.includes("Yasal Uyarı")) {
             textAnswer += "\n\n> ⚖️ *Yasal Uyarı: Bu cevap yapay zeka tarafından oluşturulmuştur ve hukuki tavsiye niteliği taşımaz.*";
@@ -324,18 +310,14 @@ GÖREVLER:
     }
 
     // --- KAYIT İŞLEMLERİ ---
-    
-    // 1. Redis'e Detaylı Kaydet (Akıllı Önbellek)
-    // { content, provider, timestamp } formatında JSON string olarak kaydet
     await redis.set(cacheKey, JSON.stringify({
         content: textAnswer,
         provider: aiResult.provider, 
         timestamp: Date.now()
-    }), 'EX', 86400); // 24 saat sakla
+    }), 'EX', 86400);
 
     console.log(`✅ YENİ CEVAP: ${aiResult.provider} tarafından üretildi.`);
 
-    // 2. Vektör Veritabanına kaydet (Kalıcı hafıza)
     if (embedding) {
         (async () => {
           try {
@@ -344,7 +326,7 @@ GÖREVLER:
                 question_text: fullQuestion,
                 answer_text: textAnswer,
                 embedding: embedding,
-                provider: aiResult.provider // Hangi modelin cevapladığını da kaydedebiliriz!
+                provider: aiResult.provider 
               });
               console.log(`💾 KNOWLEDGE SAVED: Yeni bilgi (${aiResult.provider}) veritabanına işlendi.`);
           } catch (dbError) {
@@ -353,9 +335,7 @@ GÖREVLER:
         })();
     }
 
-    // Başarı logu (Hangi modelin cevapladığını kaydet)
     logAIAction(aiResult.provider.toLowerCase(), false, start); 
-
     return textAnswer; 
 
   } catch (error: any) {
@@ -365,7 +345,7 @@ GÖREVLER:
 }
 
 // ---------------------------------------------------------
-// EXTRA: CEVAP ANALİZİ (İsteğe Bağlı)
+// EXTRA: CEVAP ANALİZİ
 // ---------------------------------------------------------
 export async function analyzeAnswer(answerId: string, content: string, questionTitle: string) {
   const supabase = await createClient();

@@ -18,8 +18,7 @@ import {
 import Link from 'next/link';
 import { submitQuestion } from '@/app/actions/submit-question';
 import { suggestSimilarQuestions } from '@/app/actions/search';
-// 1. Context'i import ediyoruz
-import { useSearchContext } from '@/context/SearchContext';
+// Context importunu kaldırdık çünkü artık doğrudan API tetiklemesi yapıyoruz.
 
 export default function AskPage() {
   // UI State
@@ -47,9 +46,6 @@ export default function AskPage() {
   const router = useRouter();
   const supabase = createClient();
   
-  // 2. Context kancasını kullanıyoruz
-  const { performSearch } = useSearchContext();
-
   // --- 1. KREDİ KONTROLÜ ---
   useEffect(() => {
     const fetchCredits = async () => {
@@ -97,72 +93,70 @@ export default function AskPage() {
     return () => clearTimeout(delayDebounceFn);
   }, [title]);
 
-  // --- 2. GÖNDERİM FONKSİYONU ---
+  // --- 2. GÖNDERİM FONKSİYONU (YENİLENMİŞ) ---
   const handleClientSubmit = async (formData: FormData) => {
     let targetVal = formData.get('target') as string;
-    
     const activeTarget = targetType || (targetVal as 'ai' | 'community');
-    if (!targetType) setTargetType(activeTarget);
     
-    if(!formData.get('target')) {
-        formData.append('target', activeTarget);
-    }
+    // Form verisini hazırla ve eksikse state'ten tamamla
+    if (!targetType) setTargetType(activeTarget);
+    if (!formData.get('target')) formData.append('target', activeTarget);
 
     const cost = activeTarget === 'ai' ? 3 : 1;
 
+    // Client tarafı kredi kontrolü (Hızlı geri bildirim için)
     if (credits !== null && credits < cost) {
-      toast.error(`Yetersiz kredi. Bu işlem için ${cost} kredi gerekiyor.`);
-      setTargetType(null);
+      toast.error(`Yetersiz kredi. ${cost} kredi gerekiyor.`);
       return;
     }
 
     if (!title.trim() || !content.trim()) {
       toast.error('Lütfen tüm alanları doldurun.');
-      setTargetType(null);
       return;
     }
 
     setIsSubmitting(true);
-
-    // Kredi Düşme Animasyonu
-    if (activeTarget === 'ai') setShowEffect('ai');
-    else setShowEffect('community');
-
-    // --- YENİ MANTIK BAŞLIYOR ---
     
-    // EĞER HEDEF AI İSE: İşi Global Context'e devret
-    if (activeTarget === 'ai') {
-        try {
-            // performSearch: 
-            // 1. Sizi hemen /lounge sayfasına atacak (Router Push)
-            // 2. Arka planda işlemi başlatacak
-            await performSearch(formData);
-            
-            // Bizim işimiz bitti, sayfa değişecek.
-            return;
-        } catch (error) {
-            console.error(error);
-            setIsSubmitting(false);
-            setShowEffect(null);
-            return;
-        }
-    }
+    // Animasyon efekti tetikle
+    setShowEffect(activeTarget === 'ai' ? 'ai' : 'community');
 
-    // EĞER HEDEF TOPLULUK İSE: Eski usul devam et
     try {
+      // 1. ADIM: Soruyu Veritabanına Kaydet (Server Action)
+      // Bu işlem çok hızlıdır çünkü henüz AI çalışmıyor.
       const result = await submitQuestion(formData);
 
+      // Hata varsa göster ve dur
       if (result?.error) {
          toast.error(result.error);
          setIsSubmitting(false);
          setShowEffect(null);
-         setTargetType(null);
          return;
       } 
       
+      // Başarılıysa yönlendirme mantığını kur
       if (result?.success && result?.questionId) {
-         toast.success('Soru topluluğa iletildi!');
-         router.push(`/questions/${result.questionId}`); 
+         
+         if (activeTarget === 'ai') {
+           // --- AI STRATEJİSİ: FIRE AND FORGET ---
+           
+           // A. API'yi Tetikle (await KULLANMIYORUZ!)
+           // keepalive: true sayesinde biz sayfadan ayrılsak bile tarayıcı isteği bitirir.
+           fetch('/api/trigger-ai', {
+               method: 'POST',
+               headers: { 'Content-Type': 'application/json' },
+               body: JSON.stringify({ questionId: result.questionId }),
+               keepalive: true 
+           }).catch(err => console.error("Arka plan tetikleme hatası:", err));
+
+           // B. Kullanıcıyı BEKLETMEDEN Lounge'a at
+           // Kullanıcı buraya gittiğinde AI arka planda çalışıyor olacak.
+           router.push(`/lounge?id=${result.questionId}`);
+           
+         } else {
+           // --- TOPLULUK STRATEJİSİ ---
+           toast.success('Soru topluluğa iletildi!');
+           router.push(`/questions/${result.questionId}`); 
+         }
       }
 
     } catch (error) {
@@ -170,7 +164,6 @@ export default function AskPage() {
       toast.error('Beklenmedik bir hata oluştu.');
       setIsSubmitting(false);
       setShowEffect(null);
-      setTargetType(null);
     }
   };
 

@@ -2,8 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
-import { redirect } from "next/navigation"; 
-// ai-engine.ts dosyasından güvenlik ve embedding fonksiyonlarını alıyoruz
+// import { redirect } from "next/navigation"; // <-- ARTIK KULLANMIYORUZ
 import { checkContentSafety, generateEmbedding } from "./ai-engine"; 
 
 export async function submitQuestion(formData: FormData) {
@@ -12,7 +11,7 @@ export async function submitQuestion(formData: FormData) {
   // 1. Verileri Al
   const title = formData.get('title') as string;
   const content = formData.get('content') as string;
-  const target = formData.get('target') as string; // 'ai' veya 'community'
+  const target = formData.get('target') as string; 
   const category = formData.get('category') as string;
   const tags = formData.get('tags') as string;
 
@@ -24,8 +23,7 @@ export async function submitQuestion(formData: FormData) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: 'Kullanıcı girişi yapılmamış.' };
 
-  // 3. Güvenlik Kontrolü (Safety Check)
-  // Bu aşama veritabanına ve krediye girmeden önce yapılmalı.
+  // 3. Güvenlik Kontrolü
   const safetyCheck = await checkContentSafety(`${title}\n${content}`);
   if (!safetyCheck.isSafe) {
     return { error: safetyCheck.reason || "Güvenlik politikası ihlali." };
@@ -46,60 +44,46 @@ export async function submitQuestion(formData: FormData) {
 
   if (creditError) return { error: 'Kredi işlemi sırasında hata oluştu.' };
 
-  // ---------------------------------------------------------
-  // 5. Embedding (Vektör) Oluşturma (HATA TOLERANSLI)
-  // ---------------------------------------------------------
-  // AI servisi yanıt vermese bile soru kaydedilmeli.
+  // 5. Embedding (Hata Toleranslı)
   let embedding = null;
   try {
-    // Başlık, içerik ve (varsa) kategoriyi birleştirip vektör yapıyoruz
     const textForEmbedding = `${category || ''} ${title} ${content}`.trim().replace(/\n/g, " ");
     embedding = await generateEmbedding(textForEmbedding);
   } catch (e) {
     console.warn("⚠️ Vektör oluşturulamadı (Soru yine de kaydedilecek):", e);
-    // Embedding null kalacak, sistem durmayacak.
   }
 
-  // ---------------------------------------------------------
   // 6. VERİTABANINA KAYIT
-  // ---------------------------------------------------------
   const { data: questionData, error: questionError } = await supabase
     .from('questions')
     .insert({
       title,
       content,
-      category,                // Kategori
-      user_id: user.id,        // Tablonda 'author_id' ise burayı düzeltmeyi unutma!
-      embedding: embedding,    // Vektör (Varsa dolu, yoksa null)
+      category,
+      user_id: user.id,
+      embedding: embedding,
+      // AI ise 'analyzing', Topluluk ise 'approved'
       status: target === 'ai' ? 'analyzing' : 'approved',
       created_at: new Date().toISOString()
     })
     .select('id')
     .single();
 
-  // --- HATA YÖNETİMİ (ROLLBACK) ---
+  // HATA YÖNETİMİ (ROLLBACK)
   if (questionError) {
     console.error("Soru kayıt hatası:", questionError);
-    
-    // Veritabanına kayıt başarısız olursa krediyi İADE ET
-    await supabase
-      .from('profiles')
-      .update({ credits: profile.credits }) // Eski krediye geri dön
-      .eq('id', user.id);
-
-    return { error: "Bir sorun oluştu. Krediniz iade edildi. Lütfen tekrar deneyin." };
+    await supabase.from('profiles').update({ credits: profile.credits }).eq('id', user.id);
+    return { error: "Bir sorun oluştu. Krediniz iade edildi." };
   }
 
-  // --- 7. ETİKET (TAG) İŞLEMLERİ ---
-  if (tags && questionData) {
-    // İleride etiketleri 'question_tags' tablosuna eklemek istersen burayı kullanabilirsin.
-    // console.log("Etiketler:", tags);
-  }
-
-  // 8. BAŞARILI BİTİŞ VE YÖNLENDİRME
+  // Cache temizliği
   revalidatePath('/questions');
   revalidatePath('/dashboard');
   
-  // İşlem başarılı, kullanıcıyı soru sayfasına yönlendir.
-  redirect(`/questions/${questionData.id}`);
+  // redirect() KULLANMIYORUZ. ID'yi client'a geri gönderiyoruz.
+  return { 
+    success: true, 
+    questionId: questionData.id,
+    target: target 
+  };
 }
