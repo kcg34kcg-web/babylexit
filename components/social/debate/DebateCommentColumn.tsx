@@ -1,8 +1,11 @@
 'use client';
 
-import { Send, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Send, ThumbsUp, ThumbsDown, ChevronUp, ChevronDown } from "lucide-react";
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
+import { voteComment } from "@/app/actions/debate"; // Action'ı import ettik
+import { toast } from "react-hot-toast";
+import { useState } from "react";
 
 interface Props {
   side: 'A' | 'B';
@@ -13,13 +16,13 @@ interface Props {
   inputText: string;
   setInputText: (text: string) => void;
   isSending: boolean;
+  refreshComments: () => void; // Yorum puanı değişince listeyi yenilemek için
 }
 
 export default function DebateCommentColumn({ 
-  side, title, count, comments, onSend, inputText, setInputText, isSending 
+  side, title, count, comments, onSend, inputText, setInputText, isSending, refreshComments 
 }: Props) {
   
-  // Renk Teması Ayarları
   const isGreen = side === 'A';
   const colorTheme = {
     bgSoft: isGreen ? 'bg-emerald-50/50' : 'bg-rose-50/50',
@@ -30,6 +33,16 @@ export default function DebateCommentColumn({
     borderLeft: isGreen ? 'border-l-emerald-400' : 'border-l-rose-400',
     btnBg: isGreen ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-rose-600 hover:bg-rose-700',
     Icon: isGreen ? ThumbsUp : ThumbsDown
+  };
+
+  // Yorum Oylama Fonksiyonu
+  const handleCommentVote = async (commentId: string, type: 1 | -1) => {
+    const res = await voteComment(commentId, type);
+    if (res.error) {
+        toast.error(res.error);
+    } else {
+        refreshComments(); // Puanı güncelle
+    }
   };
 
   return (
@@ -55,27 +68,42 @@ export default function DebateCommentColumn({
               </div>
           ) : (
               comments.map((c: any) => (
-                <div key={c.id} className={`bg-white p-4 rounded-xl border-l-4 ${colorTheme.borderLeft} shadow-sm border border-slate-100`}>
-                   <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
-                              {c.profiles?.avatar_url ? (
-                                <img src={c.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
-                              ) : (
-                                <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-slate-400">
-                                  {c.profiles?.full_name?.charAt(0) || '?'}
-                                </div>
-                              )}
-                          </div>
-                          <span className="font-bold text-xs text-slate-900">
-                              {c.profiles?.full_name || 'Anonim'}
-                          </span>
-                      </div>
-                      <span className="text-[10px] text-slate-400">
-                          {formatDistanceToNow(new Date(c.created_at), { addSuffix: true, locale: tr })}
+                <div key={c.id} className={`bg-white p-3 rounded-xl border-l-4 ${colorTheme.borderLeft} shadow-sm border border-slate-100 flex gap-3`}>
+                   
+                   {/* Oylama Kısmı (Sol taraf) */}
+                   <div className="flex flex-col items-center justify-start pt-1 gap-0.5">
+                      <button onClick={() => handleCommentVote(c.id, 1)} className={`p-1 rounded hover:bg-slate-100 ${c.userVoteStatus === 1 ? 'text-amber-500' : 'text-slate-400'}`}>
+                        <ChevronUp size={18} strokeWidth={3} />
+                      </button>
+                      <span className={`text-[10px] font-bold ${c.score > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
+                        {c.score || 0}
                       </span>
+                      <button onClick={() => handleCommentVote(c.id, -1)} className={`p-1 rounded hover:bg-slate-100 ${c.userVoteStatus === -1 ? 'text-blue-500' : 'text-slate-400'}`}>
+                        <ChevronDown size={18} strokeWidth={3} />
+                      </button>
                    </div>
-                   <p className="text-slate-700 text-sm leading-relaxed">{c.content}</p>
+
+                   {/* Yorum İçeriği */}
+                   <div className="flex-1">
+                       <div className="flex justify-between items-start mb-1">
+                          <div className="flex items-center gap-2">
+                              <div className="w-5 h-5 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
+                                  {c.profiles?.avatar_url ? (
+                                    <img src={c.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-[8px] font-bold text-slate-400">?</div>
+                                  )}
+                              </div>
+                              <span className="font-bold text-xs text-slate-900">
+                                  {c.profiles?.full_name || 'Anonim'}
+                              </span>
+                          </div>
+                          <span className="text-[9px] text-slate-400">
+                              {formatDistanceToNow(new Date(c.created_at), { addSuffix: true, locale: tr })}
+                          </span>
+                       </div>
+                       <p className="text-slate-700 text-sm leading-relaxed">{c.content}</p>
+                   </div>
                 </div>
               ))
           )}

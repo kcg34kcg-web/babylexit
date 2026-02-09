@@ -94,7 +94,7 @@ export async function voteDebate(debateId: string, choice: 'A' | 'B') {
 
   if (!user) return { error: "Giriş yapmalısınız." };
 
-  // Daha önce oy vermiş mi kontrolü (Constraint hatasını yakalamak yerine önden kontrol daha temizdir)
+  // Daha önce oy vermiş mi kontrolü
   const { data: existingVote } = await supabase
     .from('social_debate_votes')
     .select('id')
@@ -135,7 +135,6 @@ export async function postDebateComment(debateId: string, content: string, side:
   }
 
   if (vote.choice !== side) {
-    // Kullanıcı A demiş ama B'ye yorum yazmaya çalışıyor -> YAKALANDI! 🚨
     return { error: `Siz '${vote.choice}' tarafını seçtiniz, karşı tarafa yorum yazamazsınız!` };
   }
 
@@ -151,18 +150,15 @@ export async function postDebateComment(debateId: string, content: string, side:
 
   if (error) return { error: "Yorum gönderilemedi." };
   
-  // Sadece o tartışmayı yenilemek yeterli olur ama şimdilik genel path
   revalidatePath('/social'); 
   return { success: true };
 }
 
 // --- 5. YORUMLARI GETİR (Lazy Load) ---
-// Sahne Modu: Kullanıcı detayı açtığında çalışır
 export async function getDebateComments(debateId: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Yorumları ve oy sayılarını (likes) çek
   const { data: comments, error } = await supabase
     .from('social_debate_comments')
     .select(`
@@ -178,10 +174,7 @@ export async function getDebateComments(debateId: string) {
 
   if (error || !comments) return [];
 
-  // Her yorumun Vote puanını ve kullanıcının durumunu hesapla
-  // (Not: Gerçek projede bunu SQL View veya RPC ile yapmak daha performanslıdır, şimdilik JS tarafında yapıyoruz)
   const enrichedComments = await Promise.all(comments.map(async (c) => {
-     // Puanı Hesapla (Up - Down)
      const { data: votes } = await supabase
         .from('social_comment_votes')
         .select('vote_type')
@@ -189,19 +182,15 @@ export async function getDebateComments(debateId: string) {
      
      const score = votes?.reduce((acc, v) => acc + v.vote_type, 0) || 0;
 
-     // Kullanıcının bu yoruma verdiği oy (Varsa)
-     let userVoteStatus = 0; // 0: yok, 1: up, -1: down
+     let userVoteStatus = 0;
      if (user) {
-        const myVote = votes?.find((v: any) => v.user_id === user.id); // (Burada tip hatası almamak için basit find)
-        // Daha doğru yöntem sorguyu ayırmaktır ama MVP için bu yeterli
-        // Optimize edelim:
-        const { data: myVoteData } = await supabase
+        const myVoteData = await supabase
             .from('social_comment_votes')
             .select('vote_type')
             .eq('comment_id', c.id)
             .eq('user_id', user.id)
             .single();
-        if(myVoteData) userVoteStatus = myVoteData.vote_type;
+        if(myVoteData.data) userVoteStatus = myVoteData.data.vote_type;
      }
 
      return { ...c, score, userVoteStatus };
@@ -217,7 +206,6 @@ export async function voteComment(commentId: string, voteType: 1 | -1) {
   
     if (!user) return { error: "Giriş yapmalısınız." };
 
-    // Kendi yorumuna oy veremezsin (Bug 3 Çözümü)
     const { data: comment } = await supabase
         .from('social_debate_comments')
         .select('user_id')
@@ -228,7 +216,6 @@ export async function voteComment(commentId: string, voteType: 1 | -1) {
         return { error: "Kendi yorumunuza oy veremezsiniz." };
     }
 
-    // Önce eski oyu var mı bakalım
     const { data: existingVote } = await supabase
         .from('social_comment_votes')
         .select('*')
@@ -237,18 +224,15 @@ export async function voteComment(commentId: string, voteType: 1 | -1) {
         .single();
 
     if (existingVote) {
-        // Eğer aynı oyu tekrar veriyorsa -> Oyu geri çek (Toggle)
         if (existingVote.vote_type === voteType) {
             await supabase.from('social_comment_votes').delete().eq('id', existingVote.id);
             return { success: true, message: "Oy geri alındı" };
         }
-        // Farklı oy veriyorsa -> Güncelle (Up -> Down)
         await supabase
             .from('social_comment_votes')
             .update({ vote_type: voteType })
             .eq('id', existingVote.id);
     } else {
-        // Yeni oy
         await supabase
             .from('social_comment_votes')
             .insert({ comment_id: commentId, user_id: user.id, vote_type: voteType });
@@ -256,4 +240,16 @@ export async function voteComment(commentId: string, voteType: 1 | -1) {
 
     revalidatePath('/social');
     return { success: true };
+}
+
+// --- 7. GÜNLÜK MÜNAZARAYI GETİR ---
+export async function getDailyDebate() {
+  const feed = await getDebateFeed(0, 1);
+  return feed?.[0] || null;
+}
+
+// --- 8. GÜNLÜK MÜNAZARAYA OY VER (YENİ EKLENEN) ---
+// DailyDebateWidget tarafından kullanılan fonksiyon
+export async function voteDailyDebate(debateId: string, choice: 'A' | 'B') {
+  return await voteDebate(debateId, choice);
 }
