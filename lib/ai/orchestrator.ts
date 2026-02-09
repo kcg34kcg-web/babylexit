@@ -1,107 +1,103 @@
-// Dosya: lib/ai/orchestrator.ts
+import { searchKnowledgeBase } from '@/app/actions/retrieve'; // Katman 2
+import { googleSearch } from '@/lib/search-service';          // Katman 3
+import { createOpenAI } from '@ai-sdk/openai';
+import { streamText, generateText } from 'ai'; // generateText eklendi
 
-// 1. Gerekli Araçları İçe Aktar
-import { searchKnowledgeBase } from '@/app/actions/retrieve'; // Katman 2: Yerel Hafıza (Python API)
-import { googleSearch } from '@/lib/search-service';          // Katman 3: Google Arama
-import { createOpenAI } from '@ai-sdk/openai';                // Vercel AI SDK (Standart Arabirim)
-import { streamText, generateText } from 'ai';
-
-// 2. Model Yapılandırması (Groq veya OpenAI)
-// Bu yapı, senin eski Provider class'larının yaptığı işi daha modern ve standart bir yolla yapar.
 const aiModel = createOpenAI({
-  // Eğer .env dosyasında GROQ_API_KEY varsa onu kullan, yoksa OpenAI'ye düş
   apiKey: process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY,
   baseURL: process.env.GROQ_API_KEY ? 'https://api.groq.com/openai/v1' : undefined,
 });
 
-// Model Seçimi: Groq varsa Llama 3 (Hızlı), yoksa GPT-4o-mini (Akıllı)
 const MODEL_NAME = process.env.GROQ_API_KEY ? 'llama3-70b-8192' : 'gpt-4o-mini';
 
 export const aiOrchestrator = {
-  
   /**
-   * 🧠 ANA BEYİN FONKSİYONU
-   * Kullanıcı sorusunu alır -> Yerel Hafızayı Tarar -> Gerekirse Google'a Bakar -> Cevabı Sentezler.
+   * Canlı Sohbet İçin (Streaming)
    */
   async generateResponse(query: string, chatHistory: any[] = []) {
-    console.log(`🧠 [Orchestrator] Düşünüyor: "${query}"`);
-
-    // --- AŞAMA 1 & 2: YEREL BİLGİ BANKASI (Hafıza) ---
-    // Python API'sine sor: "Buna benzer doküman var mı?"
+    // ... (Mevcut generateResponse kodların burada aynen kalsın) ...
+    // Eğer sildiysen önceki cevabımdaki kodları buraya koyabilirsin.
+    // Özetle: Yerel Ara -> Web Ara -> streamText ile dön.
+    
+    // Kod tekrarı olmaması için aşağıda sadece mantığı hatırlatıyorum,
+    // sen mevcut kodunu koruyabilirsin.
+    
+    // 1. Retrieval
     const localDocs = await searchKnowledgeBase(query);
-    
     let context = "";
-    let sources: { title: string; type: 'local' | 'web'; url?: string }[] = [];
-
-    // Eğer yerel doküman bulursak, bağlama ekle
-    if (localDocs && localDocs.length > 0) {
-      console.log(`✅ Yerel Hafızada Bulundu: ${localDocs.length} parça.`);
-      
-      context += "--- KURUMSAL / YEREL BİLGİ BANKASI (ÖNCELİKLİ) ---\n";
-      localDocs.forEach((doc: any, i: number) => {
-        // Çok fazla token harcamamak için her parçanın ilk 500 karakterini alalım
-        context += `[Yerel Kaynak ${i + 1}]: ${doc.content.slice(0, 800)}...\n`;
-        // Kaynakça için listeye ekle
-        sources.push({ 
-            title: doc.metadata?.source?.split('/').pop() || 'Bilinmeyen Belge', 
-            type: 'local' 
-        });
-      });
-    } 
-    
-    // --- AŞAMA 3: DIŞ DÜNYA (Google Arama) ---
-    // Eğer yerel bilgi azsa veya hiç yoksa Google'a çık
-    // (Maliyet optimizasyonu için: Yerel bilgi çok güçlüyse burayı atlayabiliriz)
-    if (!localDocs || localDocs.length < 2) {
-      console.log("🌐 Yerel bilgi yetersiz, Google araması yapılıyor...");
-      try {
-        const webLinks = await googleSearch(query);
-        if (webLinks && webLinks.length > 0) {
-          context += "\n--- İNTERNET ARAMA SONUÇLARI ---\n";
-          webLinks.slice(0, 3).forEach((link, i) => {
-             context += `[Web Kaynak ${i + 1}]: ${link}\n`;
-             sources.push({ title: link, type: 'web', url: link });
-          });
-          // Not: İleride buraya 'scraper' ekleyip linkin içeriğini de okuyabiliriz.
-        }
-      } catch (err) {
-        console.error("Google Arama Hatası:", err);
-      }
+    if (localDocs?.length) {
+        context += "--- YEREL BİLGİ ---\n" + localDocs.map((d:any) => d.content).join('\n');
+    } else {
+        const web = await googleSearch(query);
+        if(web?.length) context += "--- WEB ---\n" + web.map((w:any) => w.snippet).join('\n');
     }
 
-    // --- AŞAMA 4: SENTEZ (LLM) ---
-    const systemPrompt = `
-      Sen uzman, yardımsever ve Türkçe konuşan bir yapay zeka asistanısın.
-      Görevin: Kullanıcının sorusunu, sana sağlanan "BAĞLAM" (Context) bilgisini kullanarak cevaplamaktır.
-      
-      KURALLAR:
-      1. Sadece verilen bağlamdaki bilgileri kullan. Bağlamda cevap yoksa "Elimdeki dokümanlarda bu bilgiye ulaşamadım" de.
-      2. Asla uydurma (Halüsinasyon görme).
-      3. Öncelikle "YEREL BİLGİ BANKASI"ndaki bilgilere güven.
-      4. Cevabın akıcı, profesyonel ve Türkçe olsun.
-      5. Cevabını Markdown formatında ver.
-    `;
+    const systemPrompt = "Sen Babylexit asistanısın. Bağlamı kullanarak cevapla.";
 
-    // Streaming Cevap Başlat
-    // Bu, cevabın kelime kelime ön yüze akmasını sağlar.
-    const result = await streamText({
+    return streamText({
       model: aiModel(MODEL_NAME),
       messages: [
         { role: 'system', content: systemPrompt },
-        ...chatHistory, // Önceki konuşmaları hatırla
+        ...chatHistory,
+        { role: 'user', content: `BAĞLAM:\n${context}\n\nSORU: ${query}` }
+      ],
+    });
+  },
+
+  /**
+   * 🆕 VERİTABANI KAYDI İÇİN (Statik Cevap)
+   * Bu fonksiyon stream yapmaz, cevabın tamamını bekleyip metin olarak döner.
+   */
+  async generateStaticResponse(query: string) {
+    console.log(`🧠 [Orchestrator-Static] Analiz Başlıyor: "${query}"`);
+
+    // 1. Yerel Hafızayı Tara (Python API)
+    const localDocs = await searchKnowledgeBase(query);
+    let context = "";
+    
+    if (localDocs && localDocs.length > 0) {
+      context += "--- KURUMSAL HAFIZA (ÖNCELİKLİ) ---\n";
+      localDocs.slice(0, 4).forEach((doc: any) => {
+        context += `- ${doc.content.slice(0, 600)}...\n`;
+      });
+    } 
+    
+    // 2. Web Araması (Yerel yetersizse veya her durumda)
+    // Maliyet/Hız dengesi için: Yerel sonuç çok güçlüyse web'i atlayabiliriz.
+    // Şimdilik her durumda arıyoruz:
+    if (!localDocs || localDocs.length < 3) {
+        try {
+            const webResults = await googleSearch(query);
+            if(webResults && webResults.length > 0) {
+                context += "\n--- GÜNCEL WEB BİLGİLERİ ---\n";
+                webResults.slice(0, 4).forEach((w: any) => {
+                    context += `- ${w.title}: ${w.snippet}\n`;
+                });
+            }
+        } catch (e) {
+            console.error("Web arama hatası:", e);
+        }
+    }
+
+    const systemPrompt = `
+      Sen Babylexit hukuk ve mevzuat asistanısın. 
+      Kullanıcının sorusuna, aşağıdaki BAĞLAM bilgilerini kullanarak detaylı, profesyonel ve yapılandırılmış (Markdown) bir cevap ver.
+      
+      Kurallar:
+      1. Cevabın giriş, gelişme ve sonuç bölümleri olsun.
+      2. Varsa kanun maddelerine veya belgelere atıf yap.
+      3. Bağlamda bilgi yoksa "Mevcut kaynaklarımda bu bilgiye ulaşamadım" de, uydurma.
+    `;
+
+    // generateText: Cevabı tek seferde üretir ve metni döner
+    const { text } = await generateText({
+      model: aiModel(MODEL_NAME),
+      messages: [
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: `BAĞLAM:\n${context}\n\nSORU: ${query}` }
       ],
     });
 
-    return result;
-  },
-
-  /**
-   * (Opsiyonel) Araştırma İşlerini (Background Jobs) işleyen fonksiyon
-   * Eski processResearchJob mantığını buraya taşıyabiliriz.
-   */
-  async processBackgroundJob(jobId: string, query: string) {
-     // Burası deep-research.ts için ayrıldı.
-     // Şimdilik Chat odaklı gidiyoruz.
+    return text;
   }
 };

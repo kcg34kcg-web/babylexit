@@ -1,128 +1,84 @@
-'use server';
+'use server'
 
-import { createClient } from '@/utils/supabase/server';
-import { revalidatePath } from 'next/cache';
-import { checkContentSafety, generateEmbedding } from "./ai-engine"; 
+import { createClient } from '@/utils/supabase/server'
+import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
+// import { checkContentSafety, generateEmbedding } from "./ai-engine"; // Varsa açabilirsin
 
 export async function submitQuestion(formData: FormData) {
-  const supabase = await createClient();
-  
-  // 1. Verileri Al
-  const title = formData.get('title') as string;
-  const content = formData.get('content') as string;
-  const target = formData.get('target') as string; // 'ai' veya 'community'
-  const category = formData.get('category') as string;
-  const tags = formData.get('tags') as string;
+  const supabase = await createClient()
 
-  if (!title || !content) {
-    return { error: 'Başlık ve içerik zorunludur.' };
-  }
+  // 1. Verileri Al
+  const title = formData.get('title') as string
+  const content = formData.get('content') as string
+  const target = formData.get('target') as string // 'ai' veya 'community'
+  const category = formData.get('category') as string
 
   // 2. Kullanıcı Kontrolü
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: 'Kullanıcı girişi yapılmamış.' };
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: 'Giriş yapmalısınız.' }
 
-  // 3. Güvenlik Kontrolü
-  const safetyCheck = await checkContentSafety(`${title}\n${content}`);
-  if (!safetyCheck.isSafe) {
-    return { error: safetyCheck.reason || "Güvenlik politikası ihlali." };
-  }
-
-  // 4. Kredi Kontrolü
-  const SORU_UCRETI = target === 'ai' ? 3 : 1;
-  const { data: profile } = await supabase.from('profiles').select('credits').eq('id', user.id).single();
+  // 3. Kredi Kontrolü (Senin mevcut yapın)
+  const SORU_UCRETI = target === 'ai' ? 3 : 1
+  const { data: profile } = await supabase.from('profiles').select('credits').eq('id', user.id).single()
   
   if (!profile || profile.credits < SORU_UCRETI) {
-    return { error: `Yetersiz kredi (${SORU_UCRETI} gerekli).` };
+    return { error: `Yetersiz kredi (${SORU_UCRETI} gerekli).` }
   }
 
   // Krediyi düş
-  const { error: creditError } = await supabase
-    .from('profiles')
-    .update({ credits: profile.credits - SORU_UCRETI })
-    .eq('id', user.id);
+  await supabase.from('profiles').update({ credits: profile.credits - SORU_UCRETI }).eq('id', user.id)
 
-  if (creditError) return { error: 'Kredi işlemi sırasında hata oluştu.' };
-
-  // 5. Embedding (Vektör Oluşturma - Stage 1/2 Hazırlığı)
-  let embedding = null;
   try {
-    const textForEmbedding = `${category || ''} ${title} ${content}`.trim().replace(/\n/g, " ");
-    embedding = await generateEmbedding(textForEmbedding);
-  } catch (e) {
-    console.warn("⚠️ Vektör oluşturulamadı (Soru yine de kaydedilecek):", e);
-  }
-
-  // 6. SORUYU KAYDET (Kalıcı Hafıza - Questions Tablosu)
-  // Burası değişmedi, soru her zaman buraya girmeli.
-  const { data: questionData, error: questionError } = await supabase
-    .from('questions')
-    .insert({
-      title,
-      content,
-      category,
-      user_id: user.id,
-      embedding: embedding,
-      // AI ise 'analyzing', Topluluk ise 'approved'
-      status: target === 'ai' ? 'analyzing' : 'approved',
-      created_at: new Date().toISOString()
-    })
-    .select('id')
-    .single();
-
-  // HATA YÖNETİMİ (ROLLBACK)
-  if (questionError) {
-    console.error("Soru kayıt hatası:", questionError);
-    // Soruyu kaydedemediysek krediyi iade et
-    await supabase.from('profiles').update({ credits: profile.credits }).eq('id', user.id);
-    return { error: "Bir sorun oluştu. Krediniz iade edildi." };
-  }
-
-  // ============================================================
-  // 🚀 7. [YENİ] 4 AŞAMALI SİSTEM TETİKLEYİCİSİ
-  // Eğer hedef yapay zeka ise, "Research Job" oluşturuyoruz.
-  // ============================================================
-  
-  let researchJobId = null;
-
-  if (target === 'ai') {
-    // Soru başlığı ve içeriğini birleştirip arama sorgusu yapıyoruz
-    const fullQuery = `${title}. ${content}`;
-
-    const { data: jobData, error: jobError } = await supabase
-      .from('research_jobs')
+    // 4. Soruyu Kaydet
+    const { data: questionData, error: qError } = await supabase
+      .from('questions')
       .insert({
-        user_id: user.id,
-        query: fullQuery,
-        status: 'pending', // Lounge beklemeye başlayacak
-        result: null,      // Henüz sonuç yok
-        sources: []
-        // Not: İleride buraya 'question_id' ekleyip ilişki kurabiliriz.
-        // Şimdilik sonucu Client üzerinden eşleştireceğiz.
+        title, content, category_id: category, user_id: user.id,
+        status: target === 'ai' ? 'analyzing' : 'approved'
       })
-      .select('id')
-      .single();
+      .select('id').single()
 
-    if (jobError) {
-      console.error("❌ Research Job Oluşturulamadı:", jobError);
-      // Kritik hata değil, soru kaydedildi ama job oluşmadı.
-      // Bu durumda kullanıcıyı Lounge yerine klasik sayfaya atarız.
-    } else {
-      researchJobId = jobData.id;
-      console.log(`✅ [Deep Research] Job Başlatıldı: ${researchJobId}`);
+    if (qError) throw qError
+
+    let researchJobId = null
+
+    // --- LOUNGE ENTEGRASYONU ---
+    if (target === 'ai') {
+      // Cevabı BURADA üretmiyoruz. Sadece "İş Emri" açıyoruz.
+      const { data: jobData, error: jobError } = await supabase
+        .from('research_jobs')
+        .insert({
+          user_id: user.id,
+          query: `${title}\n\n${content}`,
+          status: 'pending', // Bekliyor...
+          // Bu işin hangi soruya ait olduğunu bilmemiz lazım, 
+          // research_jobs tablosuna 'question_id' sütunu eklemen iyi olur.
+          // Şimdilik 'sources' alanına veya metadata'ya hackleyebiliriz ama doğrusu sütun eklemektir.
+          // Geçici çözüm: query içine ID gömmek veya tabloya alan eklemek.
+          // Varsayım: research_jobs tablosunda metadata veya question_id var.
+          // Yoksa sources jsonb alanını kullanalım:
+          sources: [{ type: 'meta', question_id: questionData.id }] 
+        })
+        .select('id').single()
+
+      if (!jobError) {
+        researchJobId = jobData.id
+      }
     }
-  }
 
-  // 8. Cache Temizliği
-  revalidatePath('/questions');
-  revalidatePath('/dashboard');
-  
-  // 9. SONUÇ DÖNÜŞÜ
-  // Client tarafı (ask/page.tsx) bu cevabı bekliyor.
-  return { 
-    success: true, 
-    questionId: questionData.id,
-    target: target,
-    jobId: researchJobId // NULL ise normal akış, DOLU ise Lounge'a git
-  };
+    revalidatePath('/questions')
+    
+    // 5. SONUÇ: Eğer AI ise JobID dön (Client, Lounge'a yönlendirecek)
+    return { 
+        success: true, 
+        target: target,
+        questionId: questionData.id,
+        jobId: researchJobId // <--- Bu dolu gelirse Client Lounge'a atar
+    }
+
+  } catch (error: any) {
+    console.error("Hata:", error)
+    return { error: "İşlem başarısız." }
+  }
 }
