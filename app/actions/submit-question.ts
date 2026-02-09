@@ -2,7 +2,6 @@
 
 import { createClient } from '@/utils/supabase/server';
 import { revalidatePath } from 'next/cache';
-// import { redirect } from "next/navigation"; // <-- ARTIK KULLANMIYORUZ
 import { checkContentSafety, generateEmbedding } from "./ai-engine"; 
 
 export async function submitQuestion(formData: FormData) {
@@ -11,7 +10,7 @@ export async function submitQuestion(formData: FormData) {
   // 1. Verileri Al
   const title = formData.get('title') as string;
   const content = formData.get('content') as string;
-  const target = formData.get('target') as string; 
+  const target = formData.get('target') as string; // 'ai' veya 'community'
   const category = formData.get('category') as string;
   const tags = formData.get('tags') as string;
 
@@ -29,7 +28,7 @@ export async function submitQuestion(formData: FormData) {
     return { error: safetyCheck.reason || "Güvenlik politikası ihlali." };
   }
 
-  // 4. Kredi Kontrolü ve Düşme
+  // 4. Kredi Kontrolü
   const SORU_UCRETI = target === 'ai' ? 3 : 1;
   const { data: profile } = await supabase.from('profiles').select('credits').eq('id', user.id).single();
   
@@ -37,6 +36,7 @@ export async function submitQuestion(formData: FormData) {
     return { error: `Yetersiz kredi (${SORU_UCRETI} gerekli).` };
   }
 
+  // Krediyi düş
   const { error: creditError } = await supabase
     .from('profiles')
     .update({ credits: profile.credits - SORU_UCRETI })
@@ -44,7 +44,7 @@ export async function submitQuestion(formData: FormData) {
 
   if (creditError) return { error: 'Kredi işlemi sırasında hata oluştu.' };
 
-  // 5. Embedding (Hata Toleranslı)
+  // 5. Embedding (Vektör Oluşturma - Stage 1/2 Hazırlığı)
   let embedding = null;
   try {
     const textForEmbedding = `${category || ''} ${title} ${content}`.trim().replace(/\n/g, " ");
@@ -53,7 +53,8 @@ export async function submitQuestion(formData: FormData) {
     console.warn("⚠️ Vektör oluşturulamadı (Soru yine de kaydedilecek):", e);
   }
 
-  // 6. VERİTABANINA KAYIT
+  // 6. SORUYU KAYDET (Kalıcı Hafıza - Questions Tablosu)
+  // Burası değişmedi, soru her zaman buraya girmeli.
   const { data: questionData, error: questionError } = await supabase
     .from('questions')
     .insert({
@@ -72,18 +73,56 @@ export async function submitQuestion(formData: FormData) {
   // HATA YÖNETİMİ (ROLLBACK)
   if (questionError) {
     console.error("Soru kayıt hatası:", questionError);
+    // Soruyu kaydedemediysek krediyi iade et
     await supabase.from('profiles').update({ credits: profile.credits }).eq('id', user.id);
     return { error: "Bir sorun oluştu. Krediniz iade edildi." };
   }
 
-  // Cache temizliği
+  // ============================================================
+  // 🚀 7. [YENİ] 4 AŞAMALI SİSTEM TETİKLEYİCİSİ
+  // Eğer hedef yapay zeka ise, "Research Job" oluşturuyoruz.
+  // ============================================================
+  
+  let researchJobId = null;
+
+  if (target === 'ai') {
+    // Soru başlığı ve içeriğini birleştirip arama sorgusu yapıyoruz
+    const fullQuery = `${title}. ${content}`;
+
+    const { data: jobData, error: jobError } = await supabase
+      .from('research_jobs')
+      .insert({
+        user_id: user.id,
+        query: fullQuery,
+        status: 'pending', // Lounge beklemeye başlayacak
+        result: null,      // Henüz sonuç yok
+        sources: []
+        // Not: İleride buraya 'question_id' ekleyip ilişki kurabiliriz.
+        // Şimdilik sonucu Client üzerinden eşleştireceğiz.
+      })
+      .select('id')
+      .single();
+
+    if (jobError) {
+      console.error("❌ Research Job Oluşturulamadı:", jobError);
+      // Kritik hata değil, soru kaydedildi ama job oluşmadı.
+      // Bu durumda kullanıcıyı Lounge yerine klasik sayfaya atarız.
+    } else {
+      researchJobId = jobData.id;
+      console.log(`✅ [Deep Research] Job Başlatıldı: ${researchJobId}`);
+    }
+  }
+
+  // 8. Cache Temizliği
   revalidatePath('/questions');
   revalidatePath('/dashboard');
   
-  // redirect() KULLANMIYORUZ. ID'yi client'a geri gönderiyoruz.
+  // 9. SONUÇ DÖNÜŞÜ
+  // Client tarafı (ask/page.tsx) bu cevabı bekliyor.
   return { 
     success: true, 
     questionId: questionData.id,
-    target: target 
+    target: target,
+    jobId: researchJobId // NULL ise normal akış, DOLU ise Lounge'a git
   };
 }

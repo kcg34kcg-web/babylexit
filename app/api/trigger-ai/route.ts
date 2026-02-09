@@ -1,56 +1,55 @@
 import { createClient } from '@/utils/supabase/server';
-import { generateSmartAnswer } from '@/app/actions/ai-engine'; 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { aiOrchestrator } from '@/lib/ai/orchestrator';
 
-// Vercel/Node ortamında zaman aşımını uzatıyoruz (Standart 10sn yetmeyebilir)
+// Vercel'de işlem uzun sürebilir, limiti artırıyoruz
 export const maxDuration = 60; 
 
-export async function POST(request: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { questionId } = await request.json();
-    
-    if (!questionId) return NextResponse.json({ error: 'ID gerekli' }, { status: 400 });
-
     const supabase = await createClient();
     
-    // 1. Soruyu Çek
-    const { data: question } = await supabase
-        .from('questions')
-        .select('title, content, status')
-        .eq('id', questionId)
-        .single();
-    
-    if (!question) return NextResponse.json({ error: 'Soru bulunamadı' }, { status: 404 });
+    // Client (Lounge Sayfası) bize jobId gönderecek
+    const { jobId } = await req.json();
 
-    // Eğer zaten cevaplanmışsa tekrar çalıştırma (Safety)
-    if (question.status === 'answered') {
-        return NextResponse.json({ message: 'Zaten işlenmiş.' });
+    if (!jobId) {
+      return NextResponse.json({ error: 'Job ID gerekli' }, { status: 400 });
     }
 
-    console.log(`🤖 AI Analizi Başlıyor ID: ${questionId}`);
-
-    // 2. AI Motorunu Çalıştır (Bu işlem 15-20sn sürebilir)
-    const aiResponse = await generateSmartAnswer(question.title, question.content);
-
-    // 3. Sonucu Yaz
-    const { error } = await supabase
-      .from('questions')
-      .update({ 
-          ai_response: aiResponse,
-          status: 'answered' // Lounge sayfası bu statü değişimini dinleyecek
-      })
-      .eq('id', questionId);
-
-    if (error) {
-        console.error("DB Update Hatası:", error);
-        throw error;
+    // 1. Yetki Kontrolü
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Yetkisiz erişim' }, { status: 401 });
     }
 
-    console.log(`✅ AI Analizi Tamamlandı ID: ${questionId}`);
-    return NextResponse.json({ success: true });
+    // 2. İşin Sahibi mi ve İş Var mı?
+    const { data: job } = await supabase
+      .from('research_jobs')
+      .select('user_id, status, query')
+      .eq('id', jobId)
+      .single();
 
-  } catch (error) {
-    console.error("AI Trigger Kritik Hata:", error);
-    return NextResponse.json({ error: 'İşlem başarısız' }, { status: 500 });
+    if (!job) {
+      return NextResponse.json({ error: 'İş bulunamadı' }, { status: 404 });
+    }
+
+    if (job.user_id !== user.id) {
+      return NextResponse.json({ error: 'Bu işlem size ait değil' }, { status: 403 });
+    }
+
+    // Eğer iş zaten bitmişse veya işleniyorsa tekrar tetikleme
+    if (job.status !== 'pending') {
+      return NextResponse.json({ message: 'İşlem zaten sırada veya tamamlandı.' });
+    }
+
+    // 3. 🔥 ORKESTRATÖRÜ ÇALIŞTIR (Asıl Sihir Burada)
+    // Bu fonksiyon 4 aşamalı sistemi (Cache -> RAG -> Deep Research -> Fallback) çalıştırır.
+    await aiOrchestrator.processResearchJob(jobId, job.query, user.id);
+
+    return NextResponse.json({ success: true, message: 'AI Analizi Tamamlandı' });
+
+  } catch (error: any) {
+    console.error('Trigger API Hatası:', error);
+    return NextResponse.json({ error: error.message || 'Bilinmeyen hata' }, { status: 500 });
   }
 }

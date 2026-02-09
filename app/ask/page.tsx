@@ -18,7 +18,6 @@ import {
 import Link from 'next/link';
 import { submitQuestion } from '@/app/actions/submit-question';
 import { suggestSimilarQuestions } from '@/app/actions/search';
-// Context importunu kaldırdık çünkü artık doğrudan API tetiklemesi yapıyoruz.
 
 export default function AskPage() {
   // UI State
@@ -104,7 +103,7 @@ export default function AskPage() {
 
     const cost = activeTarget === 'ai' ? 3 : 1;
 
-    // Client tarafı kredi kontrolü (Hızlı geri bildirim için)
+    // Client tarafı kredi kontrolü
     if (credits !== null && credits < cost) {
       toast.error(`Yetersiz kredi. ${cost} kredi gerekiyor.`);
       return;
@@ -116,16 +115,13 @@ export default function AskPage() {
     }
 
     setIsSubmitting(true);
-    
-    // Animasyon efekti tetikle
     setShowEffect(activeTarget === 'ai' ? 'ai' : 'community');
 
     try {
-      // 1. ADIM: Soruyu Veritabanına Kaydet (Server Action)
-      // Bu işlem çok hızlıdır çünkü henüz AI çalışmıyor.
+      // 1. ADIM: Soruyu Veritabanına Kaydet
+      // submitQuestion artık bize 'jobId' de döndürüyor!
       const result = await submitQuestion(formData);
 
-      // Hata varsa göster ve dur
       if (result?.error) {
          toast.error(result.error);
          setIsSubmitting(false);
@@ -133,24 +129,22 @@ export default function AskPage() {
          return;
       } 
       
-      // Başarılıysa yönlendirme mantığını kur
       if (result?.success && result?.questionId) {
          
          if (activeTarget === 'ai') {
-           // --- AI STRATEJİSİ: FIRE AND FORGET ---
+           // --- AI STRATEJİSİ: TEMİZ YÖNLENDİRME ---
            
-           // A. API'yi Tetikle (await KULLANMIYORUZ!)
-           // keepalive: true sayesinde biz sayfadan ayrılsak bile tarayıcı isteği bitirir.
-           fetch('/api/trigger-ai', {
-               method: 'POST',
-               headers: { 'Content-Type': 'application/json' },
-               body: JSON.stringify({ questionId: result.questionId }),
-               keepalive: true 
-           }).catch(err => console.error("Arka plan tetikleme hatası:", err));
-
-           // B. Kullanıcıyı BEKLETMEDEN Lounge'a at
-           // Kullanıcı buraya gittiğinde AI arka planda çalışıyor olacak.
-           router.push(`/lounge?id=${result.questionId}`);
+           // 🔥 DEĞİŞİKLİK BURADA:
+           // Artık fetch('/api/trigger-ai') yapmıyoruz!
+           // Çünkü Lounge sayfası açılır açılmaz bunu kendisi yapacak.
+           // Biz sadece doğru biletle (jobId) kullanıcıyı oraya gönderiyoruz.
+           
+           if (result.jobId) {
+             router.push(`/lounge?jobId=${result.jobId}&questionId=${result.questionId}`);
+           } else {
+             // Fallback: Eğer Job oluşmadıysa eski usul gitsin
+             router.push(`/lounge?questionId=${result.questionId}`);
+           }
            
          } else {
            // --- TOPLULUK STRATEJİSİ ---
@@ -167,7 +161,7 @@ export default function AskPage() {
     }
   };
 
-  // --- RENDER ---
+  // --- RENDER (Aynı Tasarım) ---
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 relative overflow-hidden">
       
@@ -305,7 +299,7 @@ export default function AskPage() {
               value={content}
               onChange={(e) => setContent(e.target.value.slice(0, LIMITS.content))}
               className="w-full bg-slate-50 border border-slate-200 rounded-xl py-4 px-5 text-slate-800 placeholder:text-slate-400 focus:bg-white focus:ring-4 focus:ring-orange-500/10 focus:border-orange-400 outline-none transition-all resize-y font-medium text-base shadow-sm"
-              placeholder="Durumu detaylıca anlatın. Ne kadar çok detay verirseniz, o kadar doğru yanıt alırsınız..."
+              placeholder="Durumu detaylıca anlatın..."
               required
               disabled={isSubmitting}
             ></textarea>
@@ -318,7 +312,7 @@ export default function AskPage() {
             <div className="mt-4 bg-indigo-50/50 border border-indigo-100 p-4 rounded-xl flex gap-3">
                <ShieldCheck className="text-indigo-500 shrink-0 mt-0.5" size={18} />
                <p className="text-xs text-indigo-800 leading-relaxed font-medium">
-                 Sorunuz <strong>Yapay Zeka Moderatörü</strong> tarafından otomatik denetlenecektir. Hakaret, tehdit veya suç unsuru içeren sorular yayınlanmaz ve krediniz iade edilmez.
+                 Sorunuz <strong>Yapay Zeka Moderatörü</strong> tarafından denetlenecektir.
                </p>
             </div>
           </div>
@@ -337,7 +331,6 @@ export default function AskPage() {
               </div>
               <span className="font-bold text-slate-900 group-hover:text-orange-700 text-lg">Topluluğa Sor</span>
               <span className="text-orange-500 text-xs font-black bg-orange-100 px-2 py-0.5 rounded mt-1">1 KREDİ</span>
-              <p className="text-[11px] text-slate-400 mt-2 text-center font-medium">Sadece kullanıcılar yanıtlayabilir</p>
             </button>
 
             <button
@@ -353,7 +346,6 @@ export default function AskPage() {
               </div>
               <span className="font-bold text-slate-900 group-hover:text-indigo-700 text-lg relative z-10">Babylexit AI'ya Sor</span>
               <span className="text-indigo-600 text-xs font-black bg-indigo-100 px-2 py-0.5 rounded mt-1 relative z-10">3 KREDİ</span>
-              <p className="text-[11px] text-slate-500 mt-2 text-center font-medium relative z-10">AI Analizi + Topluluk Görüşü</p>
               <div className="absolute inset-0 bg-gradient-to-tr from-white via-transparent to-white opacity-50"></div>
             </button>
           </div>
