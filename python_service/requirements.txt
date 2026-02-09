@@ -1,9 +1,10 @@
-supabase==2.3.0
-httpx==0.27.0
-httpcore==1.0.4
+supabase
 python-dotenv
-openai
-playwright
-beautifulsoup4
 requests
-html2text
+beautifulsoup4
+pandas
+pytesseract
+pdfplumber
+Pillow
+sentence-transformers
+torch --index-url https://download.pytorch.org/whl/cpu
