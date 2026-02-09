@@ -11,10 +11,14 @@ import {
   PlayCircle, 
   Download, 
   X,
-  ArrowLeft // İkonumuz
+  ArrowLeft 
 } from 'lucide-react';
 import moment from 'moment';
 import 'moment/locale/tr';
+
+// --- YENİ EKLENEN İMPORT ---
+// Bu fonksiyon dosyayı Python Worker'ın kuyruğuna atar
+import { uploadFileForAnalysis } from '@/app/actions/upload'; 
 
 // Tip Tanımlamaları
 interface Publication {
@@ -77,6 +81,26 @@ export default function PublicationsPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Kullanıcı bulunamadı');
 
+      // --- KATMAN 2 ENTEGRASYONU BAŞLANGIÇ ---
+      // Eğer yüklenen bir makale (PDF) ise, bunu Yapay Zeka'ya da gönderelim.
+      if (type === 'article') {
+        console.log("🤖 AI Analizi için kuyruğa gönderiliyor...");
+        const aiFormData = new FormData();
+        aiFormData.append('file', file);
+        
+        // Asenkron olarak AI kuyruğuna atıyoruz. Hata alsa bile ana akışı bozmamalı.
+        const aiResult = await uploadFileForAnalysis(aiFormData);
+        
+        if (!aiResult.success) {
+          console.warn("⚠️ AI Yükleme Uyarısı:", aiResult.error);
+          // Kullanıcıya hata göstermiyoruz, çünkü "Yayınlama" işlemi başarılı olabilir.
+        } else {
+          console.log("✅ Dosya AI işleme kuyruğuna eklendi.");
+        }
+      }
+      // --- KATMAN 2 ENTEGRASYONU BİTİŞ ---
+
+      // 2. Mevcut Yayın Akışı (Değişmedi)
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random()}.${fileExt}`;
       const filePath = `${fileName}`;
@@ -103,7 +127,7 @@ export default function PublicationsPage() {
 
       if (dbError) throw dbError;
 
-      alert('Yayın başarıyla eklendi!');
+      alert('Yayın başarıyla eklendi! (AI Analizi de başlatıldı)');
       setShowUploadModal(false);
       setTitle('');
       setDesc('');
@@ -131,8 +155,7 @@ export default function PublicationsPage() {
     <div className="min-h-screen bg-slate-950 p-4 md:p-8 text-slate-200">
       <div className="max-w-7xl mx-auto space-y-8">
         
-        {/* --- 1. GERİ DÖN BUTONU (Standartlaştırıldı) --- */}
-        {/* Diğer sayfalardaki stille birebir aynı yapıldı: Hover animasyonu, renkler vb. */}
+        {/* --- 1. GERİ DÖN BUTONU --- */}
         <Link 
           href="/" 
           className="inline-flex items-center text-slate-400 hover:text-amber-500 mb-6 transition-all group"

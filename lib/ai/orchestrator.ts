@@ -1,139 +1,107 @@
 // Dosya: lib/ai/orchestrator.ts
-import { createClient } from "@/utils/supabase/server";
-import { SYSTEM_PROMPT, TIMEOUTS, AIResponse } from "./config";
-import { GeminiProvider } from "./providers/gemini";
-import { LlamaProvider } from "./providers/llama";
-import { DeepSeekProvider } from "./providers/deepseek";
-import { GrokProvider } from "./providers/grok";
-import { GPT4Provider } from "./providers/gpt4";
-// Stage 1 ve 2 için gerekli yardımcılar (Mevcut yapına uygun importlar)
-// Not: Bu fonksiyonları henüz yazmadıysak bile yapıyı kuruyoruz.
-import { findSimilarQuestion } from "./embedding"; // Stage 1
-import { retrieveContext } from "./rag-engine";    // Stage 2 (Gelecek dosya)
 
-class AIOrchestrator {
-  private providers: any[] = [];
+// 1. Gerekli Araçları İçe Aktar
+import { searchKnowledgeBase } from '@/app/actions/retrieve'; // Katman 2: Yerel Hafıza (Python API)
+import { googleSearch } from '@/lib/search-service';          // Katman 3: Google Arama
+import { createOpenAI } from '@ai-sdk/openai';                // Vercel AI SDK (Standart Arabirim)
+import { streamText, generateText } from 'ai';
 
-  constructor() {
-    // MODELLERİ GÜVENLİ BİR ŞEKİLDE YÜKLÜYORUZ
-    this.tryAddProvider(() => new GeminiProvider(TIMEOUTS.GEMINI));
-    this.tryAddProvider(() => new LlamaProvider(TIMEOUTS.GROQ));
-    this.tryAddProvider(() => new DeepSeekProvider(TIMEOUTS.DEEPSEEK));
-    this.tryAddProvider(() => new GrokProvider(TIMEOUTS.GROK));
-    this.tryAddProvider(() => new GPT4Provider(TIMEOUTS.GPT4));
+// 2. Model Yapılandırması (Groq veya OpenAI)
+// Bu yapı, senin eski Provider class'larının yaptığı işi daha modern ve standart bir yolla yapar.
+const aiModel = createOpenAI({
+  // Eğer .env dosyasında GROQ_API_KEY varsa onu kullan, yoksa OpenAI'ye düş
+  apiKey: process.env.GROQ_API_KEY || process.env.OPENAI_API_KEY,
+  baseURL: process.env.GROQ_API_KEY ? 'https://api.groq.com/openai/v1' : undefined,
+});
 
-    if (this.providers.length === 0) {
-      console.error("⚠️ HİÇBİR AI MODELİ YÜKLENEMEDİ! .env dosyasını kontrol edin.");
-    }
-  }
+// Model Seçimi: Groq varsa Llama 3 (Hızlı), yoksa GPT-4o-mini (Akıllı)
+const MODEL_NAME = process.env.GROQ_API_KEY ? 'llama3-70b-8192' : 'gpt-4o-mini';
 
-  private tryAddProvider(providerFactory: () => any) {
-    try {
-      const provider = providerFactory();
-      this.providers.push(provider);
-    } catch (error: any) {
-      // console.log(`ℹ️ Model atlandı: ${error.message}`);
-    }
-  }
-
+export const aiOrchestrator = {
+  
   /**
-   * 🚀 LOUNGE MODU İÇİN ANA FONKSİYON
-   * Bu fonksiyon, kullanıcı Lounge'da beklerken arka planda çalışır.
-   * 4 Aşamalı Savunma Hattını uygular ve sonucu Veritabanına yazar.
+   * 🧠 ANA BEYİN FONKSİYONU
+   * Kullanıcı sorusunu alır -> Yerel Hafızayı Tarar -> Gerekirse Google'a Bakar -> Cevabı Sentezler.
    */
-  async processResearchJob(jobId: string, query: string, userId: string) {
-    console.log(`🤖 [Orchestrator] İşleme Başladı. JobID: ${jobId}`);
-    const supabase = await createClient();
+  async generateResponse(query: string, chatHistory: any[] = []) {
+    console.log(`🧠 [Orchestrator] Düşünüyor: "${query}"`);
 
-    try {
-      // Durumu 'processing' yap
-      await supabase.from('research_jobs').update({ status: 'processing' }).eq('id', jobId);
+    // --- AŞAMA 1 & 2: YEREL BİLGİ BANKASI (Hafıza) ---
+    // Python API'sine sor: "Buna benzer doküman var mı?"
+    const localDocs = await searchKnowledgeBase(query);
+    
+    let context = "";
+    let sources: { title: string; type: 'local' | 'web'; url?: string }[] = [];
 
-      // --- AŞAMA 1: HAFIZA KONTROLÜ (Cache) ---
-      // Daha önce sorulmuş benzer soru var mı?
-      // const cachedAnswer = await findSimilarQuestion(query);
-      // if (cachedAnswer) {
-      //   await this.completeJob(jobId, cachedAnswer, [{ title: "Benzer Soru", url: "internal-cache" }]);
-      //   return;
-      // }
-
-      // --- AŞAMA 2: İÇERİK KONTROLÜ (RAG) ---
-      // Bizim makalelerde, kanunlarda cevap var mı?
-      // const internalContext = await retrieveContext(query);
-      // if (internalContext.confidence > 0.85) { ... }
+    // Eğer yerel doküman bulursak, bağlama ekle
+    if (localDocs && localDocs.length > 0) {
+      console.log(`✅ Yerel Hafızada Bulundu: ${localDocs.length} parça.`);
       
-      // --- AŞAMA 3: DERİN ARAŞTIRMA (MELEZ YAPI - PYTHON) ---
-      // *Şu an Python servisini bekliyoruz.*
-      // Eğer Python servisi aktifse, işi burada bırakıp Python'un devralmasını bekleyebiliriz
-      // veya Python API'sini buradan tetikleyebiliriz.
-      // Şimdilik Stage 4'e düşüyoruz (Fallback).
-
-      // --- AŞAMA 4: STANDART AI (FALLBACK) ---
-      console.log(`⚠️ [Orchestrator] Derin araştırma yapılamadı, yedek modellere geçiliyor...`);
-      const aiResponse = await this.getAnswer(query, "Kullanıcı derin hukuki analiz bekliyor.");
-      
-      // Sonucu veritabanına yaz (Lounge bunu görecek)
-      await this.completeJob(jobId, aiResponse.content, [{ title: aiResponse.provider, url: "#" }]);
-
-    } catch (error) {
-      console.error(`❌ [Orchestrator] Kritik Hata:`, error);
-      await supabase.from('research_jobs').update({ status: 'failed', result: 'Bir hata oluştu.' }).eq('id', jobId);
-    }
-  }
-
-  // Yardımcı: İşi başarıyla tamamla ve kaydet
-  private async completeJob(jobId: string, result: string, sources: any[]) {
-    const supabase = await createClient();
-    await supabase.from('research_jobs').update({
-      status: 'completed',
-      result: result,
-      sources: sources,
-      updated_at: new Date().toISOString()
-    }).eq('id', jobId);
-    console.log(`✅ [Orchestrator] İş Tamamlandı: ${jobId}`);
-  }
-
-  /**
-   * Standart Soru-Cevap Döngüsü (Stage 4)
-   */
-  async getAnswer(userQuestion: string, context: string = ""): Promise<AIResponse> {
-    if (this.providers.length === 0) {
-      return {
-        provider: "System",
-        content: "Sistem yapılandırma hatası: Aktif yapay zeka sağlayıcısı bulunamadı.",
-        isFallback: true
-      };
-    }
-
-    const fullSystemPrompt = context 
-      ? `${SYSTEM_PROMPT}\n\nİLGİLİ BAĞLAM:\n${context}`
-      : SYSTEM_PROMPT;
-
-    for (let i = 0; i < this.providers.length; i++) {
-      const provider = this.providers[i];
+      context += "--- KURUMSAL / YEREL BİLGİ BANKASI (ÖNCELİKLİ) ---\n";
+      localDocs.forEach((doc: any, i: number) => {
+        // Çok fazla token harcamamak için her parçanın ilk 500 karakterini alalım
+        context += `[Yerel Kaynak ${i + 1}]: ${doc.content.slice(0, 800)}...\n`;
+        // Kaynakça için listeye ekle
+        sources.push({ 
+            title: doc.metadata?.source?.split('/').pop() || 'Bilinmeyen Belge', 
+            type: 'local' 
+        });
+      });
+    } 
+    
+    // --- AŞAMA 3: DIŞ DÜNYA (Google Arama) ---
+    // Eğer yerel bilgi azsa veya hiç yoksa Google'a çık
+    // (Maliyet optimizasyonu için: Yerel bilgi çok güçlüyse burayı atlayabiliriz)
+    if (!localDocs || localDocs.length < 2) {
+      console.log("🌐 Yerel bilgi yetersiz, Google araması yapılıyor...");
       try {
-        console.log(`👉 Deneniyor: ${provider.name}`);
-        const content = await provider.execute(userQuestion, fullSystemPrompt);
-
-        if (!content || content.length < 20) throw new Error("Cevap yetersiz.");
-        
-        return {
-          provider: provider.name,
-          content: content,
-          isFallback: i > 0 
-        };
-      } catch (error: any) {
-        console.warn(`❌ BAŞARISIZ (${provider.name}): ${error.message}`);
-        continue;
+        const webLinks = await googleSearch(query);
+        if (webLinks && webLinks.length > 0) {
+          context += "\n--- İNTERNET ARAMA SONUÇLARI ---\n";
+          webLinks.slice(0, 3).forEach((link, i) => {
+             context += `[Web Kaynak ${i + 1}]: ${link}\n`;
+             sources.push({ title: link, type: 'web', url: link });
+          });
+          // Not: İleride buraya 'scraper' ekleyip linkin içeriğini de okuyabiliriz.
+        }
+      } catch (err) {
+        console.error("Google Arama Hatası:", err);
       }
     }
 
-    return {
-      provider: "System",
-      content: "Tüm sistemler meşgul, lütfen daha sonra tekrar deneyiniz.",
-      isFallback: true
-    };
-  }
-}
+    // --- AŞAMA 4: SENTEZ (LLM) ---
+    const systemPrompt = `
+      Sen uzman, yardımsever ve Türkçe konuşan bir yapay zeka asistanısın.
+      Görevin: Kullanıcının sorusunu, sana sağlanan "BAĞLAM" (Context) bilgisini kullanarak cevaplamaktır.
+      
+      KURALLAR:
+      1. Sadece verilen bağlamdaki bilgileri kullan. Bağlamda cevap yoksa "Elimdeki dokümanlarda bu bilgiye ulaşamadım" de.
+      2. Asla uydurma (Halüsinasyon görme).
+      3. Öncelikle "YEREL BİLGİ BANKASI"ndaki bilgilere güven.
+      4. Cevabın akıcı, profesyonel ve Türkçe olsun.
+      5. Cevabını Markdown formatında ver.
+    `;
 
-export const aiOrchestrator = new AIOrchestrator();
+    // Streaming Cevap Başlat
+    // Bu, cevabın kelime kelime ön yüze akmasını sağlar.
+    const result = await streamText({
+      model: aiModel(MODEL_NAME),
+      messages: [
+        { role: 'system', content: systemPrompt },
+        ...chatHistory, // Önceki konuşmaları hatırla
+        { role: 'user', content: `BAĞLAM:\n${context}\n\nSORU: ${query}` }
+      ],
+    });
+
+    return result;
+  },
+
+  /**
+   * (Opsiyonel) Araştırma İşlerini (Background Jobs) işleyen fonksiyon
+   * Eski processResearchJob mantığını buraya taşıyabiliriz.
+   */
+  async processBackgroundJob(jobId: string, query: string) {
+     // Burası deep-research.ts için ayrıldı.
+     // Şimdilik Chat odaklı gidiyoruz.
+  }
+};
