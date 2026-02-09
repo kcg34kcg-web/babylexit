@@ -46,13 +46,14 @@ export default function LoungePage() {
   }, [status]);
 
   // 2. TETİKLEME (TRIGGER) - Sadece JobID varsa
+  // --- GÜNCELLENEN KISIM BURASI ---
   useEffect(() => {
     if (!jobId) return;
 
     const triggerAI = async () => {
       try {
-        // API'yi çağırıp "Başla" diyoruz
-        await fetch('/api/trigger-ai', {
+        // Doğru API rotasını çağırıyoruz
+        await fetch('/api/process-research', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ jobId }),
@@ -61,6 +62,7 @@ export default function LoungePage() {
         console.error("AI Tetiklenemedi:", e);
       }
     };
+    // Sadece bir kere çalışsın
     triggerAI();
   }, [jobId]);
 

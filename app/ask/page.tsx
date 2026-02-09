@@ -3,7 +3,8 @@
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import toast from 'react-hot-toast';
+// import toast from 'react-hot-toast'; // Yerine sonner kullanıyoruz
+import { toast } from 'sonner';
 import { 
   Loader2, 
   ArrowLeft, 
@@ -77,6 +78,7 @@ export default function AskPage() {
       if (title.length > 2) { 
         setIsSearching(true);
         try {
+          // Bu fonksiyon yoksa search.ts içinde oluşturmalısın veya bu bloğu kapatabilirsin
           const results = await suggestSimilarQuestions(title);
           setSimilarQuestions(results || []);
         } catch (err) {
@@ -119,7 +121,7 @@ export default function AskPage() {
 
     try {
       // 1. ADIM: Soruyu Veritabanına Kaydet
-      // submitQuestion artık bize 'jobId' de döndürüyor!
+      // submitQuestion bize 'jobId' döndürecek (Eğer AI seçildiyse)
       const result = await submitQuestion(formData);
 
       if (result?.error) {
@@ -130,27 +132,26 @@ export default function AskPage() {
       } 
       
       if (result?.success && result?.questionId) {
-         
-         if (activeTarget === 'ai') {
-           // --- AI STRATEJİSİ: TEMİZ YÖNLENDİRME ---
-           
-           // 🔥 DEĞİŞİKLİK BURADA:
-           // Artık fetch('/api/trigger-ai') yapmıyoruz!
-           // Çünkü Lounge sayfası açılır açılmaz bunu kendisi yapacak.
-           // Biz sadece doğru biletle (jobId) kullanıcıyı oraya gönderiyoruz.
-           
-           if (result.jobId) {
-             router.push(`/lounge?jobId=${result.jobId}&questionId=${result.questionId}`);
-           } else {
-             // Fallback: Eğer Job oluşmadıysa eski usul gitsin
-             router.push(`/lounge?questionId=${result.questionId}`);
-           }
-           
-         } else {
-           // --- TOPLULUK STRATEJİSİ ---
-           toast.success('Soru topluluğa iletildi!');
-           router.push(`/questions/${result.questionId}`); 
-         }
+          
+          if (activeTarget === 'ai') {
+            // --- AI STRATEJİSİ: LOUNGE'A YÖNLENDİRME ---
+            // jobId varsa kullanıcıyı Lounge'a gönderiyoruz.
+            // Lounge sayfası, jobId'yi görünce API'yi tetikleyip analizi başlatacak.
+            
+            if (result.jobId) {
+              router.push(`/lounge?jobId=${result.jobId}&questionId=${result.questionId}`);
+            } else {
+              // Fallback: Job oluşmadıysa eski usul gitsin (Soru detayına veya Lounge'a)
+              // router.push(`/lounge?questionId=${result.questionId}`); // veya
+              toast.success('Analiz sıraya alındı.');
+              router.push(`/questions/${result.questionId}`);
+            }
+            
+          } else {
+            // --- TOPLULUK STRATEJİSİ ---
+            toast.success('Soru topluluğa iletildi!');
+            router.push(`/questions/${result.questionId}`); 
+          }
       }
 
     } catch (error) {
@@ -161,7 +162,7 @@ export default function AskPage() {
     }
   };
 
-  // --- RENDER (Aynı Tasarım) ---
+  // --- RENDER ---
   return (
     <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 relative overflow-hidden">
       

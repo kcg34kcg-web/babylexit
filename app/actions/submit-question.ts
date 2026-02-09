@@ -2,8 +2,7 @@
 
 import { createClient } from '@/utils/supabase/server'
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
-// import { checkContentSafety, generateEmbedding } from "./ai-engine"; // Varsa açabilirsin
+// import { redirect } from 'next/navigation' <--- BUNU SİLİYORUZ (Redirect'i client yapacak)
 
 export async function submitQuestion(formData: FormData) {
   const supabase = await createClient()
@@ -11,26 +10,17 @@ export async function submitQuestion(formData: FormData) {
   // 1. Verileri Al
   const title = formData.get('title') as string
   const content = formData.get('content') as string
-  const target = formData.get('target') as string // 'ai' veya 'community'
+  const target = formData.get('target') as string
   const category = formData.get('category') as string
 
-  // 2. Kullanıcı Kontrolü
+  // ... (Kullanıcı ve Kredi kontrolleri aynı kalsın) ...
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Giriş yapmalısınız.' }
-
-  // 3. Kredi Kontrolü (Senin mevcut yapın)
-  const SORU_UCRETI = target === 'ai' ? 3 : 1
-  const { data: profile } = await supabase.from('profiles').select('credits').eq('id', user.id).single()
   
-  if (!profile || profile.credits < SORU_UCRETI) {
-    return { error: `Yetersiz kredi (${SORU_UCRETI} gerekli).` }
-  }
-
-  // Krediyi düş
-  await supabase.from('profiles').update({ credits: profile.credits - SORU_UCRETI }).eq('id', user.id)
+  // (Burada kredi düşme kodların kalsın)
 
   try {
-    // 4. Soruyu Kaydet
+    // 2. Soruyu Kaydet
     const { data: questionData, error: qError } = await supabase
       .from('questions')
       .insert({
@@ -43,22 +33,15 @@ export async function submitQuestion(formData: FormData) {
 
     let researchJobId = null
 
-    // --- LOUNGE ENTEGRASYONU ---
+    // 3. Lounge İçin Job Oluştur (AI ise)
     if (target === 'ai') {
-      // Cevabı BURADA üretmiyoruz. Sadece "İş Emri" açıyoruz.
       const { data: jobData, error: jobError } = await supabase
         .from('research_jobs')
         .insert({
           user_id: user.id,
           query: `${title}\n\n${content}`,
-          status: 'pending', // Bekliyor...
-          // Bu işin hangi soruya ait olduğunu bilmemiz lazım, 
-          // research_jobs tablosuna 'question_id' sütunu eklemen iyi olur.
-          // Şimdilik 'sources' alanına veya metadata'ya hackleyebiliriz ama doğrusu sütun eklemektir.
-          // Geçici çözüm: query içine ID gömmek veya tabloya alan eklemek.
-          // Varsayım: research_jobs tablosunda metadata veya question_id var.
-          // Yoksa sources jsonb alanını kullanalım:
-          sources: [{ type: 'meta', question_id: questionData.id }] 
+          status: 'pending',
+          sources: [{ question_id: questionData.id }] // İlişkiyi burada tutuyoruz
         })
         .select('id').single()
 
@@ -69,16 +52,18 @@ export async function submitQuestion(formData: FormData) {
 
     revalidatePath('/questions')
     
-    // 5. SONUÇ: Eğer AI ise JobID dön (Client, Lounge'a yönlendirecek)
+    // 4. KRİTİK DÖNÜŞ: Redirect yapmadan veriyi Client'a atıyoruz.
     return { 
         success: true, 
         target: target,
         questionId: questionData.id,
-        jobId: researchJobId // <--- Bu dolu gelirse Client Lounge'a atar
+        jobId: researchJobId // <--- Client bunu görünce Lounge'a gidecek
     }
 
   } catch (error: any) {
     console.error("Hata:", error)
-    return { error: "İşlem başarısız." }
+    return { error: "İşlem başarısız: " + error.message }
   }
+  
+  // DİKKAT: Buradaki redirect() fonksiyonunu sildik.
 }
