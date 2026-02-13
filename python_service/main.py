@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 # API Kütüphaneleri
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware # 1. DEĞİŞİKLİK BURADA: CORS eklendi
 from pydantic import BaseModel
 import uvicorn
 
@@ -108,10 +109,6 @@ def process_queue_item(job):
         if len(text.strip()) < 10: 
             raise ValueError("Dosyadan anlamlı veri okunamadı.")
 
-        # Not: GuardLayer'ı burada kullanmıyoruz çünkü dosya içerikleri 
-        # genellikle 2000 karakterden çok uzundur ve GuardLayer DoS korumasına takılır.
-        # GuardLayer'ı sadece kullanıcı sorgularında (/embed) kullanıyoruz.
-
         # Chunk ve Embed
         chunks = chunk_text(text)
         docs = []
@@ -166,6 +163,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# 2. DEĞİŞİKLİK BURADA: CORS İzni (Next.js'in API'ye erişebilmesi için)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Next.js'in çalıştığı portlar
+    allow_credentials=True,
+    allow_methods=["*"],  # GET, POST, PUT, DELETE vb. hepsine izin ver
+    allow_headers=["*"],  # Tüm headerlara izin ver
+)
+
 class EmbedRequest(BaseModel):
     text: str
 
@@ -183,8 +189,6 @@ async def create_embedding(req: EmbedRequest):
         raise HTTPException(status_code=400, detail="Text cannot be empty")
 
     # 1. Güvenlik Kontrolü (Sentinel)
-    # create_embedding endpoint'i kullanıcı sorgularını (search query) işlediği için
-    # burası en kritik güvenlik noktasıdır.
     security_result = await guard.analyze_input(req.text)
 
     if not security_result.is_safe:

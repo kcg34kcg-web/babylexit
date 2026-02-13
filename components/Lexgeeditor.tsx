@@ -12,6 +12,10 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { TableHeader } from '@tiptap/extension-table-header';
 
+// --- YENİ EKLENTİ: KANUN TAMAMLAMA ---
+import Mention from '@tiptap/extension-mention';
+import suggestion from './editor/extensions/suggestion'; // Önceki adımda oluşturduğun dosya
+
 import { 
   Bold, Italic, Underline as UnderlineIcon, List, 
   ListOrdered, Quote, Undo, Redo, Save, FileText, Copy, Check, AlertTriangle,
@@ -72,8 +76,19 @@ const TextEditor = () => {
           class: 'border border-slate-600 p-2 relative',
         },
       }),
+      // --- YENİ: KANUN MADDESİ TAMAMLAMA ---
+      Mention.configure({
+        HTMLAttributes: {
+          class: 'bg-amber-500/10 text-amber-500 px-1 py-0.5 rounded border border-amber-500/30 font-medium decoration-clone cursor-help',
+        },
+        suggestion, // suggestion.ts dosyasından gelen mantık
+        renderLabel({ options, node }) {
+            // Editörde görünecek metin (örn: @TBK-117)
+            return `${node.attrs.label ?? node.attrs.id}`;
+        },
+      }),
       Placeholder.configure({
-        placeholder: 'Hukuki metninizi buraya yazın...',
+        placeholder: 'Dilekçenizi yazın veya "@" tuşuna basarak kanun maddesi arayın...',
       }),
     ],
     editorProps: {
@@ -87,7 +102,7 @@ const TextEditor = () => {
       <h2 style="text-align: center">ASLİYE HUKUK MAHKEMESİNE</h2>
       <p style="text-align: center"><strong>İSTANBUL</strong></p>
       <p></p>
-      <p>Bu metin <strong>Babylexit</strong> ile hazırlanmıştır. Artık <u>tablo</u> ve <u>hizalama</u> özellikleri aktiftir.</p>
+      <p>Bu metin <strong>Babylexit</strong> ile hazırlanmıştır. Artık <u>tablo</u>, <u>hizalama</u> ve <u>kanun tamamlama (@)</u> özellikleri aktiftir.</p>
     `,
   });
 
