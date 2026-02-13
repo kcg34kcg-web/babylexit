@@ -1,14 +1,3 @@
-supabase
-python-dotenv
-requests
-beautifulsoup4
-pandas
-pytesseract
-pdfplumber
-Pillow
-sentence-transformers
-torch --index-url https://download.pytorch.org/whl/cpu
-# --- API İÇİN YENİ EKLENENLER ---
-fastapi
-uvicorn
+google-generativeai
 pydantic
+asyncio

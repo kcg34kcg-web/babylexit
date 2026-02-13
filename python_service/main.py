@@ -18,6 +18,10 @@ from PIL import Image
 from io import BytesIO
 from sentence_transformers import SentenceTransformer
 
+# --- GÜVENLİK KATMANI ---
+# GuardLayer sınıfını import ediyoruz
+from layers.guard import GuardLayer
+
 # .env yükle
 load_dotenv()
 
@@ -32,15 +36,18 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# Global Değişkenler
+embed_model = None
+guard = None  # GuardLayer örneği için yer tutucu
+
 # --- MODEL YÜKLEME (Global) ---
 print(f"📥 AI Modeli Yükleniyor: {MODEL_NAME} ...")
 try:
     # CPU modunda çalıştırıyoruz
     embed_model = SentenceTransformer(MODEL_NAME, device='cpu')
-    print("✅ Model Hazır!")
+    print("✅ Embedding Modeli Hazır!")
 except Exception as e:
     print(f"❌ Model Hatası: {e}")
-    # Model yüklenemezse sunucu çalışmasın
     exit(1)
 
 # --- YARDIMCI FONKSİYONLAR ---
@@ -101,6 +108,10 @@ def process_queue_item(job):
         if len(text.strip()) < 10: 
             raise ValueError("Dosyadan anlamlı veri okunamadı.")
 
+        # Not: GuardLayer'ı burada kullanmıyoruz çünkü dosya içerikleri 
+        # genellikle 2000 karakterden çok uzundur ve GuardLayer DoS korumasına takılır.
+        # GuardLayer'ı sadece kullanıcı sorgularında (/embed) kullanıyoruz.
+
         # Chunk ve Embed
         chunks = chunk_text(text)
         docs = []
@@ -140,9 +151,16 @@ def run_worker_loop():
 # --- FASTAPI SETUP ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Uygulama başlarken Worker Thread'i başlat (Arka plan işçisi)
+    global guard
+    
+    # 1. GuardLayer Başlat
+    print("🛡️ Sentinel GuardLayer Başlatılıyor...")
+    guard = GuardLayer()
+    
+    # 2. Worker Thread Başlat
     worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
     worker_thread.start()
+    
     yield
     # Kapanırken yapılacaklar (gerekirse)
 
@@ -153,15 +171,44 @@ class EmbedRequest(BaseModel):
 
 @app.get("/")
 def health_check():
-    return {"status": "active", "model": MODEL_NAME}
+    return {"status": "active", "model": MODEL_NAME, "security": "Sentinel Active"}
 
 @app.post("/embed")
-def create_embedding(req: EmbedRequest):
-    """Next.js buraya metin atar, vektör alır."""
-    vector = get_embedding(req.text)
+async def create_embedding(req: EmbedRequest):
+    """
+    Next.js buraya metin atar, vektör alır.
+    ARTIK GÜVENLİ: Önce GuardLayer'dan geçer.
+    """
+    if not req.text or not req.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+
+    # 1. Güvenlik Kontrolü (Sentinel)
+    # create_embedding endpoint'i kullanıcı sorgularını (search query) işlediği için
+    # burası en kritik güvenlik noktasıdır.
+    security_result = await guard.analyze_input(req.text)
+
+    if not security_result.is_safe:
+        print(f"🚨 BLOCKED: {security_result.category} | Reason: {security_result.reason}")
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Input blocked by Security Guard. Reason: {security_result.reason} ({security_result.category})"
+        )
+
+    # 2. Güvenli/Temizlenmiş Metni Kullan
+    safe_text = security_result.refined_query if security_result.refined_query else req.text
+    
+    # 3. Embedding Üret
+    vector = get_embedding(safe_text)
+    
     if not vector:
         raise HTTPException(status_code=500, detail="Embedding generation failed")
-    return {"embedding": vector}
+    
+    return {
+        "embedding": vector,
+        "original_text": req.text,
+        "processed_text": safe_text,
+        "is_modified": security_result.category == "MODIFIED"
+    }
 
 # --- BAŞLATMA ---
 if __name__ == "__main__":

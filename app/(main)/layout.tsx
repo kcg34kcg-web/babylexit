@@ -11,7 +11,8 @@ import {
   BookOpen, 
   FileText, 
   Heart,
-  Flame, 
+  Flame,
+  FileEdit, // <--- 1. YENİ İKON BURAYA EKLENDİ
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -67,6 +68,10 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const navigation = [
     { name: 'Soru Sor', href: '/ask', icon: PlusSquare },
     { name: 'Cevapla', href: '/questions', icon: MessageSquare },
+    
+    // --- 2. YENİ MENÜ ÖĞESİ BURAYA EKLENDİ ---
+    { name: 'Editör', href: '/editor', icon: FileEdit }, 
+
     { name: 'Sorularım&Cevaplarım', href: '/my-content', icon: FileText },
     { name: 'Favoriler', href: '/favorites', icon: Heart },
     { name: 'Yayınlar', href: '/publications', icon: BookOpen },

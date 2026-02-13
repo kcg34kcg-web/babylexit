@@ -3,8 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import ToastProvider from "@/components/toast-provider";
 import ThemeManager from "@/components/ThemeManager";
-// 1. ADIM: Context'i içe aktar
-import { SearchProvider } from "@/context/SearchContext"; 
+import { SearchProvider } from "@/context/SearchContext";
+import { Toaster } from "sonner"; // ✅ EKLENDİ
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -32,11 +32,13 @@ export default function RootLayout({
         suppressHydrationWarning={true}
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[var(--background)] text-[var(--foreground)]`}
       >
-        {/* 2. ADIM: Tüm uygulamayı (Provider, Manager ve Children) kapsayacak şekilde sarmala */}
         <SearchProvider>
-            <ThemeManager />
-            <ToastProvider />
-            {children}
+          <ThemeManager />
+          <ToastProvider />
+          {children}
+
+          {/* ✅ TOAST ROOT EKLENDİ */}
+          <Toaster position="top-center" />
         </SearchProvider>
       </body>
     </html>
