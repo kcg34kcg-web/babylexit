@@ -1,12 +1,12 @@
 import os
 import time
 import threading
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
 
 # API Kütüphaneleri
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware # 1. DEĞİŞİKLİK BURADA: CORS eklendi
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
@@ -19,9 +19,10 @@ from PIL import Image
 from io import BytesIO
 from sentence_transformers import SentenceTransformer
 
-# --- GÜVENLİK KATMANI ---
-# GuardLayer sınıfını import ediyoruz
-from layers.guard import GuardLayer
+# --- KATMANLAR ---
+from layers.guard import GuardLayer         # Katman 0: Güvenlik
+from layers.router import SemanticRouter    # Katman 1: Yönlendirme
+from layers.rag import InternalRAGAgent     # Katman 2: Hukuk Uzmanı
 
 # .env yükle
 load_dotenv()
@@ -38,28 +39,29 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Global Değişkenler
-embed_model = None
-guard = None  # GuardLayer örneği için yer tutucu
+embed_model = None  # Yerel BGE-M3 Modeli (Dosya işleme ve RAG araması için)
+guard = None        # Güvenlik Katmanı
+router = None       # Yönlendirici (Gemini)
+rag_agent = None    # Hukuk Uzmanı (RAG)
 
-# --- MODEL YÜKLEME (Global) ---
-print(f"📥 AI Modeli Yükleniyor: {MODEL_NAME} ...")
+# --- MODEL YÜKLEME (Yerel) ---
+print(f"📥 Yerel AI Modeli Yükleniyor (CPU): {MODEL_NAME} ...")
 try:
-    # CPU modunda çalıştırıyoruz
     embed_model = SentenceTransformer(MODEL_NAME, device='cpu')
-    print("✅ Embedding Modeli Hazır!")
+    print("✅ Yerel Embedding Modeli Hazır!")
 except Exception as e:
     print(f"❌ Model Hatası: {e}")
     exit(1)
 
 # --- YARDIMCI FONKSİYONLAR ---
-def get_embedding(text: str) -> List[float]:
+def get_local_embedding(text: str) -> List[float]:
+    """BGE-M3 ile 1024 boyutlu vektör üretir."""
     try:
-        # BGE-M3 1024 boyutlu vektör üretir
         embedding = embed_model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
     except Exception as e:
         print(f"Embedding Hatası: {e}")
-        return None
+        return []
 
 def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> List[str]:
     chunks = []
@@ -75,9 +77,9 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> List[str
         start = end - overlap
     return chunks
 
-# --- WORKER (ARKA PLAN İŞÇİSİ) ---
+# --- WORKER (Dosya İşleme - Değişmedi) ---
 def process_queue_item(job):
-    """Kuyruktaki dosyayı işler."""
+    """Kuyruktaki dosyayı işler ve vektör veritabanına kaydeder."""
     try:
         job_id = job['id']
         file_path = job['file_path']
@@ -85,13 +87,10 @@ def process_queue_item(job):
         
         supabase.table('file_processing_queue').update({'status': 'processing'}).eq('id', job_id).execute()
         
-        # Dosyayı İndir
         res = supabase.storage.from_('raw_uploads').download(file_path)
         file_bytes = res
         
-        # Metni Çıkar
         text = ""
-        # Basit dosya türü kontrolü
         ftype = job.get('file_type', '').lower()
         
         if 'pdf' in ftype:
@@ -103,17 +102,15 @@ def process_queue_item(job):
             img = Image.open(BytesIO(file_bytes))
             text = pytesseract.image_to_string(img, lang='tur+eng')
         else:
-            # Düz metin varsayalım
             text = file_bytes.decode('utf-8', errors='ignore')
 
         if len(text.strip()) < 10: 
             raise ValueError("Dosyadan anlamlı veri okunamadı.")
 
-        # Chunk ve Embed
         chunks = chunk_text(text)
         docs = []
         for i, chunk in enumerate(chunks):
-            vec = get_embedding(chunk)
+            vec = get_local_embedding(chunk)
             if vec:
                 docs.append({
                     'content': chunk,
@@ -132,8 +129,7 @@ def process_queue_item(job):
         supabase.table('file_processing_queue').update({'status': 'failed', 'error_message': str(e)}).eq('id', job['id']).execute()
 
 def run_worker_loop():
-    """Sonsuz döngüde kuyruğu dinler."""
-    print("👷 Worker Thread Başladı - Kuyruk Dinleniyor...")
+    print("👷 Worker Thread Başladı...")
     while True:
         try:
             res = supabase.table('file_processing_queue').select("*").eq('status', 'pending').limit(1).execute()
@@ -145,76 +141,108 @@ def run_worker_loop():
             print(f"Worker Loop Error: {e}")
             time.sleep(5)
 
-# --- FASTAPI SETUP ---
+# --- LIFESPAN (Başlatma Ayarları) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global guard
+    global guard, router, rag_agent
     
-    # 1. GuardLayer Başlat
-    print("🛡️ Sentinel GuardLayer Başlatılıyor...")
+    # 1. Guard (Güvenlik)
+    print("🛡️ GuardLayer Başlatılıyor...")
     guard = GuardLayer()
+
+    # 2. Router (Beyin)
+    print("🧠 Semantic Router Başlatılıyor...")
+    router = SemanticRouter()
+
+    # 3. RAG Agent (Hukuk Uzmanı)
+    print("⚖️ RAG Agent Başlatılıyor...")
+    rag_agent = InternalRAGAgent(supabase)
     
-    # 2. Worker Thread Başlat
+    # 4. Worker (Arka Plan)
     worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
     worker_thread.start()
     
+    print("🚀 BABYZLEXIT BACKEND HAZIR!")
     yield
-    # Kapanırken yapılacaklar (gerekirse)
 
 app = FastAPI(lifespan=lifespan)
 
-# 2. DEĞİŞİKLİK BURADA: CORS İzni (Next.js'in API'ye erişebilmesi için)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Next.js'in çalıştığı portlar
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
-    allow_methods=["*"],  # GET, POST, PUT, DELETE vb. hepsine izin ver
-    allow_headers=["*"],  # Tüm headerlara izin ver
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+# --- REQUEST MODELLERİ ---
 class EmbedRequest(BaseModel):
     text: str
 
+class RouteRequest(BaseModel):
+    query: str
+
+# --- ENDPOINTS ---
+
 @app.get("/")
 def health_check():
-    return {"status": "active", "model": MODEL_NAME, "security": "Sentinel Active"}
+    return {
+        "status": "active", 
+        "modules": ["Guard", "Router (Gemini)", "RAG Agent", "Local Embedding (BGE-M3)"]
+    }
 
 @app.post("/embed")
 async def create_embedding(req: EmbedRequest):
+    """Dosya yükleme vb. için sadece embedding döner."""
+    vector = get_local_embedding(req.text)
+    if not vector: raise HTTPException(status_code=500, detail="Embedding failed")
+    return {"embedding": vector}
+
+@app.post("/route")
+async def route_query(req: RouteRequest):
     """
-    Next.js buraya metin atar, vektör alır.
-    ARTIK GÜVENLİ: Önce GuardLayer'dan geçer.
+    ANA GİRİŞ KAPISI:
+    1. Güvenlik Kontrolü
+    2. Rota Belirleme (Hukuk mu? Sohbet mi?)
+    3. Gerekirse RAG Çalıştırma (Cevabı üretme)
     """
-    if not req.text or not req.text.strip():
-        raise HTTPException(status_code=400, detail="Text cannot be empty")
-
-    # 1. Güvenlik Kontrolü (Sentinel)
-    security_result = await guard.analyze_input(req.text)
-
-    if not security_result.is_safe:
-        print(f"🚨 BLOCKED: {security_result.category} | Reason: {security_result.reason}")
-        raise HTTPException(
-            status_code=403, 
-            detail=f"Input blocked by Security Guard. Reason: {security_result.reason} ({security_result.category})"
-        )
-
-    # 2. Güvenli/Temizlenmiş Metni Kullan
-    safe_text = security_result.refined_query if security_result.refined_query else req.text
     
-    # 3. Embedding Üret
-    vector = get_embedding(safe_text)
-    
-    if not vector:
-        raise HTTPException(status_code=500, detail="Embedding generation failed")
-    
-    return {
-        "embedding": vector,
-        "original_text": req.text,
-        "processed_text": safe_text,
-        "is_modified": security_result.category == "MODIFIED"
-    }
+    # 1. Güvenlik
+    security = await guard.analyze_input(req.query)
+    if not security.is_safe:
+         return {
+             "action": "blocked",
+             "response": f"Güvenlik Uyarısı: {security.reason}",
+             "confidence": 1.0
+         }
 
-# --- BAŞLATMA ---
+    safe_query = security.refined_query or req.query
+    
+    # 2. Yönlendirme (Gemini Düşünüyor)
+    decision = await router.route(safe_query)
+    
+    # Eğer Router "Hukuk" veya "Karmaşık" dediyse -> Avukatı Çağır (RAG)
+    if decision.action == "route" and decision.target_layer in ["internal_rag", "hybrid_research"]:
+        print(f"🔄 RAG Katmanı Tetikleniyor: {safe_query}")
+        
+        # RAG için Yerel Embedding Üret (Çünkü veritabanı BGE-M3 ile kayıtlı)
+        rag_vector = get_local_embedding(safe_query)
+        
+        if rag_vector:
+            # RAG Agent'a sor
+            rag_result = await rag_agent.process(safe_query, rag_vector)
+            
+            # Cevabı Router sonucunun içine gömüyoruz
+            # Frontend sadece 'cached_response' alanına bakarak cevabı gösterebilir
+            decision.cached_response = rag_result["answer"]
+            
+            # Kaynakları reasoning'e ekle (Debug için)
+            if rag_result.get("sources"):
+                decision.reasoning += f"\n[Referanslar: {', '.join(rag_result['sources'])}]"
+        else:
+            decision.reasoning += " (Embedding hatası nedeniyle RAG çalıştırılamadı)"
+
+    return decision
+
 if __name__ == "__main__":
-    # Localhost 8000 portunda çalışır
     uvicorn.run(app, host="0.0.0.0", port=8000)

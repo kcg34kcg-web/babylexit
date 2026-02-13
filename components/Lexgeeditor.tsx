@@ -1,8 +1,10 @@
 'use client';
 
+
 import { useEditor, EditorContent } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import { Underline } from '@tiptap/extension-underline';
+import { TextSelection } from '@tiptap/pm/state';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { TextAlign } from '@tiptap/extension-text-align';
 import { Table } from '@tiptap/extension-table';
@@ -12,43 +14,46 @@ import { TableHeader } from '@tiptap/extension-table-header';
 import Mention from '@tiptap/extension-mention';
 import suggestion from './editor/extensions/suggestion'; 
 
-import { 
-  Bold, Italic, Underline as UnderlineIcon, List, 
-  ListOrdered, Quote, Undo, Redo, Save, FileText, Copy, Check, 
-  AlignLeft, AlignCenter, AlignRight, AlignJustify, Table as TableIcon,
-  Maximize2, Minimize2, Scissors, Wand2 
-} from 'lucide-react';
+import { TextStyle } from '@tiptap/extension-text-style';
+import { Color } from '@tiptap/extension-color';
+import { Highlight } from '@tiptap/extension-highlight';
+import { FontFamily } from '@tiptap/extension-font-family';
 
-import { exportToDocx } from '@/utils/docxExport';
-import { saveAsLexge } from '@/utils/lexgeConverter';
-import { copyToClipboardMultiMime } from '@/utils/uyapHelper'; 
-import { useState } from 'react';
+import { Node, mergeAttributes } from '@tiptap/core';
+import { useState, useEffect } from 'react';
+import { EditorToolbar } from './editor/EditorToolbar';
 import toast from 'react-hot-toast';
 
-interface ToolbarButtonProps {
-  onClick: () => void;
-  isActive: boolean;
-  icon: any; 
-  title?: string;
+// --- TİP TANIMLAMALARI ---
+declare module '@tiptap/core' {
+  interface Commands<ReturnType> {
+    footnote: { insertFootnote: (content: string) => ReturnType }
+  }
 }
 
-const ToolbarButton = ({ onClick, isActive, icon: Icon, title }: ToolbarButtonProps) => (
-  <button
-    onClick={onClick}
-    title={title}
-    className={`p-2 rounded-md transition-colors flex items-center justify-center ${
-      isActive 
-        ? 'bg-orange-100 text-orange-600 shadow-sm' 
-        : 'text-slate-600 hover:bg-slate-100 hover:text-orange-600'
-    }`}
-    type="button"
-  >
-    <Icon size={18} />
-  </button>
-);
+// --- ÖZEL DİPNOT DÜĞÜMÜ ---
+const FootnoteNode = Node.create({
+  name: 'footnote',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  addAttributes() {
+    return { content: { default: '' }, id: { default: () => Math.random().toString(36).substr(2, 9) } }
+  },
+  parseHTML() { return [{ tag: 'sup[data-footnote]' }] },
+  renderHTML({ HTMLAttributes }) {
+    return ['sup', mergeAttributes(HTMLAttributes, { 'data-footnote': '', 'title': HTMLAttributes.content }), `[Dipnot]`]
+  },
+  addCommands() {
+    return {
+      insertFootnote: (content: string) => ({ commands }) => {
+        return commands.insertContent({ type: this.name, attrs: { content } })
+      },
+    }
+  },
+});
 
 const TextEditor = () => {
-  const [isCopied, setIsCopied] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const editor = useEditor({
@@ -56,172 +61,140 @@ const TextEditor = () => {
     extensions: [
       StarterKit,
       Underline,
+      FootnoteNode, 
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
-      Table.configure({
-        resizable: true,
-        HTMLAttributes: { class: 'border-collapse table-auto w-full border border-slate-300 my-4' },
-      }),
+      Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
-      TableCell.configure({
-        HTMLAttributes: { class: 'border border-slate-300 p-2 relative' },
-      }),
+      TableCell,
       Mention.configure({
-        HTMLAttributes: {
-          class: 'bg-orange-100 text-orange-700 px-1 py-0.5 rounded border border-orange-200 font-medium decoration-clone cursor-help',
-        },
+        HTMLAttributes: { class: 'bg-orange-100 text-orange-700 px-1 py-0.5 rounded border border-orange-200 font-medium decoration-clone cursor-help' },
         suggestion, 
-        renderLabel({ options, node }) {
-            return `${node.attrs.label ?? node.attrs.id}`;
-        },
+        renderLabel({ options, node }) { return `${node.attrs.label ?? node.attrs.id}`; },
       }),
-      Placeholder.configure({
-        placeholder: 'Dilekçenizi yazın veya "@" tuşuna basarak kanun maddesi arayın...',
-      }),
+      Placeholder.configure({ placeholder: 'Dilekçenizi yazın veya "@" tuşuna basarak kanun maddesi arayın...' }),
+      TextStyle,
+      Color,
+      Highlight.configure({ multicolor: true }), 
+      FontFamily.configure({ types: ['textStyle'] }),
     ],
     editorProps: {
       attributes: {
-        class: 'focus:outline-none max-w-none font-serif w-full text-slate-900',
-        style: 'font-family: "Times New Roman", Times, serif;'
+        class: 'focus:outline-none max-w-none w-full text-slate-900', 
+        style: 'font-family: "Times New Roman", Times, serif;' 
       },
+      // --- GÜNCELLENMİŞ SÜRÜKLE-BIRAK (DRAG & DROP) MANTIĞI ---
+      handleDrop: (view, event, slice, moved) => {
+        // Eğer editör içinden değil de dışarıdan (sağ panelden) geliyorsa
+        if (!moved && event.dataTransfer && event.dataTransfer.getData('text/plain')) {
+          const text = event.dataTransfer.getData('text/plain');
+          const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
+          
+          if (coordinates) {
+            // Sağ panelden "Başlık \n İçerik" formatında geldiğini varsayıyoruz
+            const parts = text.split('\n');
+            const title = parts[0]; 
+            const content = parts.slice(1).join('<br/>'); // Geri kalan satırları birleştir
+
+            // ProseMirror/TipTap transaction kullanarak HTML ekliyoruz
+            // Not: Normalde editor.chain() burada çalışmayabilir, bu yüzden view kullanıyoruz ama 
+            // en temiz yöntem useEffect ile editor instance'ına erişmekti. 
+            // Ancak sürüklenen yere tam bırakmak için burada bir trick (hile) yapıp
+            // manuel HTML oluşturmak yerine Event Listener'ı tetiklemek de bir yöntemdir.
+            // Fakat burada doğrudan transaction ile çözelim:
+            
+            // Basit çözüm: Olayı durdur ve manuel ekle (eğer editor instance'ı global olsaydı)
+            // Ancak editor instance'ı hook içinde. O yüzden burada view.dispatch ile ekleme yapacağız.
+            
+            // Daha güvenli ve şık bir yol:
+            // Sadece metni bırakmayı engelliyoruz ve aşağıda useEffect ile dinlediğimiz yapıyı kullanıyoruz?
+            // Hayır, Drag&Drop anlık olmalı.
+             
+            // -- BASİT SÜRÜKLEME ÇÖZÜMÜ --
+            // Eğer başlık ve içerik ayrışabiliyorsa özel format, yoksa düz metin.
+            if (parts.length > 1) {
+                // Şema üzerinden node oluşturmak karmaşık olabilir, bu yüzden
+                // HTML parse edip insertHTML komutu simüle ediyoruz.
+                const htmlContent = `<blockquote><strong>${title}</strong><br/>${content}</blockquote><p></p>`;
+                
+                // Koordinata odaklan
+                const { tr } = view.state;
+                tr.setSelection(TextSelection.near(view.state.doc.resolve(coordinates.pos)));                // Bu yüzden basitçe "return false" yapıp varsayılan davranışı (düz metin) 
+                // engellemek ve manuel işlem yapmak gerekir.
+                // En temiz yöntem: Buradan bir event fırlatıp useEffect'te yakalamak olabilir ama koordinat kaybolur.
+                
+                // ama useEffect hook'u "Metne Ekle" butonu için asıl şık formatı sağlayacak.
+                
+                // -- EN PRATİK ÇÖZÜM: --
+                // Olayı burada tüketiyoruz (preventDefault).
+                event.preventDefault();
+                
+                // Editör instance'ına erişimimiz useEffect içinde olduğu için 
+                // burada basit bir DOM event ile koordinatı ve veriyi gönderiyoruz.
+                const customEvent = new CustomEvent('jurix:drop-text', { 
+                    detail: { title, content, pos: coordinates.pos } 
+                });
+                window.dispatchEvent(customEvent);
+                return true;
+            }
+          }
+        }
+        return false;
+      }
     },
     content: `
-      <h2 style="text-align: center">ASLİYE HUKUK MAHKEMESİNE</h2>
-      <p style="text-align: center"><strong>İSTANBUL</strong></p>
+      <h2 style="text-align: center; font-family: 'Times New Roman'">ASLİYE HUKUK MAHKEMESİNE</h2>
+      <p style="text-align: center; font-family: 'Times New Roman'"><strong>İSTANBUL</strong></p>
       <p></p>
-      <p>Bu metin <strong>JURIX</strong> ile hazırlanmıştır. Yeni arayüze hoş geldiniz!</p>
+      <p style="font-family: 'Times New Roman'">Bu metin <strong>JURIX</strong> ile hazırlanmıştır. Sağ panelden arama yaparak içtihatları buraya sürükleyebilirsiniz.</p>
     `,
   });
 
-  if (!editor) return null;
-
-  const handleCopyForUyap = async () => {
-    const success = await copyToClipboardMultiMime(editor);
-    if (success) {
-      setIsCopied(true);
-      setTimeout(() => setIsCopied(false), 2500);
-      toast.success("UYAP formatında kopyalandı!");
-    } else {
-      toast.error("Kopyalama hatası.");
-    }
-  };
-
-  const handleWordExport = () => {
-    exportToDocx(editor.getHTML());
-    toast.success("Word dosyası indiriliyor...");
-  };
-
-  const insertTable = () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
-  
-  const insertPageBreak = () => {
-    editor.chain().focus().setHorizontalRule().insertContent('<p></p>').run();
-    toast.success("Sayfa Sonu Eklendi");
-  };
-
-  const autoFormatPages = () => {
-    if (!editor) return;
-    const toastId = toast.loading("Sayfa sınırları hesaplanıyor...");
-
-    let tr = editor.state.tr;
-    let hrPositions: number[] = [];
-    editor.state.doc.descendants((node, pos) => {
-      if (node.type.name === 'horizontalRule') hrPositions.push(pos);
-    });
-    
-    if (hrPositions.length > 0) {
-      hrPositions.reverse().forEach(pos => tr.delete(pos, pos + 1));
-      editor.view.dispatch(tr);
-    }
-
-    setTimeout(() => {
-      const MAX_PAGE_HEIGHT = 930; 
-      let currentHeight = 0;
-      let positionsToBreak: number[] = [];
-
-      editor.state.doc.forEach((node, offset) => {
-         const domNode = editor.view.nodeDOM(offset) as HTMLElement;
-         if (domNode && domNode.nodeType === 1) { 
-            const style = window.getComputedStyle(domNode);
-            const height = domNode.offsetHeight + parseFloat(style.marginBottom || '0') + parseFloat(style.marginTop || '0');
-            
-            if (currentHeight + height > MAX_PAGE_HEIGHT) {
-               positionsToBreak.push(offset);
-               currentHeight = height; 
-            } else {
-               currentHeight += height;
-            }
-         }
-      });
-
-      if (positionsToBreak.length === 0) {
-        toast.success("Dilekçe 1 sayfa olarak düzenlendi.", { id: toastId });
-        return;
+  // --- 1. BUTON İLE EKLEME VE 2. SÜRÜKLEME İLE EKLEME DİNLEYİCİSİ ---
+  useEffect(() => {
+    // Butona basınca (İmlecin olduğu yere ekler)
+    const handleInsertLegalText = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const { title, content } = customEvent.detail;
+      
+      if (editor) {
+        editor.chain().focus()
+          .insertContent(`<blockquote><strong>${title}</strong><br/>${content}</blockquote><p></p>`)
+          .run();
+        toast.success("İçtihat metne eklendi!");
       }
+    };
 
-      let chain = editor.chain();
-      positionsToBreak.reverse().forEach((p) => {
-         chain = chain.insertContentAt(p, { type: 'horizontalRule' });
-      });
-      chain.run();
+    // Sürükleyip bırakınca (Bırakılan yere ekler)
+    const handleDropLegalText = (e: Event) => {
+        const customEvent = e as CustomEvent;
+        const { title, content, pos } = customEvent.detail;
+        
+        if (editor && pos !== undefined) {
+          editor.chain().focus().setTextSelection(pos)
+            .insertContent(`<blockquote><strong>${title}</strong><br/>${content}</blockquote><p></p>`)
+            .run();
+          toast.success("İçtihat sürüklenerek yerleştirildi!");
+        }
+    };
 
-      toast.success(`Metin toplam ${positionsToBreak.length + 1} sayfaya otomatik bölündü!`, { id: toastId });
-    }, 150);
-  };
+    window.addEventListener('jurix:insert-text', handleInsertLegalText);
+    window.addEventListener('jurix:drop-text', handleDropLegalText); // Sürükleme için yeni dinleyici
+
+    return () => {
+        window.removeEventListener('jurix:insert-text', handleInsertLegalText);
+        window.removeEventListener('jurix:drop-text', handleDropLegalText);
+    };
+  }, [editor]);
+
+  if (!editor) return null;
 
   return (
     <div className={`flex flex-col h-full font-sans transition-all ${isFullscreen ? 'fixed inset-0 z-[100] bg-slate-100 p-4' : 'w-full'}`}>
       
-      {/* 1. YENİ ŞIK TOOLBAR (Kutu içinde değil, havada asılı gibi) */}
-      <div className="flex flex-wrap items-center justify-between p-2 bg-white border border-slate-200 rounded-xl shadow-sm mb-4 shrink-0">
-        
-        {/* Sol Grup: Biçimlendirme Araçları */}
-        <div className="flex items-center gap-1 flex-wrap">
-          <ToolbarButton onClick={() => editor.chain().focus().undo().run()} isActive={false} icon={Undo} title="Geri Al" />
-          <ToolbarButton onClick={() => editor.chain().focus().redo().run()} isActive={false} icon={Redo} title="İleri Al" />
-          <div className="w-px h-6 bg-slate-200 mx-1" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive('bold')} icon={Bold} title="Kalın" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleItalic().run()} isActive={editor.isActive('italic')} icon={Italic} title="İtalik" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleUnderline().run()} isActive={editor.isActive('underline')} icon={UnderlineIcon} title="Altı Çizili" />
-          <div className="w-px h-6 bg-slate-200 mx-1" />
-          <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('left').run()} isActive={editor.isActive({ textAlign: 'left' })} icon={AlignLeft} title="Sola Yasla" />
-          <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('center').run()} isActive={editor.isActive({ textAlign: 'center' })} icon={AlignCenter} title="Ortala" />
-          <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('right').run()} isActive={editor.isActive({ textAlign: 'right' })} icon={AlignRight} title="Sağa Yasla" />
-          <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('justify').run()} isActive={editor.isActive({ textAlign: 'justify' })} icon={AlignJustify} title="İki Yana Yasla" />
-          <div className="w-px h-6 bg-slate-200 mx-1" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleBulletList().run()} isActive={editor.isActive('bulletList')} icon={List} title="Madde İşaretleri" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} isActive={editor.isActive('orderedList')} icon={ListOrdered} title="Numaralı Liste" />
-          <ToolbarButton onClick={insertTable} isActive={editor.isActive('table')} icon={TableIcon} title="Tablo Ekle" />
-          <div className="w-px h-6 bg-slate-200 mx-1 hidden sm:block" />
-          
-          <button onClick={insertPageBreak} title="İmlecin bulunduğu yere manuel sayfa sonu çizgisi ekler" className="hidden sm:flex items-center gap-1 px-2 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 hover:text-orange-600 rounded-md transition-colors">
-            <Scissors size={14} /> Böl
-          </button>
-          <button onClick={autoFormatPages} title="Metni hesaplayıp A4 sınırından otomatik böler" className="hidden sm:flex items-center gap-1 px-2 py-1.5 text-xs font-bold text-slate-600 hover:bg-slate-100 hover:text-blue-600 rounded-md transition-colors">
-            <Wand2 size={14} /> Sayfala
-          </button>
-        </div>
+      {/* TOOLBAR */}
+      <EditorToolbar editor={editor} isFullscreen={isFullscreen} setIsFullscreen={setIsFullscreen} />
 
-        {/* Sağ Grup: Eylemler (Dışarı Aktar, Kaydet, UYAP, Tam Ekran) */}
-        <div className="flex items-center gap-1 border-l border-slate-200 pl-2 ml-auto">
-          <button onClick={() => saveAsLexge(editor.getJSON())} className="p-2 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded-md transition-colors" title="Taslağı Sakla"><Save size={16} /></button>
-          <button onClick={handleWordExport} className="p-2 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Word Olarak İndir"><FileText size={16} /></button>
-          
-          <button onClick={handleCopyForUyap} className={`flex items-center gap-1.5 px-3 py-1.5 ml-1 rounded-md text-xs font-bold transition-all shadow-sm ${isCopied ? 'bg-emerald-500 text-white' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'}`} title="UYAP Döküman Editörüne (UDF) Kopyala">
-            {isCopied ? <Check size={14} /> : <Copy size={14} />} <span className="hidden sm:inline">UYAP</span>
-          </button>
-
-          <div className="w-px h-6 bg-slate-200 mx-1" />
-          <button 
-            onClick={() => setIsFullscreen(!isFullscreen)} 
-            className="flex items-center gap-1 p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 rounded-md transition-colors"
-            title={isFullscreen ? "Küçült" : "Tam Ekran Odak Modu"}
-          >
-            {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-          </button>
-        </div>
-      </div>
-
-      {/* 2. YAZI ALANI - GERÇEKÇİ A4 ALTYAPISI */}
       <div className="flex-1 overflow-y-auto flex justify-center custom-scrollbar pb-20">
         <div className="editor-wrapper w-full max-w-[850px]" onClick={() => editor.commands.focus()}>
            <EditorContent editor={editor} />
@@ -232,13 +205,11 @@ const TextEditor = () => {
         .custom-scrollbar::-webkit-scrollbar { width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-
-        /* Kağıt Tasarımı */
+        
         .editor-wrapper .ProseMirror {
           background-color: #ffffff;
-          min-height: 1123px; /* A4 minimum yüksekliği */
-          padding: 96px; /* Hukuki belge kenar boşlukları */
+          min-height: 1123px;
+          padding: 96px; 
           box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
           border: 1px solid #e2e8f0;
           border-radius: 4px;
@@ -248,18 +219,67 @@ const TextEditor = () => {
         .editor-wrapper .ProseMirror h1, .editor-wrapper .ProseMirror h2, .editor-wrapper .ProseMirror h3 { 
           font-weight: bold; margin-top: 1.5em; margin-bottom: 0.5em; 
         }
+        
+        .editor-wrapper .ProseMirror span { transition: background-color 0.2s; }
 
-        /* THE MAGIC: GÖRSEL SAYFA BÖLME İLLÜZYONU */
+        /* --- ŞIK ALINTI (BLOCKQUOTE) STİLİ --- */
+        .editor-wrapper .ProseMirror blockquote {
+          border-left: 4px solid #f97316; /* Orange-500 */
+          margin-left: 0;
+          margin-right: 0;
+          padding-left: 1rem;
+          padding-top: 0.5rem;
+          padding-bottom: 0.5rem;
+          font-style: italic;
+          background-color: #fff7ed; /* Orange-50 */
+          color: #4b5563;
+          border-radius: 0 4px 4px 0;
+        }
+        
+        .editor-wrapper .ProseMirror blockquote strong {
+            color: #c2410c; /* Orange-700 */
+            font-style: normal;
+            display: block;
+            margin-bottom: 0.25rem;
+        }
+
+        sup[data-footnote] {
+          color: #ea580c;
+          cursor: help;
+          font-weight: bold;
+          font-size: 11px;
+          padding: 2px 4px;
+          margin: 0 2px;
+          background: #ffedd5;
+          border-radius: 4px;
+          border: 1px solid #fed7aa;
+          vertical-align: super;
+        }
+
+        .editor-wrapper .ProseMirror table {
+          border-collapse: collapse;
+          table-layout: fixed;
+          width: 100%;
+          margin: 1em 0;
+        }
+        .editor-wrapper .ProseMirror td, .editor-wrapper .ProseMirror th {
+          min-width: 1em;
+          border: 1px solid #cbd5e1;
+          padding: 8px;
+          vertical-align: top;
+          box-sizing: border-box;
+          position: relative;
+        }
+        .editor-wrapper .ProseMirror th { background-color: #f8fafc; font-weight: bold; }
+
         .editor-wrapper .ProseMirror hr {
           border: none;
-          background-color: #f1f5f9; /* page.tsx bg-slate-100 rengi ile aynı (kaynaşması için) */
+          background-color: #f1f5f9; 
           height: 40px; 
-          
           margin-top: 96px; 
           margin-bottom: 96px; 
           margin-left: -96px; 
           margin-right: -96px; 
-          
           border-top: 1px dashed #cbd5e1;
           border-bottom: 1px dashed #cbd5e1;
           position: relative;
@@ -270,10 +290,10 @@ const TextEditor = () => {
         .editor-wrapper .ProseMirror hr::after {
           content: "SAYFA SONU";
           position: absolute;
-          top: 50%;
+          top: -10px;
           left: 50%;
           transform: translate(-50%, -50%);
-          background: #f1f5f9; /* page.tsx bg-slate-100 rengi */
+          background: #f1f5f9; 
           color: #94a3b8;
           font-weight: bold;
           font-size: 10px;
