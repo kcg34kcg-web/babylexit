@@ -14,8 +14,9 @@ import suggestion from './editor/extensions/suggestion';
 
 import { 
   Bold, Italic, Underline as UnderlineIcon, List, 
-  ListOrdered, Quote, Undo, Redo, Save, FileText, Copy, Check, AlertTriangle,
-  AlignLeft, AlignCenter, AlignRight, AlignJustify, Table as TableIcon
+  ListOrdered, Quote, Undo, Redo, Save, FileText, Copy, Check, 
+  AlignLeft, AlignCenter, AlignRight, AlignJustify, Table as TableIcon,
+  Maximize2, Minimize2, Scissors 
 } from 'lucide-react';
 
 import { exportToDocx } from '@/utils/docxExport';
@@ -24,7 +25,6 @@ import { copyToClipboardMultiMime } from '@/utils/uyapHelper';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 
-// Toolbar Butonu Bileşeni
 interface ToolbarButtonProps {
   onClick: () => void;
   isActive: boolean;
@@ -36,8 +36,10 @@ const ToolbarButton = ({ onClick, isActive, icon: Icon, title }: ToolbarButtonPr
   <button
     onClick={onClick}
     title={title}
-    className={`p-2 rounded-lg transition-colors flex items-center justify-center ${
-      isActive ? 'bg-amber-500 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+    className={`p-2 rounded-md transition-colors flex items-center justify-center ${
+      isActive 
+        ? 'bg-orange-100 text-orange-600 shadow-sm' 
+        : 'text-slate-600 hover:bg-slate-100 hover:text-orange-600'
     }`}
     type="button"
   >
@@ -47,6 +49,7 @@ const ToolbarButton = ({ onClick, isActive, icon: Icon, title }: ToolbarButtonPr
 
 const TextEditor = () => {
   const [isCopied, setIsCopied] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const editor = useEditor({
     immediatelyRender: false,
@@ -56,16 +59,16 @@ const TextEditor = () => {
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Table.configure({
         resizable: true,
-        HTMLAttributes: { class: 'border-collapse table-auto w-full border border-slate-600 my-4' },
+        HTMLAttributes: { class: 'border-collapse table-auto w-full border border-slate-300 my-4' },
       }),
       TableRow,
       TableHeader,
       TableCell.configure({
-        HTMLAttributes: { class: 'border border-slate-600 p-2 relative' },
+        HTMLAttributes: { class: 'border border-slate-300 p-2 relative' },
       }),
       Mention.configure({
         HTMLAttributes: {
-          class: 'bg-amber-500/10 text-amber-500 px-1 py-0.5 rounded border border-amber-500/30 font-medium decoration-clone cursor-help',
+          class: 'bg-orange-100 text-orange-700 px-1 py-0.5 rounded border border-orange-200 font-medium decoration-clone cursor-help',
         },
         suggestion, 
         renderLabel({ options, node }) {
@@ -78,9 +81,7 @@ const TextEditor = () => {
     ],
     editorProps: {
       attributes: {
-        // BURASI ÖNEMLİ: Prose sınıflarını A4'e tam oturacak şekilde marginleri kaldırarak ayarladık.
-        // outline-none ile de tıklanınca çıkan mavi çizgiyi yok ettik.
-        class: 'prose prose-invert prose-sm sm:prose-base focus:outline-none min-h-full max-w-none font-serif w-full',
+        class: 'prose sm:prose-base focus:outline-none min-h-[1000px] max-w-none font-serif w-full text-slate-900',
         style: 'font-family: "Times New Roman", Times, serif;'
       },
     },
@@ -88,138 +89,138 @@ const TextEditor = () => {
       <h2 style="text-align: center">ASLİYE HUKUK MAHKEMESİNE</h2>
       <p style="text-align: center"><strong>İSTANBUL</strong></p>
       <p></p>
-      <p>Bu metin <strong>Babylexit</strong> ile hazırlanmıştır. Artık <u>Sanal A4 görünümü</u> aktiftir.</p>
+      <p>Bu metin <strong>JURIX</strong> ile hazırlanmıştır. Sağ üstteki "Sayfayı Büyüt" ikonuna tıklayarak odak moduna geçebilirsiniz.</p>
     `,
   });
 
-  if (!editor) {
-    return null;
-  }
+  if (!editor) return null;
 
-  const sanitizeForUyap = (html: string) => {
-    let clean = html.normalize('NFC');
-    // eslint-disable-next-line no-control-regex
-    clean = clean.replace(/[\u200B-\u200D\uFEFF]/g, '');
-    clean = clean.replace(/&nbsp;/g, ' ');
-    return clean;
-  };
-  
   const handleCopyForUyap = async () => {
     const success = await copyToClipboardMultiMime(editor);
     if (success) {
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2500);
+      toast.success("UYAP formatında kopyalandı!");
     } else {
-      toast.error("Kopyalama sırasında bir hata oluştu.");
+      toast.error("Kopyalama hatası.");
     }
   };
 
   const handleWordExport = () => {
-    const html = editor.getHTML();
-    exportToDocx(html);
+    exportToDocx(editor.getHTML());
     toast.success("Word dosyası indiriliyor...");
   };
 
-  const handleLexgeSave = () => {
-    const json = editor.getJSON();
-    saveAsLexge(json);
-    toast.success("Proje taslağı kaydedildi.");
-  };
-
-  const insertTable = () => {
-    editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  const insertTable = () => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run();
+  
+  // Yatay çizgiyi (hr) ekleyip alt satıra geçiyoruz
+  const insertPageBreak = () => {
+    editor.chain().focus().setHorizontalRule().insertContent('<p></p>').run();
+    toast.success("Sayfa Sonu Eklendi");
   };
 
   return (
-    <div className="w-full max-w-[1000px] mx-auto flex flex-col gap-6 font-sans h-full">
+    <div className={`transition-all duration-300 flex flex-col font-sans bg-[#0A1128] ${
+      isFullscreen 
+        ? 'fixed inset-0 z-[100] p-0 m-0' 
+        : 'w-full h-full p-2 sm:p-4 rounded-2xl gap-4' 
+    }`}>
       
-      {/* BAŞLIK */}
-      <div className="flex justify-between items-end border-b border-slate-800 pb-4 shrink-0">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            Babylexit <span className="text-amber-500">Draft</span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">Sanal A4 Düzeni (Word Eşdeğerliği)</p>
-        </div>
-        <div className="flex items-center gap-2 px-3 py-1 bg-slate-800/50 rounded-full border border-slate-700">
-            <AlertTriangle size={12} className="text-amber-500" />
-            <span className="text-[10px] text-slate-400 font-medium">
-              UYAP Uyumlu Mod
-            </span>
-        </div>
-      </div>
-
-      {/* EDİTÖR ÇERÇEVESİ */}
-      <div className="bg-slate-950 border border-slate-800 rounded-xl overflow-hidden shadow-2xl flex flex-col h-[75vh]">
-        
-        {/* TOOLBAR */}
-        <div className="flex flex-wrap items-center gap-1 p-2 bg-slate-900 border-b border-slate-800 shrink-0 shadow-sm z-10">
-          <ToolbarButton onClick={() => editor.chain().focus().undo().run()} isActive={false} icon={Undo} title="Geri Al" />
-          <ToolbarButton onClick={() => editor.chain().focus().redo().run()} isActive={false} icon={Redo} title="İleri Al" />
-          <div className="w-px h-6 bg-slate-800 mx-1" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive('bold')} icon={Bold} title="Kalın" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleItalic().run()} isActive={editor.isActive('italic')} icon={Italic} title="İtalik" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleUnderline().run()} isActive={editor.isActive('underline')} icon={UnderlineIcon} title="Altı Çizili" />
-          <div className="w-px h-6 bg-slate-800 mx-1" />
-          <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('left').run()} isActive={editor.isActive({ textAlign: 'left' })} icon={AlignLeft} title="Sola Yasla" />
-          <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('center').run()} isActive={editor.isActive({ textAlign: 'center' })} icon={AlignCenter} title="Ortala" />
-          <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('right').run()} isActive={editor.isActive({ textAlign: 'right' })} icon={AlignRight} title="Sağa Yasla" />
-          <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('justify').run()} isActive={editor.isActive({ textAlign: 'justify' })} icon={AlignJustify} title="İki Yana Yasla" />
-          <div className="w-px h-6 bg-slate-800 mx-1" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleBulletList().run()} isActive={editor.isActive('bulletList')} icon={List} title="Madde İşaretleri" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} isActive={editor.isActive('orderedList')} icon={ListOrdered} title="Numaralı Liste" />
-          <ToolbarButton onClick={() => editor.chain().focus().toggleBlockquote().run()} isActive={editor.isActive('blockquote')} icon={Quote} title="Alıntı" />
-          <ToolbarButton onClick={insertTable} isActive={editor.isActive('table')} icon={TableIcon} title="Tablo Ekle (3x3)" />
-        </div>
-
-        {/* YAZI ALANI - SANAL A4 ARKA PLANI */}
-        <div className="flex-1 overflow-y-auto bg-slate-950 p-6 sm:p-10 flex justify-center custom-scrollbar">
-          
-          {/* A4 KAĞIDI SİMÜLASYONU */}
-          {/* Genişlik: 794px (A4'ün 96 DPI pixel karşılığı), Min Yükseklik: 1123px */}
-          {/* Padding (p-12 sm:px-16 sm:py-20): Word kenar boşlukları simülasyonu */}
-          <div className="bg-slate-900 shadow-xl border border-slate-700/50 w-full max-w-[794px] min-h-[1123px] p-12 sm:px-16 sm:py-20 cursor-text group transition-all duration-300 hover:border-slate-600" onClick={() => editor.commands.focus()}>
-             <EditorContent editor={editor} className="h-full" />
+      {!isFullscreen && (
+        <div className="flex justify-between items-center px-2 shrink-0">
+          <div>
+            <h1 className="text-xl font-bold text-white">JURIX <span className="text-orange-500">Editor</span></h1>
           </div>
           
-        </div>
-      </div>
-
-      {/* AKSİYONLAR */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-slate-900/50 p-4 rounded-xl border border-slate-800 shrink-0">
-           <div>
-              <h3 className="text-white font-medium text-sm">UYAP'a Aktar</h3>
-              <p className="text-xs text-slate-400 max-w-sm hidden sm:block">
-                Hizalama ve tablolar korunarak RTF/HTML formatında UYAP için güvenli kopyalama.
-              </p>
-           </div>
-           
-           <div className="flex items-center gap-3 w-full sm:w-auto">
-             <button onClick={handleLexgeSave} title="Taslağı Sakla" className="p-2.5 bg-slate-800 text-slate-400 hover:text-amber-500 hover:bg-amber-500/10 rounded-lg transition-colors">
-                 <Save size={18} />
-             </button>
-             <button onClick={handleWordExport} title="Word Olarak İndir" className="p-2.5 bg-slate-800 text-slate-400 hover:text-blue-500 hover:bg-blue-500/10 rounded-lg transition-colors">
-                 <FileText size={18} />
-             </button>
-             <button 
-              onClick={handleCopyForUyap}
-              className={`flex-1 sm:flex-none flex items-center justify-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold transition-all shadow-lg active:scale-95 ${
-                isCopied 
-                  ? 'bg-emerald-600 text-white shadow-emerald-900/20' 
-                  : 'bg-amber-500 hover:bg-amber-400 text-slate-900 shadow-amber-900/20'
-              }`}
-            >
-              {isCopied ? <Check size={18} /> : <Copy size={18} />}
-              <span>{isCopied ? 'Kopyalandı!' : 'UYAP İçin Kopyala'}</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => saveAsLexge(editor.getJSON())} className="p-2 text-slate-400 hover:text-orange-500 bg-white/5 rounded-lg transition-colors" title="Taslağı Sakla"><Save size={16} /></button>
+            <button onClick={handleWordExport} className="p-2 text-slate-400 hover:text-blue-400 bg-white/5 rounded-lg transition-colors" title="Word Olarak İndir"><FileText size={16} /></button>
+            <button onClick={handleCopyForUyap} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${isCopied ? 'bg-emerald-500 text-white' : 'bg-orange-500 hover:bg-orange-400 text-white'}`}>
+              {isCopied ? <Check size={14} /> : <Copy size={14} />} <span>UYAP'a Kopyala</span>
             </button>
-           </div>
+          </div>
+        </div>
+      )}
+
+      <div className={`bg-slate-200 overflow-hidden flex flex-col border-slate-700 ${isFullscreen ? 'h-screen rounded-none border-0' : 'flex-1 rounded-xl shadow-2xl border-2'}`}>
+        
+        <div className="flex flex-wrap items-center justify-between p-2 bg-white border-b border-slate-300 shrink-0 shadow-sm z-10">
+          <div className="flex items-center gap-1">
+            <ToolbarButton onClick={() => editor.chain().focus().undo().run()} isActive={false} icon={Undo} title="Geri Al" />
+            <ToolbarButton onClick={() => editor.chain().focus().redo().run()} isActive={false} icon={Redo} title="İleri Al" />
+            <div className="w-px h-6 bg-slate-200 mx-1" />
+            <ToolbarButton onClick={() => editor.chain().focus().toggleBold().run()} isActive={editor.isActive('bold')} icon={Bold} title="Kalın" />
+            <ToolbarButton onClick={() => editor.chain().focus().toggleItalic().run()} isActive={editor.isActive('italic')} icon={Italic} title="İtalik" />
+            <ToolbarButton onClick={() => editor.chain().focus().toggleUnderline().run()} isActive={editor.isActive('underline')} icon={UnderlineIcon} title="Altı Çizili" />
+            <div className="w-px h-6 bg-slate-200 mx-1" />
+            <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('left').run()} isActive={editor.isActive({ textAlign: 'left' })} icon={AlignLeft} title="Sola Yasla" />
+            <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('center').run()} isActive={editor.isActive({ textAlign: 'center' })} icon={AlignCenter} title="Ortala" />
+            <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('right').run()} isActive={editor.isActive({ textAlign: 'right' })} icon={AlignRight} title="Sağa Yasla" />
+            <ToolbarButton onClick={() => editor.chain().focus().setTextAlign('justify').run()} isActive={editor.isActive({ textAlign: 'justify' })} icon={AlignJustify} title="İki Yana Yasla" />
+            <div className="w-px h-6 bg-slate-200 mx-1" />
+            <ToolbarButton onClick={() => editor.chain().focus().toggleBulletList().run()} isActive={editor.isActive('bulletList')} icon={List} title="Madde İşaretleri" />
+            <ToolbarButton onClick={() => editor.chain().focus().toggleOrderedList().run()} isActive={editor.isActive('orderedList')} icon={ListOrdered} title="Numaralı Liste" />
+            <ToolbarButton onClick={insertTable} isActive={editor.isActive('table')} icon={TableIcon} title="Tablo Ekle" />
+            <div className="w-px h-6 bg-slate-200 mx-1" />
+            <button onClick={insertPageBreak} title="Araya sayfa sonu çizgisi ekler" className="flex items-center gap-1 px-2 py-1 text-xs font-bold text-orange-600 hover:bg-orange-100 rounded-md transition-colors border border-transparent hover:border-orange-200">
+              <Scissors size={14} /> Böl
+            </button>
+          </div>
+
+          <button 
+            onClick={() => setIsFullscreen(!isFullscreen)} 
+            className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-300"
+            title={isFullscreen ? "Küçült" : "Tam Ekran Odak Modu"}
+          >
+            {isFullscreen ? <><Minimize2 size={16} /> Küçült</> : <><Maximize2 size={16} /> Sayfayı Büyüt</>}
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto bg-slate-200/80 p-4 sm:p-10 flex justify-center custom-scrollbar">
+          <div className="bg-white shadow-xl w-full max-w-[850px] min-h-[1123px] p-10 sm:px-[10%] sm:py-16 cursor-text editor-paper border border-slate-300" onClick={() => editor.commands.focus()}>
+             <EditorContent editor={editor} className="h-full" />
+          </div>
+        </div>
       </div>
 
       <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar { width: 10px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #475569; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 5px; border: 2px solid #e2e8f0; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        .editor-paper {
+          background-image: repeating-linear-gradient(
+            to bottom,
+            #ffffff,
+            #ffffff 1100px,
+            #f1f5f9 1100px,
+            #f1f5f9 1123px
+          );
+        }
+
+        .editor-paper hr {
+          border: none;
+          border-top: 2px dashed #cbd5e1;
+          margin: 40px -10%;
+          position: relative;
+          overflow: visible;
+          page-break-after: always; /* Çıktı alırken gerçekten bölsün */
+        }
+        
+        .editor-paper hr::after {
+          content: "SAYFA SONU";
+          position: absolute;
+          top: -10px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: #fff;
+          padding: 0 10px;
+          color: #94a3b8;
+          font-weight: bold;
+          font-size: 10px;
+          letter-spacing: 1px;
+        }
       `}</style>
     </div>
   );

@@ -41,11 +41,36 @@
   }
 }
 
-/* Özel sınıfları components veya utilities katmanına almak en iyisidir */
 @layer components {
   .bg-theme-card {
     background-color: var(--card-bg);
     border-color: var(--card-border);
+  }
+
+  /* --- JURIX: Sanal A4 Sayfa Ayrımı (Temaya Duyarlı) --- */
+  .page-break-indicator {
+    height: 40px; 
+    background-color: var(--background); /* Arka planla kaynaşsın */
+    margin-left: -4rem; /* Editördeki p-16 paddingini sıfırlamak için */
+    margin-right: -4rem;
+    margin-top: 2rem;
+    margin-bottom: 2rem;
+    position: relative;
+    page-break-after: always; /* Çıktı alırken (Print) gerçek sayfa sonu */
+    border-top: 1px dashed var(--card-border); 
+    border-bottom: 1px dashed var(--card-border);
+  }
+
+  .page-break-indicator::after {
+    content: 'Yeni Sayfa';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--status-icon);
+    font-size: 10px;
+    background: var(--background);
+    padding: 0 10px;
   }
 }
 
