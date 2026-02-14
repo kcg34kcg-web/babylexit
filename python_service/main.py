@@ -1,8 +1,10 @@
 import os
 import time
 import threading
+import asyncio
 from typing import List, Optional, Dict, Any
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 # API Kütüphaneleri
 from fastapi import FastAPI, HTTPException
@@ -20,12 +22,12 @@ from io import BytesIO
 from sentence_transformers import SentenceTransformer
 
 # --- KATMANLAR ---
-from layers.guard import GuardLayer         # Katman 0: Güvenlik
-from layers.router import SemanticRouter    # Katman 1: Yönlendirme
-from layers.rag import InternalRAGAgent     # Katman 2: Hukuk Uzmanı
+from layers.guard import GuardLayer
+from layers.router import SemanticRouter
+from layers.rag import InternalRAGAgent
 
-# .env yükle
-load_dotenv()
+# .env yükle (Üst dizini kontrol et)
+load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # --- KONFIGÜRASYON ---
 SUPABASE_URL = os.getenv("NEXT_PUBLIC_SUPABASE_URL")
@@ -39,12 +41,12 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Global Değişkenler
-embed_model = None  # Yerel BGE-M3 Modeli
-guard = None        # Güvenlik Katmanı
-router = None       # Yönlendirici (Gemini)
-rag_agent = None    # Hukuk Uzmanı (RAG)
+embed_model = None
+guard = None
+router = None
+rag_agent = None
 
-# --- MODEL YÜKLEME (Yerel) ---
+# --- MODEL YÜKLEME ---
 print(f"📥 Yerel AI Modeli Yükleniyor (CPU): {MODEL_NAME} ...")
 try:
     embed_model = SentenceTransformer(MODEL_NAME, device='cpu')
@@ -55,9 +57,7 @@ except Exception as e:
 
 # --- YARDIMCI FONKSİYONLAR ---
 def get_local_embedding(text: str) -> List[float]:
-    """BGE-M3 ile 1024 boyutlu vektör üretir."""
     try:
-        # Normalize embeddings=True önemlidir, cosine similarity için gereklidir.
         embedding = embed_model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
     except Exception as e:
@@ -67,178 +67,175 @@ def get_local_embedding(text: str) -> List[float]:
 def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> List[str]:
     chunks = []
     start = 0
-    text_len = len(text)
-    while start < text_len:
+    while start < len(text):
         end = start + chunk_size
-        if end < text_len:
-            last_space = text.rfind(' ', start, end)
-            if last_space != -1 and last_space > start: end = last_space
-        chunk = text[start:end].strip()
+        chunk = text[start:end]
         if chunk: chunks.append(chunk)
         start = end - overlap
     return chunks
 
-# --- WORKER (Dosya İşleme - Değişmedi) ---
-def process_queue_item(job):
-    """Kuyruktaki dosyayı işler ve vektör veritabanına kaydeder."""
+# --- ASYNC WRAPPER ---
+def run_async(coro):
+    """Senkron thread içinde Asenkron fonksiyon çalıştırmak için"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
+# --- İŞÇİ 1: DOSYA İŞLEME ---
+def process_file_queue():
     try:
-        job_id = job['id']
-        file_path = job['file_path']
-        print(f"🔄 Worker İşliyor: {file_path}")
+        res = supabase.table('file_processing_queue').select("*").eq('status', 'pending').limit(1).execute()
+        if not res.data: return False
+
+        job = res.data[0]
+        print(f"📂 Dosya İşleniyor: {job['file_path']}")
         
-        supabase.table('file_processing_queue').update({'status': 'processing'}).eq('id', job_id).execute()
+        supabase.table('file_processing_queue').update({'status': 'processing'}).eq('id', job['id']).execute()
         
-        res = supabase.storage.from_('raw_uploads').download(file_path)
-        file_bytes = res
+        # Dosyayı İndir
+        file_bytes = supabase.storage.from_('raw_uploads').download(job['file_path'])
         
         text = ""
-        ftype = job.get('file_type', '').lower()
+        ftype = job.get('file_type', '').lower() if job.get('file_type') else 'txt'
         
         if 'pdf' in ftype:
             with pdfplumber.open(BytesIO(file_bytes)) as pdf:
                 for page in pdf.pages:
-                    extracted = page.extract_text()
-                    if extracted: text += extracted + "\n"
-        elif 'image' in ftype:
-            img = Image.open(BytesIO(file_bytes))
-            text = pytesseract.image_to_string(img, lang='tur+eng')
+                    text += (page.extract_text() or "") + "\n"
         else:
             text = file_bytes.decode('utf-8', errors='ignore')
 
-        if len(text.strip()) < 10: 
-            raise ValueError("Dosyadan anlamlı veri okunamadı.")
+        if len(text.strip()) < 10: raise ValueError("Boş içerik")
 
+        # Parçala ve Kaydet
         chunks = chunk_text(text)
         docs = []
-        for i, chunk in enumerate(chunks):
+        for chunk in chunks:
             vec = get_local_embedding(chunk)
             if vec:
                 docs.append({
                     'content': chunk,
-                    'metadata': {'source': file_path, 'user_id': job['user_id']},
+                    'metadata': {'source': job['file_path'], 'user_id': job['user_id']},
                     'embedding': vec
                 })
         
-        if docs: 
-            supabase.table('documents').insert(docs).execute()
+        if docs: supabase.table('documents').insert(docs).execute()
         
-        supabase.table('file_processing_queue').update({'status': 'completed'}).eq('id', job_id).execute()
-        print(f"✅ Worker Tamamladı: {file_path}")
+        supabase.table('file_processing_queue').update({'status': 'completed'}).eq('id', job['id']).execute()
+        print(f"✅ Dosya Tamamlandı: {job['file_path']}")
+        return True
 
     except Exception as e:
-        print(f"❌ Worker Hatası: {e}")
-        supabase.table('file_processing_queue').update({'status': 'failed', 'error_message': str(e)}).eq('id', job['id']).execute()
+        print(f"❌ Dosya Hatası: {e}")
+        if 'job' in locals():
+            supabase.table('file_processing_queue').update({'status': 'failed', 'error_message': str(e)}).eq('id', job['id']).execute()
+        return False
 
+# --- İŞÇİ 2: SORU CEVAPLAMA (YENİ EKLENEN KISIM) ---
+def process_question_queue():
+    try:
+        # 1. 'analyzing' durumundaki soruları bul
+        res = supabase.table('questions').select("*").eq('status', 'analyzing').limit(1).execute()
+        if not res.data: return False
+
+        question = res.data[0]
+        q_text = f"{question['title']} \n {question['content']}"
+        print(f"⚖️ Soru Analiz Ediliyor: {question['title']}")
+
+        # 2. Embedding Al
+        vec = get_local_embedding(q_text)
+        
+        # 3. RAG Agent'a Sor (Async işlemi Sync içinde çalıştır)
+        # Not: Global rag_agent lifespan ile başlatıldığı için burada doğrudan erişilebilir
+        if rag_agent:
+            result = run_async(rag_agent.process(q_text, vec))
+            answer_text = result["answer"]
+        else:
+            answer_text = "Sistem şu an hukuk modülüne erişemiyor."
+
+        # 4. Cevabı 'answers' Tablosuna Ekle
+        answer_data = {
+            "question_id": question['id'],
+            "user_id": question['user_id'], # Cevabı soruyu soran kişinin adına değil, AI adına eklemek gerekebilir ama şema gereği user_id zorunluysa soran kişiyi veya AI bot ID'sini kullanın.
+            "content": answer_text,
+            "is_ai_generated": True,
+            "is_verified": False,
+            "ai_score": 85,
+            "upvotes": 0,
+            "downvotes": 0
+        }
+        
+        # Eğer sistemde bir 'AI Bot' kullanıcısı varsa onun ID'sini kullanmak daha iyi olur.
+        # Yoksa soruyu soran kişiye atıyoruz (geçici çözüm)
+        supabase.table('answers').insert(answer_data).execute()
+
+        # 5. Sorunun Durumunu Güncelle
+        supabase.table('questions').update({'status': 'answered'}).eq('id', question['id']).execute()
+        
+        print(f"✅ Soru Cevaplandı ve DB'ye Yazıldı.")
+        return True
+
+    except Exception as e:
+        print(f"❌ Soru Cevaplama Hatası: {e}")
+        # Hata durumunda loop'a girmemesi için durumu değiştirelim veya loglayalım
+        # supabase.table('questions').update({'status': 'failed'}).eq('id', question['id']).execute()
+        return False
+
+# --- ANA DÖNGÜ ---
 def run_worker_loop():
-    print("👷 Worker Thread Başladı...")
+    print("👷 Worker Thread (Dosya + Soru) Başladı...")
     while True:
         try:
-            res = supabase.table('file_processing_queue').select("*").eq('status', 'pending').limit(1).execute()
-            if res.data:
-                process_queue_item(res.data[0])
-            else:
+            # Önce dosya var mı bak
+            did_file = process_file_queue()
+            
+            # Sonra soru var mı bak
+            did_question = process_question_queue()
+
+            # İkisi de yoksa bekle
+            if not did_file and not did_question:
                 time.sleep(2)
+                
         except Exception as e:
             print(f"Worker Loop Error: {e}")
             time.sleep(5)
 
-# --- LIFESPAN (Başlatma Ayarları) ---
+# --- LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global guard, router, rag_agent
     
-    # 1. Guard (Güvenlik)
-    print("🛡️ GuardLayer Başlatılıyor...")
+    print("🛡️ Modüller Başlatılıyor...")
     guard = GuardLayer()
-
-    # 2. Router (Beyin)
-    print("🧠 Semantic Router Başlatılıyor...")
     router = SemanticRouter()
-
-    # 3. RAG Agent (Hukuk Uzmanı)
-    print("⚖️ RAG Agent Başlatılıyor...")
+    rag_agent = InternalRAGAgent(supabase)
     
-    # --- DÜZELTME BURADA YAPILDI ---
-    # RAG Ajanına embedding fonksiyonunu (BGE-M3) enjekte ediyoruz.
-    # Böylece rag.py içinde "Tier 2" sorgularını vektöre çevirebilir.
-    rag_agent = InternalRAGAgent(supabase, embedding_fn=get_local_embedding)
-    
-    # 4. Worker (Arka Plan)
+    # Worker Thread Başlat
     worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
     worker_thread.start()
     
-    print("🚀 BABYZLEXIT BACKEND HAZIR!")
+    print("🚀 BABYZLEXIT BACKEND & WORKER HAZIR!")
     yield
 
 app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- REQUEST MODELLERİ ---
-class EmbedRequest(BaseModel):
-    text: str
-
 class RouteRequest(BaseModel):
     query: str
 
-# --- ENDPOINTS ---
-
-@app.get("/")
-def health_check():
-    return {
-        "status": "active", 
-        "modules": ["Guard", "Router (Gemini)", "RAG Agent", "Local Embedding (BGE-M3)"]
-    }
-
-@app.post("/embed")
-async def create_embedding(req: EmbedRequest):
-    vector = get_local_embedding(req.text)
-    if not vector: raise HTTPException(status_code=500, detail="Embedding failed")
-    return {"embedding": vector}
-
 @app.post("/route")
 async def route_query(req: RouteRequest):
-    """
-    ANA GİRİŞ KAPISI
-    """
-    # 1. Güvenlik
-    security = await guard.analyze_input(req.query)
-    if not security.is_safe:
-         return {
-             "action": "blocked",
-             "response": f"Güvenlik Uyarısı: {security.reason}",
-             "confidence": 1.0
-         }
-
-    safe_query = security.refined_query or req.query
-    
-    # 2. Yönlendirme
-    decision = await router.route(safe_query)
-    
-    # RAG Tetikleme
-    if decision.action == "route" and decision.target_layer in ["internal_rag", "hybrid_research"]:
-        print(f"🔄 RAG Katmanı Tetikleniyor: {safe_query}")
-        
-        # İlk arama için yerel embedding
-        rag_vector = get_local_embedding(safe_query)
-        
-        if rag_vector:
-            # Artık process fonksiyonu hem soruyu hem de vektörü alıyor
-            rag_result = await rag_agent.process(safe_query, rag_vector)
-            
-            decision.cached_response = rag_result["answer"]
-            if rag_result.get("sources"):
-                decision.reasoning += f"\n[Referanslar: {', '.join(rag_result['sources'])}]"
-        else:
-            decision.reasoning += " (Embedding hatası nedeniyle RAG çalıştırılamadı)"
-
-    return decision
+    # API üzerinden de cevap verebilmek için (Chat ekranı vs.)
+    vec = get_local_embedding(req.query)
+    result = await rag_agent.process(req.query, vec)
+    return {"cached_response": result["answer"]}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
