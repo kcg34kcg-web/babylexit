@@ -39,7 +39,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Global Değişkenler
-embed_model = None  # Yerel BGE-M3 Modeli (Dosya işleme ve RAG araması için)
+embed_model = None  # Yerel BGE-M3 Modeli
 guard = None        # Güvenlik Katmanı
 router = None       # Yönlendirici (Gemini)
 rag_agent = None    # Hukuk Uzmanı (RAG)
@@ -57,6 +57,7 @@ except Exception as e:
 def get_local_embedding(text: str) -> List[float]:
     """BGE-M3 ile 1024 boyutlu vektör üretir."""
     try:
+        # Normalize embeddings=True önemlidir, cosine similarity için gereklidir.
         embedding = embed_model.encode(text, normalize_embeddings=True)
         return embedding.tolist()
     except Exception as e:
@@ -156,7 +157,11 @@ async def lifespan(app: FastAPI):
 
     # 3. RAG Agent (Hukuk Uzmanı)
     print("⚖️ RAG Agent Başlatılıyor...")
-    rag_agent = InternalRAGAgent(supabase)
+    
+    # --- DÜZELTME BURADA YAPILDI ---
+    # RAG Ajanına embedding fonksiyonunu (BGE-M3) enjekte ediyoruz.
+    # Böylece rag.py içinde "Tier 2" sorgularını vektöre çevirebilir.
+    rag_agent = InternalRAGAgent(supabase, embedding_fn=get_local_embedding)
     
     # 4. Worker (Arka Plan)
     worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
@@ -193,7 +198,6 @@ def health_check():
 
 @app.post("/embed")
 async def create_embedding(req: EmbedRequest):
-    """Dosya yükleme vb. için sadece embedding döner."""
     vector = get_local_embedding(req.text)
     if not vector: raise HTTPException(status_code=500, detail="Embedding failed")
     return {"embedding": vector}
@@ -201,12 +205,8 @@ async def create_embedding(req: EmbedRequest):
 @app.post("/route")
 async def route_query(req: RouteRequest):
     """
-    ANA GİRİŞ KAPISI:
-    1. Güvenlik Kontrolü
-    2. Rota Belirleme (Hukuk mu? Sohbet mi?)
-    3. Gerekirse RAG Çalıştırma (Cevabı üretme)
+    ANA GİRİŞ KAPISI
     """
-    
     # 1. Güvenlik
     security = await guard.analyze_input(req.query)
     if not security.is_safe:
@@ -218,25 +218,21 @@ async def route_query(req: RouteRequest):
 
     safe_query = security.refined_query or req.query
     
-    # 2. Yönlendirme (Gemini Düşünüyor)
+    # 2. Yönlendirme
     decision = await router.route(safe_query)
     
-    # Eğer Router "Hukuk" veya "Karmaşık" dediyse -> Avukatı Çağır (RAG)
+    # RAG Tetikleme
     if decision.action == "route" and decision.target_layer in ["internal_rag", "hybrid_research"]:
         print(f"🔄 RAG Katmanı Tetikleniyor: {safe_query}")
         
-        # RAG için Yerel Embedding Üret (Çünkü veritabanı BGE-M3 ile kayıtlı)
+        # İlk arama için yerel embedding
         rag_vector = get_local_embedding(safe_query)
         
         if rag_vector:
-            # RAG Agent'a sor
+            # Artık process fonksiyonu hem soruyu hem de vektörü alıyor
             rag_result = await rag_agent.process(safe_query, rag_vector)
             
-            # Cevabı Router sonucunun içine gömüyoruz
-            # Frontend sadece 'cached_response' alanına bakarak cevabı gösterebilir
             decision.cached_response = rag_result["answer"]
-            
-            # Kaynakları reasoning'e ekle (Debug için)
             if rag_result.get("sources"):
                 decision.reasoning += f"\n[Referanslar: {', '.join(rag_result['sources'])}]"
         else:
