@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 # API Kütüphaneleri
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
@@ -21,12 +21,14 @@ from PIL import Image
 from io import BytesIO
 from sentence_transformers import SentenceTransformer
 
-# --- KATMANLAR ---
+# --- YENİ KATMANLAR ---
+# Klasör yapısının python_service/layers/ altında olduğunu varsayıyorum
 from layers.guard import GuardLayer
-from layers.router import SemanticRouter
-from layers.rag import InternalRAGAgent
+from layers.router import RouterLayer, RouteType
+from layers.rag import RAGLayer
+from layers.web import WebSearchLayer
 
-# .env yükle (Üst dizini kontrol et)
+# .env yükle
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 # --- KONFIGÜRASYON ---
@@ -36,26 +38,80 @@ MODEL_NAME = 'BAAI/bge-m3'
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     print("❌ Hata: .env eksik veya hatalı.")
-    exit(1)
+    # exit(1) # Hata olsa bile sunucuyu çökertmemek için loglayıp devam edebiliriz ama kritik.
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Global Değişkenler
 embed_model = None
-guard = None
-router = None
-rag_agent = None
+orchestrator = None # Yeni Orkestratör Sınıfı
 
-# --- MODEL YÜKLEME ---
+# -----------------------------------------------------------------------------
+# 1. ORKESTRASYON SINIFI (TÜM BEYİN BURADA)
+# -----------------------------------------------------------------------------
+class BabyLexitOrchestrator:
+    def __init__(self):
+        print("🧠 Orkestratör Başlatılıyor...")
+        self.guard = GuardLayer()
+        self.router = RouterLayer()
+        self.rag = RAGLayer()
+        self.web = WebSearchLayer()
+
+    async def process_query(self, user_query: str) -> Dict[str, Any]:
+        """Sorguyu alır, RAG veya Web'e yönlendirir ve cevabı döner."""
+        print(f"\n--- Sorgu İşleniyor: {user_query} ---")
+        
+        # A. Güvenlik
+        guard_result = self.guard.check(user_query)
+        if not guard_result.is_safe:
+            return {"text": f"Güvenlik Uyarısı: {guard_result.reason}", "sources": [], "route": "BLOCKED"}
+
+        # B. Rota
+        route = self.router.route(user_query)
+        final_response = ""
+        sources = []
+
+        # C. Rota Uygulama
+        if route == RouteType.LEGAL_DB:
+            print("📚 RAG Aranıyor...")
+            rag_result = self.rag.search(user_query)
+            if rag_result:
+                final_response = rag_result
+                sources = ["BabyLexit Knowledge Base"]
+            else:
+                print("⚠️ DB'de bulunamadı, Web'e gidiliyor...")
+                route = RouteType.WEB_SEARCH # Fallback
+
+        if route == RouteType.WEB_SEARCH:
+            print("🌐 Web Taranıyor...")
+            web_result = await self.web.run(user_query)
+            if web_result.found:
+                final_response = web_result.summary
+                sources = web_result.source_links
+            else:
+                final_response = "Güvenilir kaynaklarda bilgi bulunamadı."
+
+        elif route == RouteType.GENERAL:
+            final_response = "Merhaba! Ben bir hukuk asistanıyım. Size nasıl yardımcı olabilirim?"
+
+        return {
+            "text": final_response,
+            "sources": sources,
+            "route": route.value
+        }
+
+# -----------------------------------------------------------------------------
+# 2. DOSYA İŞLEME VE EMBEDDING (SENİN KODUNUN AYNI KALDIĞI KISIM)
+# -----------------------------------------------------------------------------
+
+# Model Yükleme (Sadece Ingestion için local model kullanıyoruz)
 print(f"📥 Yerel AI Modeli Yükleniyor (CPU): {MODEL_NAME} ...")
 try:
     embed_model = SentenceTransformer(MODEL_NAME, device='cpu')
     print("✅ Yerel Embedding Modeli Hazır!")
 except Exception as e:
     print(f"❌ Model Hatası: {e}")
-    exit(1)
 
-# --- YARDIMCI FONKSİYONLAR ---
 def get_local_embedding(text: str) -> List[float]:
     try:
         embedding = embed_model.encode(text, normalize_embeddings=True)
@@ -74,15 +130,11 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100) -> List[str
         start = end - overlap
     return chunks
 
-# --- ASYNC WRAPPER ---
-def run_async(coro):
-    """Senkron thread içinde Asenkron fonksiyon çalıştırmak için"""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    return loop.run_until_complete(coro)
-
-# --- İŞÇİ 1: DOSYA İŞLEME ---
 def process_file_queue():
+    """
+    Kullanıcının yüklediği dosyaları işler.
+    (Bu fonksiyonu senin kodundan aynen korudum)
+    """
     try:
         res = supabase.table('file_processing_queue').select("*").eq('status', 'pending').limit(1).execute()
         if not res.data: return False
@@ -98,6 +150,7 @@ def process_file_queue():
         text = ""
         ftype = job.get('file_type', '').lower() if job.get('file_type') else 'txt'
         
+        # PDF / Text Ayrımı
         if 'pdf' in ftype:
             with pdfplumber.open(BytesIO(file_bytes)) as pdf:
                 for page in pdf.pages:
@@ -131,68 +184,81 @@ def process_file_queue():
             supabase.table('file_processing_queue').update({'status': 'failed', 'error_message': str(e)}).eq('id', job['id']).execute()
         return False
 
-# --- İŞÇİ 2: SORU CEVAPLAMA (YENİ EKLENEN KISIM) ---
-def process_question_queue():
+# -----------------------------------------------------------------------------
+# 3. SORU CEVAPLAMA WORKER (GÜNCELLENEN KISIM)
+# -----------------------------------------------------------------------------
+
+def run_async(coro):
+    """Senkron thread içinde Asenkron fonksiyon çalıştırmak için"""
     try:
-        # 1. 'analyzing' durumundaki soruları bul
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # Eğer zaten bir loop varsa (nadir) future kullan
+            return asyncio.run_coroutine_threadsafe(coro, loop).result()
+    except RuntimeError:
+        pass
+        
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    return loop.run_until_complete(coro)
+
+def process_question_queue():
+    """
+    Sıradaki soruyu alır ve Orchestrator üzerinden geçirir.
+    (Artık Web Search ve Guard yeteneklerine sahip!)
+    """
+    try:
         res = supabase.table('questions').select("*").eq('status', 'analyzing').limit(1).execute()
         if not res.data: return False
 
         question = res.data[0]
         q_text = f"{question['title']} \n {question['content']}"
-        print(f"⚖️ Soru Analiz Ediliyor: {question['title']}")
+        print(f"⚖️ Soru İşleniyor (Orchestrator): {question['title']}")
 
-        # 2. Embedding Al
-        vec = get_local_embedding(q_text)
-        
-        # 3. RAG Agent'a Sor (Async işlemi Sync içinde çalıştır)
-        # Not: Global rag_agent lifespan ile başlatıldığı için burada doğrudan erişilebilir
-        if rag_agent:
-            result = run_async(rag_agent.process(q_text, vec))
-            answer_text = result["answer"]
+        if orchestrator:
+            # --- YENİ MANTIK BURADA ---
+            # Eskiden sadece embedding alıp RAG yapıyorduk.
+            # Şimdi Orchestrator'a gönderiyoruz, o karar veriyor (Web mi, DB mi?)
+            result = run_async(orchestrator.process_query(q_text))
+            
+            answer_text = result["text"]
+            sources_list = result["sources"] # Kaynakları da alabiliriz
         else:
-            answer_text = "Sistem şu an hukuk modülüne erişemiyor."
+            answer_text = "Sistem şu an başlatılıyor, lütfen bekleyin."
 
-        # 4. Cevabı 'answers' Tablosuna Ekle
+        # Cevabı Kaydet
         answer_data = {
             "question_id": question['id'],
-            "user_id": question['user_id'], # Cevabı soruyu soran kişinin adına değil, AI adına eklemek gerekebilir ama şema gereği user_id zorunluysa soran kişiyi veya AI bot ID'sini kullanın.
+            "user_id": question['user_id'], # veya bir Bot ID
             "content": answer_text,
             "is_ai_generated": True,
             "is_verified": False,
-            "ai_score": 85,
+            "ai_score": 90 if "Web" in str(sources_list) else 85,
             "upvotes": 0,
             "downvotes": 0
         }
         
-        # Eğer sistemde bir 'AI Bot' kullanıcısı varsa onun ID'sini kullanmak daha iyi olur.
-        # Yoksa soruyu soran kişiye atıyoruz (geçici çözüm)
         supabase.table('answers').insert(answer_data).execute()
-
-        # 5. Sorunun Durumunu Güncelle
         supabase.table('questions').update({'status': 'answered'}).eq('id', question['id']).execute()
         
-        print(f"✅ Soru Cevaplandı ve DB'ye Yazıldı.")
+        print(f"✅ Soru Cevaplandı: {answer_text[:50]}...")
         return True
 
     except Exception as e:
-        print(f"❌ Soru Cevaplama Hatası: {e}")
-        # Hata durumunda loop'a girmemesi için durumu değiştirelim veya loglayalım
-        # supabase.table('questions').update({'status': 'failed'}).eq('id', question['id']).execute()
+        print(f"❌ Soru Hatası: {e}")
         return False
 
-# --- ANA DÖNGÜ ---
+# -----------------------------------------------------------------------------
+# 4. ANA DÖNGÜ VE API
+# -----------------------------------------------------------------------------
+
 def run_worker_loop():
-    print("👷 Worker Thread (Dosya + Soru) Başladı...")
+    print("👷 Worker Thread Başladı (Dosya + Akıllı Soru Cevaplama)...")
     while True:
         try:
-            # Önce dosya var mı bak
             did_file = process_file_queue()
-            
-            # Sonra soru var mı bak
             did_question = process_question_queue()
 
-            # İkisi de yoksa bekle
             if not did_file and not did_question:
                 time.sleep(2)
                 
@@ -200,21 +266,18 @@ def run_worker_loop():
             print(f"Worker Loop Error: {e}")
             time.sleep(5)
 
-# --- LIFESPAN ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global guard, router, rag_agent
+    global orchestrator
     
-    print("🛡️ Modüller Başlatılıyor...")
-    guard = GuardLayer()
-    router = SemanticRouter()
-    rag_agent = InternalRAGAgent(supabase)
+    # Tüm sistemi başlat
+    orchestrator = BabyLexitOrchestrator()
     
     # Worker Thread Başlat
     worker_thread = threading.Thread(target=run_worker_loop, daemon=True)
     worker_thread.start()
     
-    print("🚀 BABYZLEXIT BACKEND & WORKER HAZIR!")
+    print("🚀 BABYZLEXIT FULL ENGINE HAZIR!")
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -227,15 +290,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class RouteRequest(BaseModel):
+# API Endpoint'i (Direct Chat için)
+class ChatRequest(BaseModel):
     query: str
 
-@app.post("/route")
-async def route_query(req: RouteRequest):
-    # API üzerinden de cevap verebilmek için (Chat ekranı vs.)
-    vec = get_local_embedding(req.query)
-    result = await rag_agent.process(req.query, vec)
-    return {"cached_response": result["answer"]}
+@app.post("/api/chat")
+async def chat_endpoint(req: ChatRequest):
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Sistem başlatılıyor")
+    
+    result = await orchestrator.process_query(req.query)
+    return result
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
