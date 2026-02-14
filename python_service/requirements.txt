@@ -3,3 +3,6 @@ pydantic
 asyncio
 supabase
 python-dotenv
+duckduckgo-search
+beautifulsoup4
+httpx
