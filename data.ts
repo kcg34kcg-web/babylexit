@@ -115,7 +115,7 @@ export type Article = {
       title: "Theseus'un Gemisi",
       subtitle: "Değişim ve Kimlik",
       readTime: "40 sn",
-      content: `<p>Bir geminin tüm parçaları zamanla yenilenirse o hala aynı gemi midir? İnsan vücudu da 7 yılda bir tamamen yenilenir. 7 yıl önceki siz ile şimdiki siz aynı kişi misiniz?</p>`
+      content: `<p>Bir n tüm parçaları zamanla yenilenirse o hala aynı gemi midir? İnsan vücudu da 7 yılda bir tamamen yenilenir. 7 yıl önceki siz ile şimdiki siz aynı kişi misiniz?</p>`
     },
     {
       id: 14,

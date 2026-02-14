@@ -3,7 +3,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/utils/supabase/server";
 import { redis } from "@/lib/redis";
-// 1. GÜNCELLEME: Ödül sistemi yerine yeni Repütasyon sistemini import ediyoruz
 import { addReputation } from "./reputation"; 
 import { aiOrchestrator } from "@/lib/ai/orchestrator";
 
@@ -16,12 +15,11 @@ const genAI = new GoogleGenerativeAI(apiKey);
 
 // --- MODELLER ---
 const flashJSONModel = genAI.getGenerativeModel({ 
-  model: "gemini-1.5-flash", 
+  model: "gemini-2.0-flash", 
   generationConfig: { responseMimeType: "application/json" } 
 });
 
 const embeddingModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
-
 
 // =========================================================
 // KATMAN 0-A: GÜVENLİK VE GİRİŞ KONTROLÜ
@@ -88,6 +86,7 @@ function checkLocalRules(text: string): string | null {
 // YARDIMCI: LOGLAMA SİSTEMİ
 // =========================================================
 async function logAIAction(source: string, costSaved: boolean, startTime: number) {
+  // Arka planda çalışması için IIFE (Immediately Invoked Function Expression) kullanıyoruz, await etmiyoruz.
   (async () => {
     try {
       const duration = Date.now() - startTime;
@@ -164,7 +163,6 @@ async function searchVectorDB(embedding: number[]) {
   return null;
 }
 
-// 2. GÜNCELLEME: Repütasyon Tetikleyicisi Burada
 async function searchCommunityQuestions(embedding: number[]) {
   const supabase = await createClient();
   const { data: similarQuestions, error } = await supabase.rpc('match_community_questions', {
@@ -218,8 +216,8 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
   // 1. ADIM: REGEX GÜVENLİK
   const basicSafety = isBasicContentSafe(cleanQuestion);
   if (!basicSafety.isSafe) {
-     logAIAction('security_block', true, start);
-     return `⚠️ ${basicSafety.reason}`;
+      logAIAction('security_block', true, start);
+      return `⚠️ ${basicSafety.reason}`;
   }
 
   // 2. ADIM: ROUTER
@@ -238,10 +236,10 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
       try {
         const cachedObj = JSON.parse(cachedRaw);
         if (cachedObj && cachedObj.content) {
-             finalAnswer = cachedObj.content; 
-             console.log(`⚡ CACHE HIT: ${cachedObj.provider || 'Bilinmeyen'} kaynağından geldi.`);
+              finalAnswer = cachedObj.content; 
+              console.log(`⚡ CACHE HIT: ${cachedObj.provider || 'Bilinmeyen'} kaynağından geldi.`);
         } else {
-             finalAnswer = cachedRaw;
+              finalAnswer = cachedRaw;
         }
       } catch {
         finalAnswer = cachedRaw; 
@@ -279,7 +277,7 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
   }
 
   // ---------------------------------------------------------
-  // 6. ADIM: AI ORCHESTRATOR
+  // 6. ADIM: AI ORCHESTRATOR (GÜNCELLENDİ)
   // ---------------------------------------------------------
   
   const safetyCheck = await checkContentSafety(fullQuestion);
@@ -300,8 +298,27 @@ GÖREVLER:
 `;
 
   try {
-    const aiResult = await aiOrchestrator.getAnswer(fullQuestion, customContext);
-    let textAnswer = aiResult.content;
+    // DÜZELTME BAŞLANGICI: getAnswer yerine generateStaticResponse kullanıyoruz
+    // Context'i soruya ekleyerek tek bir prompt haline getiriyoruz.
+    const combinedPrompt = `${customContext}\n\nKULLANICI SORUSU:\n${fullQuestion}`;
+    
+    // aiOrchestrator'ın mevcut metodunu çağırıyoruz
+    // Bu metod muhtemelen { text: "...", ... } gibi bir yapı veya direkt string dönüyor olabilir.
+    // ai-engine.ts ve orchestrator.ts arasındaki uyumsuzluğu gidermek için sonucu any olarak alıp işliyoruz.
+    const aiResult: any = await aiOrchestrator.generateStaticResponse(combinedPrompt);
+    
+    // Dönen sonucun yapısına göre içeriği ve sağlayıcıyı alıyoruz
+    let textAnswer = "";
+    let providerName = "ai-orchestrator";
+
+    if (typeof aiResult === 'string') {
+        textAnswer = aiResult;
+    } else if (aiResult && typeof aiResult === 'object') {
+        // Olası dönüş formatlarını kontrol et (text, content, output vb.)
+        textAnswer = aiResult.text || aiResult.content || aiResult.answer || JSON.stringify(aiResult);
+        if (aiResult.provider) providerName = aiResult.provider;
+    }
+    // DÜZELTME BİTİŞİ
     
     if (fullQuestion.toLowerCase().includes("hukuk") || fullQuestion.toLowerCase().includes("dava") || fullQuestion.toLowerCase().includes("ceza")) {
         if (!textAnswer.includes("Yasal Uyarı")) {
@@ -312,11 +329,11 @@ GÖREVLER:
     // --- KAYIT İŞLEMLERİ ---
     await redis.set(cacheKey, JSON.stringify({
         content: textAnswer,
-        provider: aiResult.provider, 
+        provider: providerName, 
         timestamp: Date.now()
     }), 'EX', 86400);
 
-    console.log(`✅ YENİ CEVAP: ${aiResult.provider} tarafından üretildi.`);
+    console.log(`✅ YENİ CEVAP: ${providerName} tarafından üretildi.`);
 
     if (embedding) {
         (async () => {
@@ -326,16 +343,16 @@ GÖREVLER:
                 question_text: fullQuestion,
                 answer_text: textAnswer,
                 embedding: embedding,
-                provider: aiResult.provider 
+                provider: providerName 
               });
-              console.log(`💾 KNOWLEDGE SAVED: Yeni bilgi (${aiResult.provider}) veritabanına işlendi.`);
+              console.log(`💾 KNOWLEDGE SAVED: Yeni bilgi (${providerName}) veritabanına işlendi.`);
           } catch (dbError) {
             console.error("Vector DB save error (Background):", dbError);
           }
         })();
     }
 
-    logAIAction(aiResult.provider.toLowerCase(), false, start); 
+    logAIAction(providerName.toLowerCase(), false, start); 
     return textAnswer; 
 
   } catch (error: any) {
@@ -344,9 +361,9 @@ GÖREVLER:
   }
 }
 
-// ---------------------------------------------------------
+// =========================================================
 // EXTRA: CEVAP ANALİZİ
-// ---------------------------------------------------------
+// =========================================================
 export async function analyzeAnswer(answerId: string, content: string, questionTitle: string) {
   const supabase = await createClient();
   const prompt = `

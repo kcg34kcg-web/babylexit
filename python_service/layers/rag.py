@@ -1,186 +1,209 @@
 import os
 import json
 import asyncio
-import logging
-from typing import List, Dict, Any, Optional, Callable
-
+from typing import List, Dict, Any, Optional, Literal
+from pydantic import BaseModel, Field
 import google.generativeai as genai
-from supabase import Client
-from flashrank import Ranker, RerankRequest # pip install flashrank
+from supabase import create_client, Client
+from flashrank import Ranker, RerankRequest
 
-# Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- AYARLAR ---
+# 0 TL Stratejisi: Google Search'i sadece çok gerektiğinde kullan.
+# Eğer API kotan biterse burayı False yap, sistem sadece veritabanından çalışsın.
+ENABLE_WEB_SEARCH = True 
 
-# --- Gemini Konfigürasyonu ---
-MODEL_NAME = "gemini-1.5-flash" # json_mode desteği için 1.5-flash daha kararlı çalışır
+# Resmi Kaynaklar (Web araması yaparsa buraya odaklansın)
+TRUSTED_LEGAL_SITES = [
+    "resmigazete.gov.tr", "mevzuat.gov.tr", "tbmm.gov.tr", 
+    "anayasa.gov.tr", "danistay.gov.tr", "yargitay.gov.tr"
+]
 
-class InternalRAGAgent:
-    def __init__(self, supabase_client: Client, embedding_fn: Callable[[str], List[float]]):
-        """
-        :param supabase_client: Supabase bağlantısı
-        :param embedding_fn: Main.py'dan gelen yerel embedding fonksiyonu (BGE-M3)
-        """
-        self.supabase = supabase_client
-        self.embedding_fn = embedding_fn # <-- KRİTİK: Embedding yeteneği kazandırıldı
-        self.api_key = os.getenv("GEMINI_API_KEY")
+MODEL_NAME = "gemini-2.0-flash" 
+EMBEDDING_MODEL = "models/text-embedding-004" # DİKKAT: Bu model 768 boyutludur.
+
+# --- Veri Modelleri ---
+
+class RagResult(BaseModel):
+    found: bool
+    source_type: str = Field(description="'internal' veya 'external'")
+    context_str: str
+    sources: List[str]
+    chunks: List[Dict[str, Any]]
+
+class QueryIntent(BaseModel):
+    category: Literal["FACTUAL", "INTERNAL"]
+    reasoning: str
+
+# --- RAG Katmanı ---
+
+class RagLayer:
+    def __init__(self):
+        self.api_key = os.getenv("GOOGLE_API_KEY")
+        if not self.api_key:
+            raise ValueError("GOOGLE_API_KEY eksik!")
+        genai.configure(api_key=self.api_key)
         
-        if self.api_key:
-            genai.configure(api_key=self.api_key)
-            
-            # 1. Avukat Karakteri (Cevaplayıcı)
-            self.answer_model = genai.GenerativeModel(
-                model_name=MODEL_NAME,
-                system_instruction="""
-                Sen Babylexit'in Kıdemli Hukuk Danışmanısın.
-                Görevin: Sana verilen 'BELGE BAĞLAMI'nı kullanarak kullanıcı sorusunu yanıtlamak.
-                Kurallar:
-                1. Sadece verilen bağlamdaki bilgileri kullan. Bilgi yoksa uydurma.
-                2. Cevapların profesyonel ve hukuki terminolojiye uygun olsun.
-                3. Kaynak ismini (dosya adı) cevabın sonunda belirt.
-                """
+        # 1. Router & Chat Modeli (Hızlı ve Ucuz)
+        self.llm = genai.GenerativeModel(
+            MODEL_NAME,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        
+        # 2. Web Arama Modeli (Sadece ihtiyaç anında yüklenir)
+        if ENABLE_WEB_SEARCH:
+            self.web_model = genai.GenerativeModel(
+                MODEL_NAME,
+                tools=[{'google_search': {}}]
             )
 
-            # 2. Araç Modeli (Sorgu Genişletici - JSON Mode)
-            self.tool_model = genai.GenerativeModel(
-                model_name=MODEL_NAME,
-                generation_config={"response_mime_type": "application/json"}
-            )
-        
-        # 3. FlashRank (Reranker) - Başlangıçta yüklenir
-        print("⚖️ RAG: FlashRank Reranker yükleniyor...")
-        self.ranker = Ranker(model_name="ms-marco-TinyBERT-L-2-v2")
+        # 3. Supabase Bağlantısı
+        self.supabase_url = os.getenv("SUPABASE_URL")
+        self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if not self.supabase_url:
+            raise ValueError("SUPABASE Credentials eksik!")
+        self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
 
-    async def _expand_query(self, query: str) -> List[str]:
-        """Gemini ile soruyu çeşitlendirir."""
-        prompt = f"""
-        Kullanıcı hukuk sorusu sordu: "{query}"
-        Veritabanı araması için 3 alternatif arama terimi üret.
-        SADECE JSON listesi dön: ["terim1", "terim2", "terim3"]
+        # 4. Reranker (Yerel ve Bedava)
+        print("⚡ FlashRank (CPU) yükleniyor...")
+        self.ranker = Ranker(model_name="ms-marco-TinyBERT-L-2-v2", cache_dir="./.flashrank_cache")
+
+    async def _get_embedding(self, text: str) -> List[float]:
         """
+        Google Embedding (004) kullanır. 
+        UYARI: Çıktı 768 boyutludur. Supabase'deki kolonun vector(768) olması ŞARTTIR.
+        """
+        loop = asyncio.get_running_loop()
         try:
-            resp = await self.tool_model.generate_content_async(prompt)
-            return json.loads(resp.text)
+            result = await loop.run_in_executor(
+                None, 
+                lambda: genai.embed_content(
+                    model=EMBEDDING_MODEL,
+                    content=text,
+                    task_type="retrieval_query"
+                )
+            )
+            return result['embedding']
         except Exception as e:
-            logger.error(f"Query Expansion Hatası: {e}")
-            return [query]
-
-    async def retrieve_documents(self, embedding: List[float], limit: int = 10) -> List[Dict]:
-        """Tek bir embedding için Supabase araması."""
-        try:
-            response = self.supabase.rpc(
-                "match_documents",
-                {
-                    "query_embedding": embedding,
-                    "match_threshold": 0.30, # Gelişmiş aramada threshold'u düşürüp Reranker'a güveniyoruz
-                    "match_count": limit
-                }
-            ).execute()
-            return response.data if response.data else []
-        except Exception as e:
-            logger.error(f"DB Retrieval Hatası: {e}")
+            print(f"⚠️ Embedding Hatası: {e}")
             return []
 
-    async def generate_answer(self, query: str, context_docs: List[Dict]) -> Dict[str, Any]:
-        """Bağlamı kullanarak cevap üretir."""
-        if not context_docs:
-            return {
-                "answer": "Veri tabanımda bu konuyla ilgili yeterli hukuki dayanak bulamadım. Genel hukuk kuralları çerçevesinde yardımcı olmamı ister misiniz?",
-                "sources": []
-            }
-
-        context_text = ""
-        sources = []
-        for doc in context_docs:
-            meta = doc.get('metadata') or {}
-            # Metadata bazen string gelebilir, kontrol et
-            if isinstance(meta, str):
-                try: meta = json.loads(meta)
-                except: meta = {}
-                
-            source_name = meta.get('source', 'Bilinmeyen Belge')
-            context_text += f"---\n[KAYNAK: {source_name}]\nİÇERİK: {doc.get('content')}\n"
-            if source_name not in sources:
-                sources.append(source_name)
-
-        prompt = f"BELGE BAĞLAMI:\n{context_text}\n\nKULLANICI SORUSU:\n{query}\n\nLütfen yanıtla."
-
+    async def _classify_intent(self, query: str) -> QueryIntent:
+        """Sorguyu basitçe ikiye ayırır: İçeri mi bakayım, dışarı mı?"""
+        prompt = f"""
+        Bu hukuk asistanı için gelen sorguyu analiz et: "{query}"
+        
+        İki seçenek var:
+        1. "INTERNAL": Kullanıcının davası, dilekçesi, özel dosyaları veya karmaşık hukuk analizi. (Varsayılan budur)
+        2. "FACTUAL": Genel geçer bilgi sorusu (Örn: "Hava nasıl?", "Dolar kaç?", "Bugün tatil mi?").
+        
+        Cevabı JSON ver: {{ "category": "...", "reasoning": "..." }}
+        """
         try:
-            response = await self.answer_model.generate_content_async(prompt)
-            return {"answer": response.text, "sources": sources}
+            resp = await self.llm.generate_content_async(prompt)
+            return QueryIntent.model_validate_json(resp.text)
+        except:
+            return QueryIntent(category="INTERNAL", reasoning="Fail-safe")
+
+    async def _search_supabase(self, query: str) -> List[Dict]:
+        """Veritabanında vektör araması yapar."""
+        vector = await self._get_embedding(query)
+        if not vector: return []
+        
+        try:
+            # Supabase RPC
+            # Not: match_documents fonksiyonunun vector(768) kabul ettiğinden emin ol.
+            res = self.supabase.rpc('match_documents', {
+                'query_embedding': vector,
+                'match_threshold': 0.5, 
+                'match_count': 10
+            }).execute()
+            return res.data if res.data else []
         except Exception as e:
-            return {"answer": "Cevap üretilirken hata oluştu.", "sources": []}
+            print(f"⚠️ DB Hatası: {e}")
+            return []
 
-    async def process(self, query: str, initial_embedding: List[float]) -> Dict[str, Any]:
-        """
-        KADEMELİ ARAMA (TIERED SEARCH):
-        Adım 1: Hızlı Arama (Mevcut Embedding ile)
-        Adım 2: (Gerekirse) Gelişmiş Arama (Expansion + Reranking)
-        """
-        print(f"⚖️ RAG Başlıyor: '{query}'")
+    async def _web_fallback(self, query: str) -> RagResult:
+        """Google Araması yapar (0 TL bütçe için sadece zorunlu hallerde)"""
+        if not ENABLE_WEB_SEARCH:
+            return RagResult(found=False, source_type="none", context_str="", sources=[], chunks=[])
+            
+        print(f"🌍 Web Araması Yapılıyor: {query}")
+        try:
+            # Sadece güvenilir siteleri ekle (Prompt Engineering ile maliyetsiz filtre)
+            sites = " OR ".join([f"site:{s}" for s in TRUSTED_LEGAL_SITES])
+            prompt = f"Soruyu şu resmi kaynaklara göre cevapla ({sites}): {query}"
+            
+            resp = await self.web_model.generate_content_async(prompt)
+            
+            # Kaynakları ayıkla
+            sources = []
+            if resp.candidates and resp.candidates[0].grounding_metadata:
+                for chunk in resp.candidates[0].grounding_metadata.grounding_chunks:
+                    if hasattr(chunk, 'web'):
+                        sources.append(chunk.web.title or chunk.web.uri)
 
-        # --- AŞAMA 1: Hızlı Kontrol ---
-        docs = await self.retrieve_documents(initial_embedding, limit=5)
+            return RagResult(
+                found=True,
+                source_type="external",
+                context_str=resp.text,
+                sources=list(set(sources)),
+                chunks=[]
+            )
+        except Exception as e:
+            print(f"❌ Web Search Kotası/Hatası: {e}")
+            return RagResult(found=False, source_type="error", context_str="", sources=[], chunks=[])
+
+    async def process(self, query: str) -> RagResult:
+        print(f"🚀 İşleniyor: {query}")
         
-        # Karar Mekanizması: En iyi sonuç 0.75'ten düşükse Gelişmiş Arama'ya geç
-        # Not: Supabase RPC genellikle similarity skoru döner.
-        best_score = docs[0]['similarity'] if docs and 'similarity' in docs[0] else 0
-        print(f"📊 İlk Arama En İyi Skor: {best_score}")
+        # 1. Router: Saçma sorular için veritabanını yorma
+        intent = await self._classify_intent(query)
+        if intent.category == "FACTUAL":
+            print("💡 Genel bilgi sorusu tespit edildi.")
+            return await self._web_fallback(query)
 
-        if best_score > 0.75:
-            print("✅ Hızlı arama yeterli bulundu.")
-            return await self.generate_answer(query, docs)
-
-        # --- AŞAMA 2: Derinlemesine Araştırma ---
-        print("⚠️ Skor düşük, Gelişmiş Arama (Tier 2) başlatılıyor...")
+        # 2. Veritabanı Araması (Internal)
+        docs = await self._search_supabase(query)
         
-        # 1. Genişlet
-        variations = await self._expand_query(query)
-        search_queries = [query] + variations
-        print(f"🔍 Varyasyonlar: {variations}")
+        # 3. Sonuç Yoksa -> Web'e Git (Fallback)
+        if not docs:
+            print("⚠️ Veritabanında bulunamadı -> Web'e gidiliyor.")
+            return await self._web_fallback(query)
 
-        # 2. Paralel Embedding & Arama
-        # Not: embedding_fn main.py'da CPU'da çalışıyor, bloklamaması için to_thread
-        all_docs = []
-        
-        for q in search_queries:
-            # Main.py'dan gelen fonksiyonu kullan
-            vec = await asyncio.to_thread(self.embedding_fn, q)
-            if vec:
-                res = await self.retrieve_documents(vec, limit=10)
-                all_docs.extend(res)
-
-        # 3. Tekilleştirme (Deduplication)
-        unique_docs = {d['id']: d for d in all_docs}.values()
-        doc_list = list(unique_docs)
-        
-        if not doc_list:
-            return await self.generate_answer(query, [])
-
-        # 4. Reranking (Yeniden Sıralama)
+        # 4. Reranking (Bulunanları Sırala)
         passages = [
-            {"id": str(d['id']), "text": d['content'], "meta": d.get('metadata')} 
-            for d in doc_list
+            {"id": str(d['id']), "text": d.get('content', ''), "meta": d.get('metadata', {})} 
+            for d in docs
         ]
+        rerank_req = RerankRequest(query=query, passages=passages)
+        ranked = self.ranker.rerank(rerank_req)
         
-        try:
-            rerank_req = RerankRequest(query=query, passages=passages)
-            ranked = await asyncio.to_thread(self.ranker.rank, rerank_req)
-            
-            # En iyi 5'i al (Skor > 0.60 filtresi eklenebilir)
-            top_docs_data = [r for r in ranked if r['score'] > 0.60][:5]
-            
-            # Orijinal formata geri dön
-            final_docs = []
-            for r in top_docs_data:
-                final_docs.append({
-                    "content": r['text'],
-                    "metadata": r.get('meta')
-                })
-            print(f"🏆 Rerank Sonrası Seçilen: {len(final_docs)} belge")
-            
-        except Exception as e:
-            logger.error(f"Rerank hatası: {e}")
-            final_docs = doc_list[:5]
+        # En iyi 5 sonuç
+        final = ranked[:5]
 
-        return await self.generate_answer(query, final_docs)
+        # Eğer Rerank sonucu bile çok kötüyse (Skor < 0.20), Web'e git
+        if not final or final[0]['score'] < 0.20:
+             print("⚠️ Sonuçlar yetersiz -> Web'e gidiliyor.")
+             return await self._web_fallback(query)
+
+        # 5. Internal Cevap Hazırlığı
+        context = "\n---\n".join([f"Kaynak: {i['meta'].get('source')}\n{i['text']}" for i in final])
+        
+        return RagResult(
+            found=True,
+            source_type="internal",
+            context_str=context,
+            sources=[i['meta'].get('source') for i in final],
+            chunks=final
+        )
+
+# Test Bloğu
+if __name__ == "__main__":
+    async def main():
+        rag = RagLayer()
+        # Test: Veritabanında olmayan bir şey soralım
+        res = await rag.process("İstanbul bugün kaç derece?")
+        print(f"Kaynak: {res.source_type}")
+        print(res.context_str[:200])
+
+    asyncio.run(main())

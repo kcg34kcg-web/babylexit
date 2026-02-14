@@ -27,7 +27,7 @@ class GuardOutput(BaseModel):
 class GuardLayer:
     """
     Sentinel Guard Layer (Layer 1)
-    Filters input for injections, illegal intent, and gibberish using gemini-3-flash-preview.
+    Filters input for injections, illegal intent, and gibberish using gemini-2.0-flash.
     Updated for Google GenAI SDK v1.0+
     """
     def __init__(self):
@@ -139,7 +139,7 @@ AI: {"reason": "Standard legal procedure question.", "category": "SAFE", "is_saf
         try:
             # --- YENİ ÇAĞRI METODU ---
             response = await self.client.aio.models.generate_content(
-                model="gemini-3-flash-preview",
+                model="gemini-2.0-flash",
                 contents=sanitized_query,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",

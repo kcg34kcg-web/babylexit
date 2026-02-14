@@ -9,7 +9,7 @@ from typing import Literal, Optional, List, Dict, Any
 # --- Gemini 3.0 Konfigürasyonu ---
 # Not: Gemini 3 için model ismi genellikle 'gemini-3-flash-preview' veya 'gemini-3-flash'tır.
 # Router için 'thinking_level' parametresini 'low' tutarak hızı artırıyoruz.
-MODEL_NAME = "gemini-3-flash-preview" 
+MODEL_NAME = "gemini-2.0-flash" 
 
 class RouteDecision(BaseModel):
     action: Literal["cache_hit", "route"]
