@@ -39,14 +39,19 @@ import pytesseract
 from PIL import Image
 from sentence_transformers import SentenceTransformer
 
-# --- 3. LANGGRAPH ORKESTRASYONU ---
+# --- 3. LANGGRAPH ORKESTRASYONU (HATA DETAYI EKLENDİ) ---
 try:
+    import graph
     from graph import start_analysis, app as graph_app
     logger.info("✅ Graph modülü başarıyla yüklendi.")
 except Exception as e:
+    # BURASI GENİŞLETİLDİ: SİLME YAPILMADI, SADECE HATA DETAYI İÇİN TRACEBACK EKLENDİ
+    import traceback
     start_analysis = None
     graph_app = None
-    logger.warning(f"⚠️ UYARI: graph.py yüklenemedi veya çalıştırılamadı. Hata: {e}")
+    logger.error("❌ GRAPH MODÜLÜ YÜKLENİRKEN HATA OLUŞTU!")
+    traceback.print_exc() # Hatanın hangi dosyada olduğunu terminale basar
+    logger.warning(f"⚠️ Hata özeti: {e}")
     logger.warning("AI motoru sınırlı modda (Sadece Dosya İşleme ve Embedding) çalışacak.")
 
 # --- 4. KONFIGÜRASYON KONTROLÜ ---
