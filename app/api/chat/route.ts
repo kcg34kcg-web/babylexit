@@ -1,4 +1,5 @@
 import { aiOrchestrator } from '@/lib/ai/orchestrator';
+import { askBabyLexitEngine } from '@/utils/python-bridge';
 
 // Vercel'de fonksiyonun maksimum çalışma süresini 60 saniye yapıyoruz
 export const maxDuration = 60; 
@@ -20,54 +21,48 @@ export async function POST(req: Request) {
   try {
     console.log("🐍 Python Backend'e soruluyor:", query);
     
-    const pythonResponse = await fetch('http://127.0.0.1:8000/route', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: query }),
-      // HATA 1 DÜZELTİLDİ: Süreyi 5 saniyeden 60 saniyeye çıkardık.
-      signal: AbortSignal.timeout(60000) 
-    });
+    // utils/python-bridge içindeki fonksiyonu çağırıyoruz
+    const engineResponse = await askBabyLexitEngine(query);
 
-    if (pythonResponse.ok) {
-      const data = await pythonResponse.json();
-      const pythonAnswer = data.cached_response;
+    // Python tarafı başarılı bir cevap döndüyse (Hata rotasında değilse)
+    if (engineResponse && engineResponse.route !== "ERROR") {
+      console.log("✅ Cevap Python Backend'den döndü.");
 
-      if (pythonAnswer) {
-        console.log("✅ Cevap Python Backend'den döndü.");
+      // --- SENİN ORİJİNAL STREAM PROTOKOLÜN ---
+      let pythonAnswer = engineResponse.text;
 
-        // --- HATA 2 DÜZELTİLDİ: STREAM PROTOKOLÜ ---
-        // Frontend'in (useChat) anlayacağı formata çeviriyoruz: '0:"mesaj"\n'
-        
-        // 1. Cevabı güvenli bir JSON stringine çevir (Tırnak işaretlerini bozulmadan saklar)
-        const encodedAnswer = JSON.stringify(pythonAnswer);
-        
-        // 2. SDK Protokolü: '0:' öneki + string veri + '\n' satır sonu
-        const streamData = `0:${encodedAnswer}\n`;
-
-        const stream = new ReadableStream({
-          start(controller) {
-            // Düz metni DEĞİL, bu özel formatlı veriyi gönderiyoruz
-            controller.enqueue(new TextEncoder().encode(streamData));
-            controller.close();
-          },
-        });
-
-        return new Response(stream, {
-          headers: { 
-            'Content-Type': 'text/plain; charset=utf-8',
-            'X-Vercel-AI-Data-Stream': 'true' 
-          },
-        });
+      // Kaynak linklerini senin formatında metne ekliyoruz
+      if (engineResponse.source_links && engineResponse.source_links.length > 0) {
+        pythonAnswer += "\n\n**Kaynaklar:**\n" + engineResponse.source_links.map(link => `- ${link}`).join('\n');
       }
-    } else {
-        console.warn(`Python Backend Hatası: ${pythonResponse.status}`);
+
+      // 1. Cevabı güvenli bir JSON stringine çevir (Tırnak işaretlerini korur)
+      const encodedAnswer = JSON.stringify(pythonAnswer);
+      
+      // 2. SDK Protokolü: '0:' öneki + string veri + '\n' satır sonu
+      const streamData = `0:${encodedAnswer}\n`;
+
+      const stream = new ReadableStream({
+        start(controller) {
+          // Senin orijinal controller yapın
+          controller.enqueue(new TextEncoder().encode(streamData));
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        headers: { 
+          'Content-Type': 'text/plain; charset=utf-8',
+          'X-Vercel-AI-Data-Stream': 'true' 
+        },
+      });
     }
   } catch (error) {
     console.warn("⚠️ Python Backend erişilemedi veya zaman aşımı, Fallback devreye giriyor:", error);
   }
 
   // --- 2. AŞAMA: FALLBACK (ESKİ SİSTEM - YEDEK) ---
-  // Eğer Python backend kapalıysa veya hata verdiyse burası çalışır.
+  // Python backend kapalıysa veya hata verdiyse burası çalışır (Orijinal Kodun).
   try {
     const history = messages.slice(0, -1);
     const result = await aiOrchestrator.generateResponse(query, history);

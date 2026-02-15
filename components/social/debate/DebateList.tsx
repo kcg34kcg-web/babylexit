@@ -19,6 +19,8 @@ export default function DebateList() {
         if (data.length === 0) {
             setHasMore(false);
         } else {
+            // Eğer sayfa 0 ise (yenileme), eski veriyi sil yeni geleni koy.
+            // Sayfa > 0 ise (daha fazla yükle), eski verinin üzerine ekle.
             setDebates(prev => currentPage === 0 ? data : [...prev, ...data]);
         }
     } catch (error) {

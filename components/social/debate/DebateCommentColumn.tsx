@@ -1,11 +1,9 @@
 'use client';
 
-import { Send, ThumbsUp, ThumbsDown, ChevronUp, ChevronDown } from "lucide-react";
+import { ThumbsUp, ThumbsDown, Send } from "lucide-react";
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { voteComment } from "@/app/actions/debate"; // Action'ı import ettik
-import { toast } from "react-hot-toast";
-import { useState } from "react";
+import PersuasionButton from "./PersuasionButton"; // YENİ: Butonu import ettik
 
 interface Props {
   side: 'A' | 'B';
@@ -16,11 +14,10 @@ interface Props {
   inputText: string;
   setInputText: (text: string) => void;
   isSending: boolean;
-  refreshComments: () => void; // Yorum puanı değişince listeyi yenilemek için
 }
 
 export default function DebateCommentColumn({ 
-  side, title, count, comments, onSend, inputText, setInputText, isSending, refreshComments 
+  side, title, count, comments, onSend, inputText, setInputText, isSending 
 }: Props) {
   
   const isGreen = side === 'A';
@@ -35,16 +32,6 @@ export default function DebateCommentColumn({
     Icon: isGreen ? ThumbsUp : ThumbsDown
   };
 
-  // Yorum Oylama Fonksiyonu
-  const handleCommentVote = async (commentId: string, type: 1 | -1) => {
-    const res = await voteComment(commentId, type);
-    if (res.error) {
-        toast.error(res.error);
-    } else {
-        refreshComments(); // Puanı güncelle
-    }
-  };
-
   return (
     <div className="flex flex-col gap-4 h-full">
        
@@ -52,7 +39,7 @@ export default function DebateCommentColumn({
        <div className={`${colorTheme.bgSoft} border ${colorTheme.borderSoft} p-4 rounded-2xl flex items-center justify-between`}>
           <h3 className={`font-bold ${colorTheme.textDark} flex items-center gap-2 text-sm`}>
              <colorTheme.Icon size={18} className={`${colorTheme.fillBase} ${colorTheme.textBase}`} />
-             {title.toUpperCase()}
+             {title}
           </h3>
           <span className={`text-xs font-semibold bg-white px-2 py-1 rounded-md ${colorTheme.textBase} shadow-sm border ${colorTheme.borderSoft}`}>
             {count} Oy
@@ -70,39 +57,43 @@ export default function DebateCommentColumn({
               comments.map((c: any) => (
                 <div key={c.id} className={`bg-white p-3 rounded-xl border-l-4 ${colorTheme.borderLeft} shadow-sm border border-slate-100 flex gap-3`}>
                    
-                   {/* Oylama Kısmı (Sol taraf) */}
-                   <div className="flex flex-col items-center justify-start pt-1 gap-0.5">
-                      <button onClick={() => handleCommentVote(c.id, 1)} className={`p-1 rounded hover:bg-slate-100 ${c.userVoteStatus === 1 ? 'text-amber-500' : 'text-slate-400'}`}>
-                        <ChevronUp size={18} strokeWidth={3} />
-                      </button>
-                      <span className={`text-[10px] font-bold ${c.score > 0 ? 'text-slate-700' : 'text-slate-400'}`}>
-                        {c.score || 0}
-                      </span>
-                      <button onClick={() => handleCommentVote(c.id, -1)} className={`p-1 rounded hover:bg-slate-100 ${c.userVoteStatus === -1 ? 'text-blue-500' : 'text-slate-400'}`}>
-                        <ChevronDown size={18} strokeWidth={3} />
-                      </button>
+                   {/* YENİ: İkna Butonu Entegrasyonu */}
+                   <div className="pt-1">
+                      <PersuasionButton 
+                        debateId={c.debate_id}
+                        commentId={c.id}
+                        authorId={c.user_id}
+                        initialCount={c.persuasion_count || 0}
+                        initialHasPersuaded={c.hasPersuaded}
+                        isOwnComment={c.isOwnComment}
+                      />
                    </div>
 
                    {/* Yorum İçeriği */}
                    <div className="flex-1">
                        <div className="flex justify-between items-start mb-1">
                           <div className="flex items-center gap-2">
-                              <div className="w-5 h-5 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
+                              <div className="w-6 h-6 rounded-full bg-slate-100 overflow-hidden border border-slate-200">
                                   {c.profiles?.avatar_url ? (
                                     <img src={c.profiles.avatar_url} alt="" className="w-full h-full object-cover" />
                                   ) : (
                                     <div className="w-full h-full flex items-center justify-center text-[8px] font-bold text-slate-400">?</div>
                                   )}
                               </div>
-                              <span className="font-bold text-xs text-slate-900">
-                                  {c.profiles?.full_name || 'Anonim'}
-                              </span>
+                              <div className="flex flex-col">
+                                <span className="font-bold text-xs text-slate-900 leading-none">
+                                    {c.profiles?.full_name || 'Anonim'}
+                                </span>
+                                {c.profiles?.job_title && (
+                                    <span className="text-[9px] text-slate-500 mt-0.5">{c.profiles.job_title}</span>
+                                )}
+                              </div>
                           </div>
                           <span className="text-[9px] text-slate-400">
                               {formatDistanceToNow(new Date(c.created_at), { addSuffix: true, locale: tr })}
                           </span>
                        </div>
-                       <p className="text-slate-700 text-sm leading-relaxed">{c.content}</p>
+                       <p className="text-slate-700 text-sm leading-relaxed mt-1">{c.content}</p>
                    </div>
                 </div>
               ))
@@ -112,19 +103,19 @@ export default function DebateCommentColumn({
        {/* Input Alanı */}
        <div className="mt-auto bg-white p-2 rounded-full border border-slate-200 shadow-sm flex items-center gap-2 pl-4 focus-within:ring-2 ring-slate-200 transition-all">
           <input 
-             type="text" 
-             value={inputText}
-             onChange={(e) => setInputText(e.target.value)}
-             placeholder={`${title} için bir argüman yaz...`}
-             className="flex-1 bg-transparent outline-none text-xs text-slate-700 placeholder:text-slate-400"
-             onKeyDown={(e) => e.key === 'Enter' && onSend()}
+              type="text" 
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder={`${title} için bir argüman yaz...`}
+              className="flex-1 bg-transparent outline-none text-xs text-slate-700 placeholder:text-slate-400"
+              onKeyDown={(e) => e.key === 'Enter' && onSend()}
           />
           <button 
             onClick={onSend}
             disabled={isSending || !inputText.trim()}
             className={`${colorTheme.btnBg} text-white p-2 rounded-full transition-colors disabled:opacity-50`}
           >
-             {isSending ? <span className="animate-spin block w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span> : <Send size={16} />}
+              {isSending ? <span className="animate-spin block w-4 h-4 border-2 border-white/30 border-t-white rounded-full"></span> : <Send size={16} />}
           </button>
        </div>
     </div>

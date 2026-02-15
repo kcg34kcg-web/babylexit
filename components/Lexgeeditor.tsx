@@ -1,7 +1,6 @@
 'use client';
 
-
-import { useEditor, EditorContent } from '@tiptap/react';
+import { useEditor, EditorContent, BubbleMenu, FloatingMenu } from '@tiptap/react';
 import { StarterKit } from '@tiptap/starter-kit';
 import { Underline } from '@tiptap/extension-underline';
 import { TextSelection } from '@tiptap/pm/state';
@@ -19,6 +18,12 @@ import { Color } from '@tiptap/extension-color';
 import { Highlight } from '@tiptap/extension-highlight';
 import { FontFamily } from '@tiptap/extension-font-family';
 
+// İKONLAR (Bubble Menu ve Floating Menu için eklendi)
+import { 
+  Bold, Italic, Underline as UnderlineIcon, 
+  AlignLeft, AlignCenter, AlignRight, Heading1, Heading2 
+} from 'lucide-react';
+
 import { Node, mergeAttributes } from '@tiptap/core';
 import { useState, useEffect } from 'react';
 import { EditorToolbar } from './editor/EditorToolbar';
@@ -31,7 +36,7 @@ declare module '@tiptap/core' {
   }
 }
 
-// --- ÖZEL DİPNOT DÜĞÜMÜ ---
+// --- ÖZEL DİPNOT DÜĞÜMÜ (KORUNDU) ---
 const FootnoteNode = Node.create({
   name: 'footnote',
   group: 'inline',
@@ -83,7 +88,7 @@ const TextEditor = () => {
         class: 'focus:outline-none max-w-none w-full text-slate-900', 
         style: 'font-family: "Times New Roman", Times, serif;' 
       },
-      // --- GÜNCELLENMİŞ SÜRÜKLE-BIRAK (DRAG & DROP) MANTIĞI ---
+      // --- MEVCUT SÜRÜKLE-BIRAK MANTIĞI (KORUNDU) ---
       handleDrop: (view, event, slice, moved) => {
         // Eğer editör içinden değil de dışarıdan (sağ panelden) geliyorsa
         if (!moved && event.dataTransfer && event.dataTransfer.getData('text/plain')) {
@@ -96,36 +101,11 @@ const TextEditor = () => {
             const title = parts[0]; 
             const content = parts.slice(1).join('<br/>'); // Geri kalan satırları birleştir
 
-            // ProseMirror/TipTap transaction kullanarak HTML ekliyoruz
-            // Not: Normalde editor.chain() burada çalışmayabilir, bu yüzden view kullanıyoruz ama 
-            // en temiz yöntem useEffect ile editor instance'ına erişmekti. 
-            // Ancak sürüklenen yere tam bırakmak için burada bir trick (hile) yapıp
-            // manuel HTML oluşturmak yerine Event Listener'ı tetiklemek de bir yöntemdir.
-            // Fakat burada doğrudan transaction ile çözelim:
             
-            // Basit çözüm: Olayı durdur ve manuel ekle (eğer editor instance'ı global olsaydı)
-            // Ancak editor instance'ı hook içinde. O yüzden burada view.dispatch ile ekleme yapacağız.
-            
-            // Daha güvenli ve şık bir yol:
-            // Sadece metni bırakmayı engelliyoruz ve aşağıda useEffect ile dinlediğimiz yapıyı kullanıyoruz?
-            // Hayır, Drag&Drop anlık olmalı.
-             
             // -- BASİT SÜRÜKLEME ÇÖZÜMÜ --
             // Eğer başlık ve içerik ayrışabiliyorsa özel format, yoksa düz metin.
             if (parts.length > 1) {
-                // Şema üzerinden node oluşturmak karmaşık olabilir, bu yüzden
-                // HTML parse edip insertHTML komutu simüle ediyoruz.
-                const htmlContent = `<blockquote><strong>${title}</strong><br/>${content}</blockquote><p></p>`;
-                
-                // Koordinata odaklan
-                const { tr } = view.state;
-                tr.setSelection(TextSelection.near(view.state.doc.resolve(coordinates.pos)));                // Bu yüzden basitçe "return false" yapıp varsayılan davranışı (düz metin) 
-                // engellemek ve manuel işlem yapmak gerekir.
-                // En temiz yöntem: Buradan bir event fırlatıp useEffect'te yakalamak olabilir ama koordinat kaybolur.
-                
-                // ama useEffect hook'u "Metne Ekle" butonu için asıl şık formatı sağlayacak.
-                
-                // -- EN PRATİK ÇÖZÜM: --
+
                 // Olayı burada tüketiyoruz (preventDefault).
                 event.preventDefault();
                 
@@ -150,7 +130,7 @@ const TextEditor = () => {
     `,
   });
 
-  // --- 1. BUTON İLE EKLEME VE 2. SÜRÜKLEME İLE EKLEME DİNLEYİCİSİ ---
+  // --- 1. BUTON İLE EKLEME VE 2. SÜRÜKLEME İLE EKLEME DİNLEYİCİSİ (KORUNDU) ---
   useEffect(() => {
     // Butona basınca (İmlecin olduğu yere ekler)
     const handleInsertLegalText = (e: Event) => {
@@ -195,8 +175,42 @@ const TextEditor = () => {
       {/* TOOLBAR */}
       <EditorToolbar editor={editor} isFullscreen={isFullscreen} setIsFullscreen={setIsFullscreen} />
 
-      <div className="flex-1 overflow-y-auto flex justify-center custom-scrollbar pb-20">
-        <div className="editor-wrapper w-full max-w-[850px]" onClick={() => editor.commands.focus()}>
+      {/* --- YENİ EKLENEN: BUBBLE MENU (Metin seçince çıkar) --- */}
+      {editor && (
+        <BubbleMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex bg-white shadow-xl border border-slate-200 rounded-lg overflow-hidden p-1 gap-1">
+          <button onClick={() => editor.chain().focus().toggleBold().run()} className={`p-1.5 rounded hover:bg-slate-100 ${editor.isActive('bold') ? 'text-orange-600 bg-orange-50' : 'text-slate-600'}`}>
+            <Bold size={16} />
+          </button>
+          <button onClick={() => editor.chain().focus().toggleItalic().run()} className={`p-1.5 rounded hover:bg-slate-100 ${editor.isActive('italic') ? 'text-orange-600 bg-orange-50' : 'text-slate-600'}`}>
+            <Italic size={16} />
+          </button>
+          <button onClick={() => editor.chain().focus().toggleUnderline().run()} className={`p-1.5 rounded hover:bg-slate-100 ${editor.isActive('underline') ? 'text-orange-600 bg-orange-50' : 'text-slate-600'}`}>
+            <UnderlineIcon size={16} />
+          </button>
+          <div className="w-px bg-slate-200 mx-1" />
+          <button onClick={() => editor.chain().focus().setTextAlign('left').run()} className={`p-1.5 rounded hover:bg-slate-100 ${editor.isActive({ textAlign: 'left' }) ? 'text-orange-600 bg-orange-50' : 'text-slate-600'}`}>
+            <AlignLeft size={16} />
+          </button>
+           <button onClick={() => editor.chain().focus().setTextAlign('center').run()} className={`p-1.5 rounded hover:bg-slate-100 ${editor.isActive({ textAlign: 'center' }) ? 'text-orange-600 bg-orange-50' : 'text-slate-600'}`}>
+            <AlignCenter size={16} />
+          </button>
+        </BubbleMenu>
+      )}
+
+      {/* --- YENİ EKLENEN: FLOATING MENU (Boş satıra tıklayınca solunda çıkar) --- */}
+      {editor && (
+        <FloatingMenu editor={editor} tippyOptions={{ duration: 100 }} className="flex bg-white shadow-xl border border-slate-200 rounded-lg overflow-hidden p-1 gap-1 -ml-12">
+          <button onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()} className={`flex items-center gap-2 px-2 py-1 text-xs font-medium rounded hover:bg-slate-100 ${editor.isActive('heading', { level: 1 }) ? 'text-orange-600' : 'text-slate-600'}`}>
+            <Heading1 size={14} /> Başlık 1
+          </button>
+          <button onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()} className={`flex items-center gap-2 px-2 py-1 text-xs font-medium rounded hover:bg-slate-100 ${editor.isActive('heading', { level: 2 }) ? 'text-orange-600' : 'text-slate-600'}`}>
+            <Heading2 size={14} /> Başlık 2
+          </button>
+        </FloatingMenu>
+      )}
+
+      <div className="flex-1 overflow-y-auto flex justify-center custom-scrollbar pb-20 bg-slate-100/50">
+        <div className="editor-wrapper w-full" onClick={() => editor.commands.focus()}>
            <EditorContent editor={editor} />
         </div>
       </div>
@@ -206,13 +220,26 @@ const TextEditor = () => {
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         
+        /* --- GÜNCELLENMİŞ KAĞIT GÖRÜNÜMÜ (WORD HİSSİ) --- */
+        .editor-wrapper {
+          padding: 40px 0;
+          display: flex;
+          justify-content: center;
+        }
+
         .editor-wrapper .ProseMirror {
           background-color: #ffffff;
-          min-height: 1123px;
-          padding: 96px; 
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+          width: 210mm; /* A4 Genişliği */
+          min-height: 297mm; /* A4 Yüksekliği */
+          padding: 2.5cm; /* Standart kenar boşlukları (yaklaşık 96px) */
+          box-shadow: 0 0 15px rgba(0, 0, 0, 0.05); /* Yumuşak gölge */
           border: 1px solid #e2e8f0;
-          border-radius: 4px;
+          box-sizing: border-box; /* Padding dahil boyutlandırma */
+        }
+        
+        /* Odaklanınca mavi çerçeveyi kaldır */
+        .editor-wrapper .ProseMirror:focus {
+           outline: none;
         }
 
         .editor-wrapper .ProseMirror p { margin-bottom: 1em; line-height: 1.5; }
@@ -222,84 +249,60 @@ const TextEditor = () => {
         
         .editor-wrapper .ProseMirror span { transition: background-color 0.2s; }
 
-        /* --- ŞIK ALINTI (BLOCKQUOTE) STİLİ --- */
+        /* Blockquote Stili */
         .editor-wrapper .ProseMirror blockquote {
-          border-left: 4px solid #f97316; /* Orange-500 */
-          margin-left: 0;
-          margin-right: 0;
-          padding-left: 1rem;
-          padding-top: 0.5rem;
-          padding-bottom: 0.5rem;
+          border-left: 4px solid #f97316;
+          margin-left: 0; margin-right: 0;
+          padding: 0.5rem 1rem;
           font-style: italic;
-          background-color: #fff7ed; /* Orange-50 */
+          background-color: #fff7ed;
           color: #4b5563;
           border-radius: 0 4px 4px 0;
         }
-        
-        .editor-wrapper .ProseMirror blockquote strong {
-            color: #c2410c; /* Orange-700 */
-            font-style: normal;
-            display: block;
-            margin-bottom: 0.25rem;
-        }
+        .editor-wrapper .ProseMirror blockquote strong { color: #c2410c; display: block; margin-bottom: 0.25rem; }
 
+        /* Dipnot Stili */
         sup[data-footnote] {
-          color: #ea580c;
-          cursor: help;
-          font-weight: bold;
-          font-size: 11px;
-          padding: 2px 4px;
-          margin: 0 2px;
-          background: #ffedd5;
-          border-radius: 4px;
-          border: 1px solid #fed7aa;
-          vertical-align: super;
+          color: #ea580c; cursor: help; font-weight: bold; font-size: 11px;
+          padding: 2px 4px; margin: 0 2px; background: #ffedd5;
+          border-radius: 4px; border: 1px solid #fed7aa; vertical-align: super;
         }
 
+        /* --- GÜNCELLENMİŞ TABLO STİLİ (DAHA PROFESYONEL) --- */
         .editor-wrapper .ProseMirror table {
           border-collapse: collapse;
           table-layout: fixed;
           width: 100%;
           margin: 1em 0;
+          border: 1px solid #000; /* Net siyah kenarlık */
         }
         .editor-wrapper .ProseMirror td, .editor-wrapper .ProseMirror th {
           min-width: 1em;
-          border: 1px solid #cbd5e1;
+          border: 1px solid #000;
           padding: 8px;
           vertical-align: top;
           box-sizing: border-box;
           position: relative;
         }
-        .editor-wrapper .ProseMirror th { background-color: #f8fafc; font-weight: bold; }
+        .editor-wrapper .ProseMirror th { background-color: #f1f5f9; font-weight: bold; }
 
+        /* --- SAYFA SONU (WORD GİBİ BOŞLUK) --- */
         .editor-wrapper .ProseMirror hr {
           border: none;
-          background-color: #f1f5f9; 
-          height: 40px; 
-          margin-top: 96px; 
-          margin-bottom: 96px; 
-          margin-left: -96px; 
-          margin-right: -96px; 
-          border-top: 1px dashed #cbd5e1;
-          border-bottom: 1px dashed #cbd5e1;
+          background-color: #f1f5f9; /* Arkaplan rengiyle uyumlu gri boşluk */
+          height: 20px; 
+          margin: 40px -2.5cm; /* Padding'i aşmak için negatif margin */
+          border-top: 1px solid #cbd5e1;
+          border-bottom: 1px solid #cbd5e1;
           position: relative;
           page-break-after: always; 
-          cursor: pointer;
+          cursor: default;
         }
         
+        /* Sayfa sonu yazısını kaldırdık, sadece görsel boşluk bıraktık */
         .editor-wrapper .ProseMirror hr::after {
-          content: "SAYFA SONU";
-          position: absolute;
-          top: -10px;
-          left: 50%;
-          transform: translate(-50%, -50%);
-          background: #f1f5f9; 
-          color: #94a3b8;
-          font-weight: bold;
-          font-size: 10px;
-          letter-spacing: 2px;
-          padding: 4px 10px;
-          border-radius: 4px;
+          content: "";
+          display: none;
         }
       `}</style>
     </div>

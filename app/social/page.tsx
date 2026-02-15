@@ -5,7 +5,7 @@ import {
   Users, TrendingUp, ArrowLeft, 
   Gavel, Home, ShoppingCart, Calendar,
   Sparkles, User, Search, MessageCircle, Send,
-  Scale, Film 
+  Scale, Film, Plus 
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -23,9 +23,12 @@ import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useNotifications } from "@/hooks/useNotifications";
 
 import DailyDebateWidget from "@/components/social/DailyDebateWidget";
-import DebateTab from "@/components/social/DebateTab";
 import * as HoverCard from '@radix-ui/react-hover-card';
 import { getDailyDebate } from "@/app/actions/debate";
+
+// DÜZELTME: Artık DebateList bileşenini çağırıyoruz
+import CreateDebateModal from "@/components/social/debate/CreateDebateModal";
+import DebateList from "@/components/social/debate/DebateList";
 
 export default function LexwoowPage() {
   const router = useRouter();
@@ -37,16 +40,22 @@ export default function LexwoowPage() {
     
   const [dailyDebateData, setDailyDebateData] = useState<any>(null);
 
-  const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events' | 'debate'>('woow');
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [activeTab, setActiveTab] = useState<'woow' | 'profile' | 'events' | 'debate'>('debate');
+  const [refreshKey, setRefreshKey] = useState(0); // Bu key değiştikçe liste yenilenir
 
   const [isInboxOpen, setIsInboxOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
+  const [isCreateDebateOpen, setIsCreateDebateOpen] = useState(false);
 
   const { unreadCount } = useNotifications(user?.id);
-
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Post oluşturulduğunda bu fonksiyon çalışacak
+  const handlePostCreated = () => {
+      // Key'i 1 artırarak DebateList bileşenini "zorla" yeniliyoruz (Force Refresh)
+      setRefreshKey(prev => prev + 1); 
+  };
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -87,19 +96,17 @@ export default function LexwoowPage() {
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 pb-20 selection:bg-amber-100 font-sans relative">
       <Toaster position="top-center" />
       
+      <CreateDebateModal 
+        isOpen={isCreateDebateOpen} 
+        onClose={() => setIsCreateDebateOpen(false)}
+        onCreated={handlePostCreated} // Yenileme fonksiyonunu buraya bağlıyoruz
+      />
+
       {user && (
-        <InboxDialog 
-          isOpen={isInboxOpen} 
-          onClose={() => setIsInboxOpen(false)} 
-          currentUserId={user.id} 
-        />
-      )}
-      {user && (
-        <NotificationDrawer 
-          isOpen={isNotificationOpen} 
-          onClose={() => setIsNotificationOpen(false)} 
-          userId={user.id} 
-        />
+        <>
+            <InboxDialog isOpen={isInboxOpen} onClose={() => setIsInboxOpen(false)} currentUserId={user.id} />
+            <NotificationDrawer isOpen={isNotificationOpen} onClose={() => setIsNotificationOpen(false)} userId={user.id} />
+        </>
       )}
         
       <AnimatePresence>
@@ -140,28 +147,19 @@ export default function LexwoowPage() {
         </div>
       </div>
 
-      {/* ✅ GRID GÜNCELLEMESİ: 
-          Eski: grid-cols-1 lg:grid-cols-4
-          Yeni: grid-cols-1 lg:grid-cols-[260px_1fr_300px] 
-          Bu sayede sol ve sağ sidebarlar sabit ve daha dar (kompakt) kalır, orta alan genişler.
-      */}
       <main className="max-w-[1400px] mx-auto px-4 grid grid-cols-1 lg:grid-cols-[240px_1fr_280px] gap-6 mt-4">
         
         {/* SOL KOLON (Sidebar) */}
         <div className="hidden lg:block">
-           {/* ✅ GÜNCELLEME: sticky, h-screen ve overflow-hidden ile tam sığdırma.
-               justify-between ekleyerek menüyü ve alt butonları yaydık.
-           */}
            <div className="sticky top-0 h-screen py-6 flex flex-col justify-between overflow-hidden"> 
               
               <div>
                 <div className="px-3 mb-6 flex items-center gap-2 text-amber-600">
-                   <Gavel size={28} /> {/* İkon küçültüldü */}
+                   <Gavel size={28} />
                    <span className="font-bold text-xl tracking-widest text-slate-900">LEXWOOW</span>
                 </div>
 
                 <nav className="space-y-1">
-                   {/* Buton boyutları (px-3 py-2) ve yazı boyutları (text-base) küçültüldü */}
                    <button 
                      onClick={() => { setActiveTab('woow'); setSearchTerm(""); setRefreshKey(prev => prev + 1); }} 
                      className={cn(
@@ -204,6 +202,7 @@ export default function LexwoowPage() {
                      </HoverCard.Portal>
                    </HoverCard.Root>
 
+                   {/* Diğer butonlar... (Aynen Kalsın) */}
                    {user && (
                      <button 
                         onClick={() => setIsNotificationOpen(true)}
@@ -302,15 +301,26 @@ export default function LexwoowPage() {
           
           {activeTab === 'debate' ? (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-               <div className="mb-4 flex items-center justify-between">
-                  <h2 className="font-black text-xl text-slate-800 tracking-tight flex items-center gap-2">
-                     <Scale className="text-emerald-600" />
-                     MÜNAZARA ARENASI
-                  </h2>
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">Canlı Tartışma</span>
+               
+               <div className="mb-6 flex items-center justify-between bg-white p-4 rounded-2xl border border-slate-200 shadow-sm sticky top-4 z-20">
+                  <div>
+                    <h2 className="font-black text-xl text-slate-900 flex items-center gap-2">
+                        <Scale className="text-emerald-600" />
+                        MÜNAZARA ARENASI
+                    </h2>
+                    <p className="text-xs text-slate-500 font-medium">Fikrini savun, topluluğu ikna et.</p>
+                  </div>
+                  <button 
+                    onClick={() => setIsCreateDebateOpen(true)}
+                    className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 transition-all shadow-lg hover:shadow-slate-900/20 active:scale-95"
+                  >
+                    <Plus size={18} />
+                    Yeni Başlat
+                  </button>
                </div>
                
-               <DebateTab />
+               {/* DÜZELTME: Buraya refreshKey'i veriyoruz. Key değişince liste kendini sıfırlar ve yeniden veri çeker */}
+               <DebateList key={refreshKey} />
             </div>
 
           ) : (
@@ -348,7 +358,6 @@ export default function LexwoowPage() {
 
         {/* SAĞ KOLON (Sidebar) */}
         <div className="hidden lg:block">
-          {/* ✅ GÜNCELLEME: sticky, h-screen ve overflow-hidden ile tam sığdırma. */}
           <div className="sticky top-0 h-screen py-6 overflow-hidden space-y-4">
              <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -360,6 +369,21 @@ export default function LexwoowPage() {
                   className="w-full bg-white border border-slate-200 rounded-full py-2.5 pl-10 pr-4 outline-none focus:ring-2 focus:ring-amber-500/20 text-sm shadow-sm transition-all" 
                 />
              </div>
+
+            {activeTab === 'debate' && (
+                 <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-2xl p-5 text-white shadow-lg animate-in fade-in slide-in-from-right duration-500">
+                    <h3 className="font-bold text-lg mb-2 flex items-center gap-2">
+                        <Sparkles size={20} className="text-amber-300" />
+                        Lexwoow AI
+                    </h3>
+                    <p className="text-sm text-indigo-100 mb-4 opacity-90">
+                        Münazara başlatırken AI asistanın başlıklarını profesyonelleştirir ve tartışma kalitesini artırır.
+                    </p>
+                    <button onClick={() => setIsCreateDebateOpen(true)} className="w-full bg-white/10 hover:bg-white/20 py-2 rounded-lg text-sm font-bold transition-colors">
+                        Dene Bakalım
+                    </button>
+                 </div>
+            )}
 
             <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm shadow-slate-200/50">
               <h3 className="font-black text-[10px] mb-4 flex items-center gap-2 text-slate-900 uppercase tracking-widest">
