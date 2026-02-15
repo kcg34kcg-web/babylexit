@@ -1,192 +1,184 @@
 'use client';
 
-import { useState } from "react";
-import { X, Sparkles, Send, Gavel, Check } from "lucide-react";
-import { generateSmartTitles, createDebate } from "@/app/actions/debate";
-import { toast } from "react-hot-toast";
+import { createDebate, generateSmartTitles } from "@/app/actions/debate"; // generateSmartTitles import edildi
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast"; // veya components/ui/use-toast
+import { Loader2, Sparkles, X } from "lucide-react";
+import { useEffect, useState, useTransition } from "react";
+import { createPortal } from "react-dom"; // BUG FIX #13: Portal import
 
-// HATA BURADAYDI: Interface'e 'onCreated' ekliyoruz.
-interface Props {
+interface CreateDebateModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreated: () => void; // <-- Bu satır eksikti, ekledik.
 }
 
-export default function CreateDebateModal({ isOpen, onClose, onCreated }: Props) {
-  const [step, setStep] = useState(1);
-  const [draft, setDraft] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [aiTitles, setAiTitles] = useState<{ type: string; text: string }[]>([]);
-  const [selectedTitle, setSelectedTitle] = useState("");
+export default function CreateDebateModal({ isOpen, onClose }: CreateDebateModalProps) {
+  const [mounted, setMounted] = useState(false);
+  const [isPending, startTransition] = useTransition();
+  const { toast } = useToast();
   
-  const [optionA, setOptionA] = useState("Evet, Katılıyorum");
-  const [optionB, setOptionB] = useState("Hayır, Katılmıyorum");
+  // Form State
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [category, setCategory] = useState("general");
+  
+  // AI Suggestions State
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
-  if (!isOpen) return null;
+  // BUG FIX #13: Hydration mismatch önlemek için mounted check
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  const handleGenerate = async () => {
-    if (!draft.trim()) return;
-    setLoading(true);
-    const res = await generateSmartTitles(draft);
-    setLoading(false);
-
-    if (res.success && res.titles) {
-      setAiTitles(res.titles);
-      setStep(2);
-    } else {
-      toast.error("AI şu an meşgul, lütfen tekrar dene.");
+  const handleAiSuggest = async () => {
+    if (title.length < 3) {
+      toast({ title: "İpucu", description: "Konu hakkında en az 3 harf girmelisin." });
+      return;
+    }
+    
+    setIsAiLoading(true);
+    // BUG FIX #15: Backend'den önerileri çek
+    try {
+        const suggestions = await generateSmartTitles(title);
+        setAiSuggestions(suggestions);
+    } catch (e) {
+        toast({ title: "Hata", description: "AI önerileri alınamadı.", variant: "destructive" });
+    } finally {
+        setIsAiLoading(false);
     }
   };
 
-  const handlePublish = async () => {
-    if (!selectedTitle || !optionA || !optionB) return;
-    setLoading(true);
-    const res = await createDebate(selectedTitle, optionA, optionB, "Genel");
-    setLoading(false);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title || !description) return;
 
-    if (res.success) {
-      toast.success("Münazara Arenası Açıldı! 🔥");
-      
-      // Burada ana sayfadaki listeyi yenileyecek fonksiyonu çağırıyoruz
-      onCreated(); 
-      
-      onClose();
-      // Modal kapandıktan sonra form temizliği
-      setStep(1);
-      setDraft("");
-      setSelectedTitle("");
-      setOptionA("Evet, Katılıyorum");
-      setOptionB("Hayır, Katılmıyorum");
-    } else {
-      toast.error(res.error || "Hata oluştu");
-    }
+    startTransition(async () => {
+      const formData = new FormData();
+      formData.append('title', title);
+      formData.append('description', description);
+      formData.append('category', category);
+
+      const result = await createDebate(formData);
+
+      if (result.success) {
+        toast({ title: "Münazara Başlatıldı!", description: "Konu tartışmaya açıldı." });
+        onClose();
+        // State temizle
+        setTitle("");
+        setDescription("");
+        setAiSuggestions([]);
+      } else {
+        toast({ title: "Hata", description: result.error || "Bir sorun oluştu.", variant: "destructive" });
+      }
+    });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden border border-slate-200 m-4 relative max-h-[90vh] overflow-y-auto">
+  if (!mounted) return null;
+
+  // BUG FIX #13: Portal ile body'ye render et (z-index sorununu kesin çözer)
+  // Dialog bileşeni bazen kendi portal'ını kullanır ama tam kontrol için manuel portal yapısı
+  // Eğer kullandığın UI kütüphanesinin Dialog'u zaten portal kullanıyorsa bu gereksiz olabilir 
+  // ama garanti çözüm için 'overlay'i portal içine alıyoruz.
+  
+  const content = isOpen ? (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-background w-full max-w-lg rounded-xl shadow-2xl border p-6 relative animate-in fade-in zoom-in duration-200">
         
-        {/* Header */}
-        <div className="bg-slate-50 p-4 border-b border-slate-100 flex justify-between items-center sticky top-0 z-10">
-          <h3 className="font-bold text-slate-800 flex items-center gap-2">
-            <Gavel size={18} className="text-amber-500" />
-            Yeni Münazara Başlat
-          </h3>
-          <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
-            <X size={20} />
-          </button>
+        {/* Close Button */}
+        <button 
+            onClick={onClose} 
+            className="absolute right-4 top-4 p-2 rounded-full hover:bg-muted transition-colors"
+        >
+            <X className="w-4 h-4" />
+        </button>
+
+        <div className="mb-6">
+            <h2 className="text-2xl font-bold tracking-tight">Yeni Münazara Başlat</h2>
+            <p className="text-muted-foreground text-sm">
+                Topluluğun ikiye bölüneceği o soruyu sor.
+            </p>
         </div>
 
-        {/* Content */}
-        <div className="p-6">
-          
-          {/* STEP 1: Fikir Girişi */}
-          {step === 1 && (
-            <div className="space-y-4 animate-in slide-in-from-right duration-300">
-              <label className="text-sm font-medium text-slate-600 block">Tartışmak istediğin konu nedir?</label>
-              <textarea 
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder="Örn: Yapay zeka avukatların işini elinden alacak mı?"
-                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 outline-none text-slate-700 min-h-[120px] resize-none"
-              />
-              <button 
-                onClick={handleGenerate}
-                disabled={loading || !draft.trim()}
-                className="w-full py-3 bg-gradient-to-r from-violet-600 to-indigo-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 hover:shadow-lg hover:shadow-indigo-500/30 transition-all disabled:opacity-70"
-              >
-                {loading ? <span className="animate-spin">✨</span> : <Sparkles size={18} />}
-                AI ile Profesyonelleştir
-              </button>
-            </div>
-          )}
-
-          {/* STEP 2: Başlık Seçimi */}
-          {step === 2 && (
-            <div className="space-y-4 animate-in slide-in-from-right duration-300">
-              <p className="text-sm text-slate-500 mb-2">Lexwoow AI senin için 3 farklı yaklaşım hazırladı. Birini seç:</p>
-              <div className="space-y-3">
-                {aiTitles.map((item, idx) => (
-                  <div 
-                    key={idx}
-                    onClick={() => setSelectedTitle(item.text)}
-                    className={`p-4 rounded-xl border-2 cursor-pointer transition-all relative ${
-                      selectedTitle === item.text 
-                        ? 'border-indigo-500 bg-indigo-50' 
-                        : 'border-slate-100 hover:border-indigo-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-indigo-500 mb-1 block">
-                      {item.type}
-                    </span>
-                    <p className="text-sm font-bold text-slate-800">{item.text}</p>
-                    {selectedTitle === item.text && (
-                      <div className="absolute top-3 right-3 bg-indigo-500 text-white p-1 rounded-full">
-                        <Check size={12} />
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <div className="flex gap-3 mt-4">
-                <button onClick={() => setStep(1)} className="flex-1 py-3 text-slate-500 font-medium hover:bg-slate-50 rounded-xl">Geri Dön</button>
-                <button 
-                  onClick={() => setStep(3)} 
-                  disabled={!selectedTitle}
-                  className="flex-1 py-3 bg-indigo-600 text-white rounded-xl font-bold disabled:opacity-50"
-                >
-                  Devam Et
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: Seçenekler */}
-          {step === 3 && (
-            <div className="space-y-4 animate-in slide-in-from-right duration-300">
-              <div className="bg-indigo-50 p-3 rounded-xl border border-indigo-100 mb-4">
-                <p className="text-xs font-bold text-indigo-800 mb-1">SEÇİLEN KONU:</p>
-                <p className="text-sm text-indigo-900 font-medium leading-snug">{selectedTitle}</p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs font-bold text-emerald-600 mb-1 block">A Seçeneği (Yeşil)</label>
-                  <input 
-                    type="text" 
-                    value={optionA} 
-                    onChange={(e) => setOptionA(e.target.value)}
-                    className="w-full p-2 bg-emerald-50 border border-emerald-100 rounded-lg text-sm focus:border-emerald-500 outline-none"
-                  />
+        <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+                <Label>Münazara Konusu (Başlık)</Label>
+                <div className="flex gap-2">
+                    <Input 
+                        placeholder="Örn: Yapay Zeka insanlığı ele geçirecek mi?" 
+                        value={title}
+                        onChange={(e) => setTitle(e.target.value)}
+                        disabled={isPending}
+                        className="flex-1"
+                    />
+                    <Button 
+                        type="button" 
+                        variant="outline" 
+                        size="icon"
+                        onClick={handleAiSuggest}
+                        disabled={isAiLoading || isPending}
+                        title="AI ile Başlık Öner"
+                    >
+                        {isAiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-purple-600" />}
+                    </Button>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-rose-600 mb-1 block">B Seçeneği (Kırmızı)</label>
-                  <input 
-                    type="text" 
-                    value={optionB} 
-                    onChange={(e) => setOptionB(e.target.value)}
-                    className="w-full p-2 bg-rose-50 border border-rose-100 rounded-lg text-sm focus:border-rose-500 outline-none"
-                  />
-                </div>
-              </div>
-
-              <button 
-                onClick={handlePublish}
-                disabled={loading}
-                className="w-full py-4 bg-slate-900 text-white rounded-xl font-bold flex items-center justify-center gap-2 mt-6 hover:bg-slate-800 transition-all"
-              >
-                {loading ? "Arenaya Gönderiliyor..." : (
-                  <>
-                    <Send size={18} />
-                    Münazarayı Başlat
-                  </>
+                
+                {/* AI Önerileri */}
+                {aiSuggestions.length > 0 && (
+                    <div className="mt-2 p-3 bg-purple-50 rounded-lg border border-purple-100 text-sm">
+                        <p className="font-semibold text-purple-800 mb-2 flex items-center gap-2">
+                            <Sparkles className="w-3 h-3" /> AI Önerileri:
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            {aiSuggestions.map((suggestion, i) => (
+                                <button
+                                    key={i}
+                                    type="button"
+                                    onClick={() => setTitle(suggestion)}
+                                    className="px-2 py-1 bg-white border border-purple-200 rounded-md hover:bg-purple-100 transition-colors text-left"
+                                >
+                                    {suggestion}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 )}
-              </button>
             </div>
-          )}
 
-        </div>
+            <div className="space-y-2">
+                <Label>Açıklama & Kurallar</Label>
+                <Textarea 
+                    placeholder="Bu tartışmanın çerçevesini çiz..." 
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    disabled={isPending}
+                    rows={4}
+                />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4">
+                <Button type="button" variant="ghost" onClick={onClose} disabled={isPending}>
+                    Vazgeç
+                </Button>
+                <Button type="submit" disabled={isPending || !title || !description}>
+                    {isPending ? (
+                        <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Oluşturuluyor...
+                        </>
+                    ) : (
+                        "Tartışmayı Başlat"
+                    )}
+                </Button>
+            </div>
+        </form>
       </div>
     </div>
-  );
+  ) : null;
+
+  return createPortal(content, document.body);
 }

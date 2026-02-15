@@ -1,4 +1,3 @@
-// Dosya: lib/ai/providers/groq.ts
 import OpenAI from "openai";
 import { BaseProvider } from "./base";
 
@@ -6,18 +5,16 @@ export class GroqProvider extends BaseProvider {
   private client: OpenAI;
 
   constructor(timeout: number = 30000) {
-    // Adını 'Groq' (Q ile) koyuyoruz
     super("Groq (LPU)", timeout);
     
     if (!process.env.GROQ_API_KEY) {
       console.warn("GROQ_API_KEY eksik! RAG sistemi çalışmayabilir.");
     }
 
-    // Groq, OpenAI SDK'sı ile uyumludur ancak 'baseURL' farklıdır.
     this.client = new OpenAI({
       baseURL: "https://api.groq.com/openai/v1",
-      apiKey: process.env.GROQ_API_KEY || "", // .env dosyana eklemelisin
-      dangerouslyAllowBrowser: true, // Sadece server-side kullanacaksan false yapabilirsin
+      apiKey: process.env.GROQ_API_KEY || "", 
+      dangerouslyAllowBrowser: true, 
     });
   }
 
@@ -28,8 +25,9 @@ export class GroqProvider extends BaseProvider {
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        // Qwen 2.5: Çok hızlı ve Türkçe performansı yüksek
-        model: "qwen-2.5-32b", 
+        // DEĞİŞİKLİK BURADA: Eski model yerine Llama 3.1 70B Versatile kullanıyoruz.
+        // Bu model çok güçlüdür, hızlıdır ve decommission sorunu yoktur.
+        model: "llama-3.1-70b-versatile", 
         temperature: 0.5,
         max_tokens: 1024,
       });

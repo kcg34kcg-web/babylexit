@@ -6,6 +6,9 @@ import { redis } from "@/lib/redis";
 import { addReputation } from "./reputation"; 
 import { aiOrchestrator } from "@/lib/ai/orchestrator";
 
+// Python Servis Adresi (Next.js buradan Python'a erişecek)
+const PYTHON_API_URL = process.env.PYTHON_SERVICE_URL || "http://127.0.0.1:8000";
+
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
   throw new Error("GEMINI_API_KEY is not defined");
@@ -14,12 +17,11 @@ if (!apiKey) {
 const genAI = new GoogleGenerativeAI(apiKey);
 
 // --- MODELLER ---
+// Sadece metin üretimi için Gemini kullanıyoruz, Embedding için Python'a gideceğiz.
 const flashJSONModel = genAI.getGenerativeModel({ 
   model: "gemini-2.0-flash", 
   generationConfig: { responseMimeType: "application/json" } 
 });
-
-const embeddingModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
 
 // =========================================================
 // KATMAN 0-A: GÜVENLİK VE GİRİŞ KONTROLÜ
@@ -86,7 +88,6 @@ function checkLocalRules(text: string): string | null {
 // YARDIMCI: LOGLAMA SİSTEMİ
 // =========================================================
 async function logAIAction(source: string, costSaved: boolean, startTime: number) {
-  // Arka planda çalışması için IIFE (Immediately Invoked Function Expression) kullanıyoruz, await etmiyoruz.
   (async () => {
     try {
       const duration = Date.now() - startTime;
@@ -129,15 +130,30 @@ export async function checkContentSafety(text: string) {
 }
 
 // =========================================================
-// VEKTÖR OLUŞTURMA (MERKEZİ)
+// VEKTÖR OLUŞTURMA (MERKEZİ - PYTHON SERVİSİNE YÖNLENDİRİLDİ)
 // =========================================================
-export async function generateEmbedding(text: string) {
+export async function generateEmbedding(text: string): Promise<number[] | null> {
   try {
-    const cleanText = text.replace(/\n/g, " ");
-    const result = await embeddingModel.embedContent(cleanText);
-    return result.embedding.values;
+    // Google Embedding yerine Python Servisini kullanıyoruz
+    // Bu sayede hem 'Model Not Found' hatası almıyoruz hem de tutarlı BAAI/bge-m3 vektörleri kullanıyoruz.
+    const response = await fetch(`${PYTHON_API_URL}/embed`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      console.error(`Embedding service returned ${response.status}: ${response.statusText}`);
+      return null;
+    }
+
+    const data = await response.json();
+    return data.embedding; // Python servisi { embedding: [...] } döner
+
   } catch (error) {
-    console.error("Embedding Error:", error);
+    console.error("Embedding Error (Python Bridge):", error);
     return null;
   }
 }
@@ -176,24 +192,19 @@ async function searchCommunityQuestions(embedding: number[]) {
   if (similarQuestions && similarQuestions.length > 0) {
     const similarQ = similarQuestions[0];
     
-    // Şema kontrolü: 'author_id' yerine 'user_id' kullanıldı (Database standardı)
     const { data: bestAnswer } = await supabase
       .from('answers')
       .select('content, user_id, question_id') 
       .eq('question_id', similarQ.id)
-      .order('vote_count', { ascending: false }) // Not: Eğer 'vote_count' sütunu yoksa 'created_at' kullanın
+      .order('vote_count', { ascending: false }) 
       .limit(1)
       .maybeSingle();
 
     if (bestAnswer) {
       console.log(`👥 COMMUNITY HIT: "${similarQ.title}" bulundu.`);
       
-      // --- AI ENDORSEMENT (OTORİTE PUANI) ---
-      // Cevap sahibine 'AI_REFERENCE' (50 Puan) veriyoruz
       if (bestAnswer.user_id) {
         console.log(`🤖 AI Referans Tespit Etti: User ${bestAnswer.user_id}`);
-        
-        // Asenkron olarak puanı işle (Kullanıcıyı bekletme)
         addReputation(bestAnswer.user_id, 'AI_REFERENCE', bestAnswer.question_id)
           .catch(err => console.error("Repütasyon (AI Reference) hatası:", err));
       }
@@ -251,7 +262,7 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
     console.warn("Redis bağlantı hatası (Cache atlandı).", e);
   }
 
-  // 4. ADIM: EMBEDDING ÜRETİMİ
+  // 4. ADIM: EMBEDDING ÜRETİMİ (PYTHON KÖPRÜSÜ ÜZERİNDEN)
   let embedding: number[] | null = null;
   try {
     embedding = await generateEmbedding(fullQuestion);
@@ -259,7 +270,7 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
 
   // 5. ADIM: HAFIZA TARAMASI (RAG)
   if (embedding) {
-      // a) Toplulukta var mı? (BURADA PUANLAMA YAPILIYOR)
+      // a) Toplulukta var mı?
       const communityAnswer = await searchCommunityQuestions(embedding);
       if (communityAnswer) {
         await redis.set(cacheKey, communityAnswer, 'EX', 86400);
@@ -277,7 +288,7 @@ export async function generateSmartAnswer(questionTitle: string, questionContent
   }
 
   // ---------------------------------------------------------
-  // 6. ADIM: AI ORCHESTRATOR (GÜNCELLENDİ)
+  // 6. ADIM: AI ORCHESTRATOR
   // ---------------------------------------------------------
   
   const safetyCheck = await checkContentSafety(fullQuestion);
@@ -298,27 +309,18 @@ GÖREVLER:
 `;
 
   try {
-    // DÜZELTME BAŞLANGICI: getAnswer yerine generateStaticResponse kullanıyoruz
-    // Context'i soruya ekleyerek tek bir prompt haline getiriyoruz.
     const combinedPrompt = `${customContext}\n\nKULLANICI SORUSU:\n${fullQuestion}`;
-    
-    // aiOrchestrator'ın mevcut metodunu çağırıyoruz
-    // Bu metod muhtemelen { text: "...", ... } gibi bir yapı veya direkt string dönüyor olabilir.
-    // ai-engine.ts ve orchestrator.ts arasındaki uyumsuzluğu gidermek için sonucu any olarak alıp işliyoruz.
     const aiResult: any = await aiOrchestrator.generateStaticResponse(combinedPrompt);
     
-    // Dönen sonucun yapısına göre içeriği ve sağlayıcıyı alıyoruz
     let textAnswer = "";
     let providerName = "ai-orchestrator";
 
     if (typeof aiResult === 'string') {
         textAnswer = aiResult;
     } else if (aiResult && typeof aiResult === 'object') {
-        // Olası dönüş formatlarını kontrol et (text, content, output vb.)
         textAnswer = aiResult.text || aiResult.content || aiResult.answer || JSON.stringify(aiResult);
         if (aiResult.provider) providerName = aiResult.provider;
     }
-    // DÜZELTME BİTİŞİ
     
     if (fullQuestion.toLowerCase().includes("hukuk") || fullQuestion.toLowerCase().includes("dava") || fullQuestion.toLowerCase().includes("ceza")) {
         if (!textAnswer.includes("Yasal Uyarı")) {

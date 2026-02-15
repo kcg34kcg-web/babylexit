@@ -1,235 +1,186 @@
 'use client';
 
-import { useState } from "react";
-import { ThumbsUp, ThumbsDown, Sparkles, Send, Briefcase, GraduationCap, RefreshCcw, CheckCircle2, BarChart2 } from "lucide-react";
-import { formatDistanceToNow } from 'date-fns';
-import { tr } from 'date-fns/locale';
-import { motion, AnimatePresence } from "framer-motion";
+import { postDebateComment } from "@/app/actions/debate";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/utils/cn";
+import { Loader2, Send, ShieldAlert } from "lucide-react";
+import { useState, useTransition } from "react";
+import DebateCommentColumn from "./DebateCommentColumn";
 
-interface Props {
-  debate: any;
-  userVote: 'A' | 'B' | null;
-  commentsA: any[];
-  commentsB: any[];
-  handleSendComment: (side: 'A' | 'B', text: string) => void;
-  handleVote: (choice: 'A' | 'B') => void;
-  commentText: string;
-  setCommentText: (text: string) => void;
-  sending: boolean;
-  voting: boolean;
+// Tip Tanımları (Local)
+interface DebateResultsViewProps {
+  debate: {
+    id: string;
+    title: string;
+    stats: { a: number; b: number; total: number };
+    userVote: 'A' | 'B' | null;
+  };
+  comments: any[]; // Detaylı tip CommentColumn içinde
+  currentUser: any;
 }
 
-export default function DebateResultsView({ 
-    debate, userVote, commentsA, commentsB, 
-    handleSendComment, handleVote, 
-    commentText, setCommentText, sending, voting 
-}: Props) {
+export default function DebateResultsView({ debate, comments, currentUser }: DebateResultsViewProps) {
+  const { toast } = useToast();
+  const [isPending, startTransition] = useTransition();
+  const [content, setContent] = useState("");
+  
+  // Mobil görünüm için Tab state'i
+  const [activeTab, setActiveTab] = useState<'A' | 'B'>('A');
 
-  const [showDemographics, setShowDemographics] = useState(false); // Varsayılan: GİZLİ
+  // Yorumları taraflara ayır
+  const commentsA = comments.filter(c => c.side === 'A');
+  const commentsB = comments.filter(c => c.side === 'B');
 
-  const stats = debate.stats || { a: 0, b: 0, total: 0, lawyers: { exists: false, percentA: 0 }, students: { exists: false, percentA: 0 } };
-  const percentA = stats.total > 0 ? Math.round((stats.a / stats.total) * 100) : 50;
+  // İstatistik Hesaplama (BUG 5 Fix: NaN koruması)
+  const totalVotes = (debate.stats.a || 0) + (debate.stats.b || 0);
+  const percentA = totalVotes === 0 ? 50 : Math.round(((debate.stats.a || 0) / totalVotes) * 100);
+  const percentB = totalVotes === 0 ? 50 : 100 - percentA;
 
-  const renderCommentList = (list: any[], side: 'A' | 'B') => (
-      <div className="space-y-3 mt-4 max-h-[400px] overflow-y-auto pr-1">
-          {list.length === 0 && <div className="text-center py-8 text-slate-400 text-xs italic">Bu taraf sessiz... İlk yorumu sen yaz!</div>}
-          {list.map((c) => (
-            <div key={c.id} className="bg-white p-3 rounded-xl border border-slate-100 text-xs shadow-sm">
-               <div className="flex justify-between items-start mb-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-900">{c.profiles?.full_name}</span>
-                    {c.profiles?.job_title && <span className="text-[9px] bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{c.profiles.job_title}</span>}
-                  </div>
-                  <span className="text-[10px] text-slate-400">{formatDistanceToNow(new Date(c.created_at), { addSuffix: true, locale: tr })}</span>
-               </div>
-               <p className="text-slate-700 leading-relaxed">{c.content}</p>
-            </div>
-          ))}
-      </div>
-  );
+  const handlePostComment = async () => {
+    if (!content.trim()) return;
+
+    if (!debate.userVote) {
+      toast({
+        title: "Önce Tarafını Seç!",
+        description: "Yorum yapabilmek için önce oy kullanmalısın.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    startTransition(async () => {
+      // Kullanıcı hangi taraftaysa yorum o tarafa gider
+      // (Backend artık taraf değiştirme niyetinde karşı tarafa yazmaya izin veriyor ama
+      // burada varsayılan olarak kendi tarafını gönderiyoruz)
+      const result = await postDebateComment(debate.id, content, debate.userVote!);
+
+      if (result.success) {
+        toast({ title: "Yorum Gönderildi", description: "Fikrin arenaya eklendi." });
+        setContent("");
+      } else {
+        toast({ title: "Hata", description: result.error || "Yorum gönderilemedi.", variant: "destructive" });
+      }
+    });
+  };
 
   return (
-    <div className="flex flex-col gap-6 animate-in fade-in duration-500">
+    <div className="flex flex-col h-full max-w-5xl mx-auto w-full">
       
-      {/* 1. İstatistik ve Özet Alanı */}
-      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-500 via-slate-200 to-rose-500"></div>
-        
-        <h2 className="text-xl md:text-2xl font-black text-slate-800 mb-2 mt-2">{debate.topic}</h2>
-        
-        {debate.ai_summary && (
-          <div className="flex gap-3 bg-indigo-50 p-4 rounded-xl mb-6 border border-indigo-100">
-             <Sparkles size={18} className="text-indigo-600 shrink-0 mt-1" />
-             <p className="text-xs text-indigo-900 leading-relaxed font-medium">{debate.ai_summary}</p>
-          </div>
-        )}
-
-        {/* GENEL SONUÇ ÇUBUĞU */}
-        <div className="mb-4">
-           <div className="flex justify-between text-sm font-bold mb-2">
-              <span className={`flex items-center gap-2 ${userVote === 'A' ? 'text-emerald-600 underline decoration-2 underline-offset-4' : 'text-slate-500'}`}>
-                 %{percentA} {debate.option_a}
-              </span>
-              <span className={`flex items-center gap-2 ${userVote === 'B' ? 'text-rose-600 underline decoration-2 underline-offset-4' : 'text-slate-500'}`}>
-                 {debate.option_b} %{100 - percentA}
-              </span>
-           </div>
-           
-           <div className="relative w-full h-6 bg-slate-100 rounded-full overflow-hidden flex shadow-inner">
-              <div style={{ width: `${percentA}%` }} className="bg-emerald-500 h-full transition-all duration-1000 ease-out relative group">
-                 <div className="absolute inset-0 flex items-center justify-start pl-3 text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                    {stats.a} Oy
-                 </div>
-              </div>
-              <div style={{ width: `${100 - percentA}%` }} className="bg-rose-500 h-full transition-all duration-1000 ease-out relative group">
-                 <div className="absolute inset-0 flex items-center justify-end pr-3 text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity">
-                    {stats.b} Oy
-                 </div>
-              </div>
-           </div>
-           
-           <div className="text-center text-[10px] text-slate-400 mt-2 font-medium flex justify-center gap-4">
-              <span>Toplam {stats.total} Oy</span>
-              {userVote && <span className="text-amber-600 font-bold">Senin Tercihin: {userVote === 'A' ? debate.option_a : debate.option_b}</span>}
-           </div>
+      {/* 1. İstatistik Barı (Header) */}
+      <div className="p-4 bg-background/50 backdrop-blur-sm sticky top-14 z-20 border-b">
+        <div className="flex justify-between text-sm font-bold mb-2">
+          <span className="text-blue-600">% {percentA} Mavi Taraf</span>
+          <span className="text-muted-foreground text-xs self-center">{totalVotes} Oy</span>
+          <span className="text-red-600">Kırmızı Taraf % {percentB}</span>
         </div>
-
-        {/* --- DÜZELTME: GİZLE/GÖSTER BUTONU --- */}
-        {(stats.lawyers?.exists || stats.students?.exists) && (
-            <div className="flex justify-center mt-4">
-                <button 
-                    onClick={() => setShowDemographics(!showDemographics)}
-                    className="flex items-center gap-2 text-[10px] font-bold text-slate-500 hover:text-slate-800 bg-slate-50 hover:bg-slate-100 px-4 py-2 rounded-full transition-all"
-                >
-                    <BarChart2 size={14} />
-                    {showDemographics ? "Detaylı Analizi Gizle" : "Mesleki Kırılımı Göster"}
-                </button>
-            </div>
-        )}
-
-        {/* DETAYLI KIRILIMLAR (DEMOGRAFİK) - SADECE BUTONA BASINCA AÇILIR */}
-        <AnimatePresence>
-            {showDemographics && (stats.lawyers?.exists || stats.students?.exists) && (
-                <motion.div 
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="overflow-hidden"
-                >
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 mt-2 border-t border-slate-100">
-                        
-                        {stats.lawyers?.exists && (
-                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <Briefcase size={14} className="text-slate-500" />
-                                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Avukatlar ({stats.lawyers.percentA}%)</span>
-                                </div>
-                                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden flex">
-                                    <div style={{ width: `${stats.lawyers.percentA}%` }} className="bg-emerald-600 h-full"></div>
-                                    <div style={{ width: `${100 - stats.lawyers.percentA}%` }} className="bg-rose-600 h-full"></div>
-                                </div>
-                            </div>
-                        )}
-
-                        {stats.students?.exists && (
-                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/60">
-                                <div className="flex items-center gap-2 mb-2">
-                                    <GraduationCap size={14} className="text-slate-500" />
-                                    <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">Öğrenciler ({stats.students.percentA}%)</span>
-                                </div>
-                                <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden flex">
-                                    <div style={{ width: `${stats.students.percentA}%` }} className="bg-emerald-600 h-full"></div>
-                                    <div style={{ width: `${100 - stats.students.percentA}%` }} className="bg-rose-600 h-full"></div>
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                </motion.div>
+        <div className="h-4 w-full flex rounded-full overflow-hidden bg-gray-200">
+           <div 
+             className="h-full bg-blue-500 transition-all duration-500" 
+             style={{ width: `${percentA}%` }} 
+           />
+           <div 
+             className="h-full bg-red-500 transition-all duration-500" 
+             style={{ width: `${percentB}%` }} 
+           />
+        </div>
+        
+        {/* Kullanıcının Durumu */}
+        <div className="mt-2 text-center">
+            {debate.userVote ? (
+                <span className={cn(
+                    "text-xs px-2 py-1 rounded-full border",
+                    debate.userVote === 'A' ? "bg-blue-50 text-blue-700 border-blue-200" : "bg-red-50 text-red-700 border-red-200"
+                )}>
+                    Sen <b>{debate.userVote === 'A' ? "Mavi" : "Kırmızı"}</b> tarafı savunuyorsun.
+                </span>
+            ) : (
+                <span className="text-xs text-muted-foreground flex items-center justify-center gap-1">
+                    <ShieldAlert className="w-3 h-3" /> Henüz oy vermedin. Yorumlar "tarafsız" görünür.
+                </span>
             )}
-        </AnimatePresence>
-
+        </div>
       </div>
 
-      {/* 2. Etkileşim Alanı (Yorumlar ve Oy Değiştirme) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-         
-         {/* SOL: A Tarafı */}
-         <div className={`p-4 rounded-3xl border transition-all ${userVote === 'A' ? 'bg-emerald-50/50 border-emerald-200 ring-2 ring-emerald-500/20' : 'bg-white border-slate-200 opacity-80 hover:opacity-100'}`}>
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-emerald-800 flex items-center gap-2">
-                    <ThumbsUp size={18} /> {debate.option_a}
-                </h3>
-                {(!userVote || userVote !== 'A') && (
-                    <button 
-                        onClick={() => handleVote('A')}
-                        disabled={voting}
-                        className="text-[10px] bg-white border border-emerald-200 text-emerald-600 px-3 py-1.5 rounded-full font-bold hover:bg-emerald-50 transition-colors flex items-center gap-1 shadow-sm"
-                    >
-                        {userVote ? <><RefreshCcw size={12} /> Fikrimi Buraya Çevir</> : 'Bu Tarafı Seç'}
-                    </button>
-                )}
+      {/* 2. Yorum Alanı (Scrollable) */}
+      <div className="flex-1 overflow-hidden">
+        {/* Mobil: Tab Yapısı */}
+        <div className="md:hidden h-full flex flex-col">
+            <Tabs defaultValue="A" value={activeTab} onValueChange={(v) => setActiveTab(v as 'A'|'B')} className="flex-1 flex flex-col">
+                <TabsList className="grid w-full grid-cols-2">
+                    <TabsTrigger value="A" className="data-[state=active]:text-blue-600">Mavi Görüşler</TabsTrigger>
+                    <TabsTrigger value="B" className="data-[state=active]:text-red-600">Kırmızı Görüşler</TabsTrigger>
+                </TabsList>
+                <div className="flex-1 overflow-y-auto p-4">
+                    <TabsContent value="A" className="mt-0">
+                        <DebateCommentColumn 
+                            side="A" 
+                            comments={commentsA} 
+                            debateId={debate.id} 
+                            userVote={debate.userVote} 
+                        />
+                    </TabsContent>
+                    <TabsContent value="B" className="mt-0">
+                        <DebateCommentColumn 
+                            side="B" 
+                            comments={commentsB} 
+                            debateId={debate.id} 
+                            userVote={debate.userVote} 
+                        />
+                    </TabsContent>
+                </div>
+            </Tabs>
+        </div>
+
+        {/* Desktop: Split Yapı */}
+        <div className="hidden md:grid md:grid-cols-2 h-full divide-x">
+            <div className="overflow-y-auto p-4 h-[calc(100vh-300px)]">
+                <DebateCommentColumn side="A" comments={commentsA} debateId={debate.id} userVote={debate.userVote} />
             </div>
+            <div className="overflow-y-auto p-4 h-[calc(100vh-300px)]">
+                <DebateCommentColumn side="B" comments={commentsB} debateId={debate.id} userVote={debate.userVote} />
+            </div>
+        </div>
+      </div>
+
+      {/* 3. Yorum Yazma Formu (Footer - Sticky) */}
+      {/* BUG FIX #8: Fixed yerine sticky/relative kullanımı ve safe-area handling */}
+      <div className="bg-background border-t p-4 z-20 sticky bottom-0 w-full">
+        <div className="max-w-4xl mx-auto flex gap-3 items-start">
+            <Avatar className="w-8 h-8 hidden sm:block">
+                <AvatarImage src={currentUser?.avatar_url} />
+                <AvatarFallback>U</AvatarFallback>
+            </Avatar>
             
-            <div className="flex gap-2 mb-2">
-                <input 
-                    type="text" 
-                    value={userVote === 'A' ? commentText : ''}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    placeholder={userVote === 'A' ? "Destekleyici argüman yaz..." : "Yorum yapmak için bu tarafı seçmelisin"}
-                    disabled={userVote !== 'A'}
-                    className="flex-1 text-xs p-3 rounded-xl border border-emerald-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:bg-slate-50 disabled:text-slate-400"
-                    onKeyDown={(e) => e.key === 'Enter' && userVote === 'A' && handleSendComment('A', commentText)}
+            <div className="flex-1 relative">
+                {/* BUG FIX #6: Disabled kontrolü kalktı, yerine görsel ipucu */}
+                <Textarea 
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    placeholder={debate.userVote 
+                        ? `${debate.userVote === 'A' ? 'Mavi' : 'Kırmızı'} taraf adına bir argüman sun...`
+                        : "Önce yukarıdan bir taraf seç, sonra fikrini yaz..."
+                    }
+                    className="min-h-[50px] max-h-[120px] resize-none pr-12 bg-muted/30 focus:bg-background transition-colors"
                 />
-                <button 
-                    onClick={() => handleSendComment('A', commentText)} 
-                    disabled={sending || userVote !== 'A'}
-                    className="bg-emerald-600 text-white p-3 rounded-xl hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                <Button 
+                    size="icon" 
+                    className={cn(
+                        "absolute right-2 bottom-2 h-8 w-8",
+                        debate.userVote === 'A' ? "bg-blue-600 hover:bg-blue-700" : 
+                        debate.userVote === 'B' ? "bg-red-600 hover:bg-red-700" : "bg-gray-400"
+                    )}
+                    disabled={isPending || !content.trim()}
+                    onClick={handlePostComment}
                 >
-                    <Send size={16} />
-                </button>
+                    {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </Button>
             </div>
-
-            {renderCommentList(commentsA, 'A')}
-         </div>
-
-         {/* SAĞ: B Tarafı */}
-         <div className={`p-4 rounded-3xl border transition-all ${userVote === 'B' ? 'bg-rose-50/50 border-rose-200 ring-2 ring-rose-500/20' : 'bg-white border-slate-200 opacity-80 hover:opacity-100'}`}>
-            <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-rose-800 flex items-center gap-2">
-                    <ThumbsDown size={18} /> {debate.option_b}
-                </h3>
-                {(!userVote || userVote !== 'B') && (
-                    <button 
-                        onClick={() => handleVote('B')}
-                        disabled={voting}
-                        className="text-[10px] bg-white border border-rose-200 text-rose-600 px-3 py-1.5 rounded-full font-bold hover:bg-rose-50 transition-colors flex items-center gap-1 shadow-sm"
-                    >
-                        {userVote ? <><RefreshCcw size={12} /> Fikrimi Buraya Çevir</> : 'Bu Tarafı Seç'}
-                    </button>
-                )}
-            </div>
-
-            <div className="flex gap-2 mb-2">
-                <input 
-                    type="text" 
-                    value={userVote === 'B' ? commentText : ''}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    placeholder={userVote === 'B' ? "Karşıt argüman yaz..." : "Yorum yapmak için bu tarafı seçmelisin"}
-                    disabled={userVote !== 'B'}
-                    className="flex-1 text-xs p-3 rounded-xl border border-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-500/20 disabled:bg-slate-50 disabled:text-slate-400"
-                    onKeyDown={(e) => e.key === 'Enter' && userVote === 'B' && handleSendComment('B', commentText)}
-                />
-                <button 
-                    onClick={() => handleSendComment('B', commentText)} 
-                    disabled={sending || userVote !== 'B'}
-                    className="bg-rose-600 text-white p-3 rounded-xl hover:bg-rose-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <Send size={16} />
-                </button>
-            </div>
-
-            {renderCommentList(commentsB, 'B')}
-         </div>
+        </div>
       </div>
 
     </div>

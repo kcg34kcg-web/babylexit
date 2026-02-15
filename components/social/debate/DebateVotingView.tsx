@@ -1,10 +1,10 @@
 'use client';
 
 import { motion } from "framer-motion";
-import { Scale, CheckCircle2, XCircle } from "lucide-react";
+import { Scale, CheckCircle2, XCircle, ArrowRightLeft } from "lucide-react";
 
 interface Props {
-  topic: string;
+  topic: string; // Passed but often rendered in parent, kept for flexibility
   optionA: string;
   optionB: string;
   onVote: (choice: 'A' | 'B') => void;
@@ -13,53 +13,53 @@ interface Props {
 
 export default function DebateVotingView({ topic, optionA, optionB, onVote, isVoting }: Props) {
   return (
-    <div className="flex flex-col items-center justify-center py-10 animate-in fade-in zoom-in-95 duration-500">
+    <div className="flex flex-col items-center justify-center py-6 md:py-10 animate-in fade-in zoom-in-95 duration-500">
       
-      {/* İkon ve Başlık */}
-      <div className="bg-amber-100 p-4 rounded-full mb-6 shadow-sm">
-        <Scale size={48} className="text-amber-600" />
+      {/* Icon */}
+      <div className="bg-white p-4 rounded-full mb-6 shadow-sm border border-slate-100 relative">
+        <Scale size={32} className="text-slate-400" />
+        <div className="absolute -top-1 -right-1 bg-amber-500 rounded-full p-1 border-2 border-white">
+             <ArrowRightLeft size={12} className="text-white" />
+        </div>
       </div>
       
-      <h2 className="text-3xl md:text-4xl font-black text-slate-900 text-center mb-2 max-w-2xl leading-tight">
-        {topic}
-      </h2>
-      <p className="text-slate-500 mb-10 font-medium">Sonuçları görmek ve tartışmaya katılmak için tarafını seç.</p>
+      <p className="text-slate-500 mb-8 font-medium text-center max-w-md text-sm">
+        Sonuçları görmek, yorumları okumak ve tartışmaya katılmak için tarafını seç.
+      </p>
 
-      {/* Butonlar */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-3xl">
+      {/* Buttons */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl">
         
-        {/* A Seçeneği Butonu */}
+        {/* Option A */}
         <motion.button
-          whileHover={{ scale: 1.02 }}
+          whileHover={{ scale: 1.01, y: -2 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => onVote('A')}
           disabled={isVoting}
-          className="group relative overflow-hidden bg-white border-2 border-emerald-100 hover:border-emerald-500 rounded-2xl p-8 text-left transition-all shadow-sm hover:shadow-xl hover:shadow-emerald-500/10"
+          className="group relative overflow-hidden bg-white border-2 border-slate-100 hover:border-emerald-500 rounded-2xl p-6 text-left transition-all shadow-sm hover:shadow-xl hover:shadow-emerald-500/10"
         >
-          <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-bold text-emerald-600 text-sm tracking-widest">A SEÇENEĞİ</span>
-            <CheckCircle2 size={24} className="text-emerald-200 group-hover:text-emerald-500 transition-colors" />
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-black text-emerald-600 text-xs tracking-widest bg-emerald-50 px-2 py-1 rounded">A SEÇENEĞİ</span>
+            <CheckCircle2 size={20} className="text-slate-200 group-hover:text-emerald-500 transition-colors" />
           </div>
-          <h3 className="text-2xl font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">
+          <h3 className="text-lg font-bold text-slate-700 group-hover:text-emerald-700 transition-colors">
             {optionA}
           </h3>
         </motion.button>
 
-        {/* B Seçeneği Butonu */}
+        {/* Option B */}
         <motion.button
-          whileHover={{ scale: 1.02 }}
+          whileHover={{ scale: 1.01, y: -2 }}
           whileTap={{ scale: 0.98 }}
           onClick={() => onVote('B')}
           disabled={isVoting}
-          className="group relative overflow-hidden bg-white border-2 border-rose-100 hover:border-rose-500 rounded-2xl p-8 text-left transition-all shadow-sm hover:shadow-xl hover:shadow-rose-500/10"
+          className="group relative overflow-hidden bg-white border-2 border-slate-100 hover:border-rose-500 rounded-2xl p-6 text-left transition-all shadow-sm hover:shadow-xl hover:shadow-rose-500/10"
         >
-          <div className="absolute top-0 left-0 w-1 h-full bg-rose-500"></div>
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-bold text-rose-600 text-sm tracking-widest">B SEÇENEĞİ</span>
-            <XCircle size={24} className="text-rose-200 group-hover:text-rose-500 transition-colors" />
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-black text-rose-600 text-xs tracking-widest bg-rose-50 px-2 py-1 rounded">B SEÇENEĞİ</span>
+            <XCircle size={20} className="text-slate-200 group-hover:text-rose-500 transition-colors" />
           </div>
-          <h3 className="text-2xl font-bold text-slate-800 group-hover:text-rose-700 transition-colors">
+          <h3 className="text-lg font-bold text-slate-700 group-hover:text-rose-700 transition-colors">
             {optionB}
           </h3>
         </motion.button>
@@ -67,7 +67,7 @@ export default function DebateVotingView({ topic, optionA, optionB, onVote, isVo
       </div>
 
       {isVoting && (
-        <p className="mt-6 text-slate-400 text-sm animate-pulse">Oyunuz kaydediliyor...</p>
+        <p className="mt-6 text-slate-400 text-xs animate-pulse font-medium">Oyunuz blok zincirine olmasa da veritabanına işleniyor...</p>
       )}
     </div>
   );
