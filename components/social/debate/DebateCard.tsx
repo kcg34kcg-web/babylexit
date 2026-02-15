@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MessageCircle, Share2, Loader2, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { MessageCircle, Share2, Loader2, Check, ChevronDown, ChevronUp, TrendingUp } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -16,7 +16,7 @@ import { voteDailyDebate, confirmVoteChange, type Debate } from "@/app/actions/d
 
 // Components
 import PersuasionModal from "./PersuasionModal";
-import DebateCommentColumn from "./DebateCommentColumn"; // YENİ: Yorum bileşeni eklendi
+import DebateCommentColumn from "./DebateCommentColumn"; 
 
 interface DebateCardProps {
   debate: Debate;
@@ -28,8 +28,6 @@ export default function DebateCard({ debate }: DebateCardProps) {
   // --- LOCAL STATE ---
   const [stats, setStats] = useState(debate.stats);
   const [userVote, setUserVote] = useState(debate.userVote);
-  
-  // YENİ: Yorumları Göster/Gizle
   const [showComments, setShowComments] = useState(false);
 
   // Modal State
@@ -37,18 +35,23 @@ export default function DebateCard({ debate }: DebateCardProps) {
   const [modalCandidates, setModalCandidates] = useState<any[]>([]);
   const [pendingChoice, setPendingChoice] = useState<'A' | 'B' | null>(null);
 
-  // İstatistik Hesaplamaları (Hata Korumalı)
+  // İstatistik Hesaplamaları
   const safeStats = stats || { a: 0, b: 0 };
   const total = (safeStats.a || 0) + (safeStats.b || 0);
-  const percentA = total === 0 ? 50 : Math.round((safeStats.a / total) * 100);
-  const percentB = total === 0 ? 50 : 100 - percentA;
+  
+  // Yüzdeler
+  const percentA = total > 0 ? Math.round((safeStats.a / total) * 100) : 0;
+  const percentB = total > 0 ? Math.round((safeStats.b / total) * 100) : 0;
+
+  // Sürpriz Oylama: Kullanıcı oy verdi mi?
+  const hasVoted = !!userVote;
 
   // --- OY VERME İŞLEMİ ---
   const handleVote = (choice: 'A' | 'B') => {
     if (userVote === choice) return;
 
     startTransition(async () => {
-        // 1. Optimistic Update
+        // Optimistic Update
         const previousStats = { ...safeStats };
         const previousVote = userVote;
 
@@ -56,7 +59,6 @@ export default function DebateCard({ debate }: DebateCardProps) {
         setStats(prev => {
              const current = prev || { a: 0, b: 0 };
              const isSwitching = previousVote !== null;
-             // Tip güvenliği için cast işlemi
              const prevA = current.a || 0;
              const prevB = current.b || 0;
 
@@ -68,21 +70,17 @@ export default function DebateCard({ debate }: DebateCardProps) {
              };
         });
 
-        // 2. Server Action
         const result = await voteDailyDebate(debate.id, choice);
 
         if (result.success) {
             toast.success("Oyunuz Kaydedildi");
             if (result.newStats) setStats({ ...result.newStats, total: result.newStats.a + result.newStats.b });
-            
-            // YENİ: İlk kez oy verince yorumları aç (Teşvik)
             if (!previousVote) setShowComments(true);
         } 
         else if (result.requiresPersuasion) {
              setModalCandidates(result.candidates || []);
              setPendingChoice(choice);
              setIsModalOpen(true);
-             
              setUserVote(previousVote);
              setStats(previousStats);
         } 
@@ -100,7 +98,6 @@ export default function DebateCard({ debate }: DebateCardProps) {
 
       startTransition(async () => {
           const result = await confirmVoteChange(debate.id, pendingChoice, commentId);
-          
           if (result.success) {
               setIsModalOpen(false);
               setUserVote(pendingChoice);
@@ -117,6 +114,7 @@ export default function DebateCard({ debate }: DebateCardProps) {
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
       <Card className="overflow-hidden border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
         
+        {/* HEADER */}
         <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0">
             <div className="flex gap-3">
                <Avatar className="h-10 w-10 border border-slate-100">
@@ -128,8 +126,8 @@ export default function DebateCard({ debate }: DebateCardProps) {
                <div>
                   <p className="text-sm font-bold text-slate-900">{debate.created_by?.full_name || "Anonim"}</p>
                   <p className="text-xs text-slate-500 flex items-center gap-1">
-                     {debate.created_by?.job_title && <span>{debate.created_by.job_title} • </span>}
-                     {formatDistanceToNow(new Date(debate.created_at || new Date()), { addSuffix: true, locale: tr })}
+                      {debate.created_by?.job_title && <span>{debate.created_by.job_title} • </span>}
+                      {formatDistanceToNow(new Date(debate.created_at || new Date()), { addSuffix: true, locale: tr })}
                   </p>
                </div>
             </div>
@@ -145,6 +143,7 @@ export default function DebateCard({ debate }: DebateCardProps) {
         </CardHeader>
 
         <CardContent className="p-4 pt-2 space-y-4">
+            {/* BAŞLIK VE AÇIKLAMA */}
             <div>
                 <h3 className="text-lg font-black text-slate-800 leading-tight mb-2">
                     {debate.title}
@@ -154,47 +153,87 @@ export default function DebateCard({ debate }: DebateCardProps) {
                 </p>
             </div>
 
-            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                <div className="flex justify-between text-xs font-bold mb-2 uppercase tracking-wide">
-                     <span className={cn("transition-colors", userVote === 'A' ? "text-indigo-600" : "text-slate-400")}>
-                        A: Katılıyorum (%{percentA})
-                     </span>
-                     <span className={cn("transition-colors", userVote === 'B' ? "text-rose-600" : "text-slate-400")}>
-                        B: Katılmıyorum (%{percentB})
-                     </span>
-                </div>
-                <div className="h-2 w-full flex rounded-full overflow-hidden bg-white border border-slate-100 mb-3 relative">
-                    <div className="h-full bg-indigo-500 transition-all duration-700 ease-out" style={{ width: `${percentA}%` }} />
-                    <div className="h-full bg-rose-500 transition-all duration-700 ease-out" style={{ width: `${percentB}%` }} />
-                </div>
+            {/* --- GÜNCELLENEN OYLAMA ALANI --- */}
+            {/* Sürpriz Oylama: Oranlar butonların içinde gizli/gömülü */}
+            <div className="flex gap-3 w-full mt-2">
+              
+              {/* --- YEŞİL BUTON: KATILIYORUM --- */}
+              <button
+                onClick={() => handleVote('A')}
+                disabled={isPending}
+                className={cn(
+                  "relative flex-1 h-12 rounded-xl overflow-hidden transition-all duration-300 group",
+                  hasVoted 
+                    ? "border-emerald-600/20 bg-emerald-50 cursor-default" // Oy verildikten sonra zemin
+                    : "border-2 border-emerald-100 bg-white hover:border-emerald-500 hover:bg-emerald-50 cursor-pointer active:scale-95" // Oy vermeden önce
+                )}
+              >
+                {/* Progress Bar (Sadece oy verildiyse dolar) */}
+                {hasVoted && (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${percentA}%` }}
+                    transition={{ duration: 1, ease: "easeOut" }}
+                    className="absolute top-0 left-0 h-full bg-emerald-500/20 border-r border-emerald-500/30"
+                  />
+                )}
 
-                <div className="grid grid-cols-2 gap-3">
-                    <Button 
-                        disabled={isPending}
-                        onClick={() => handleVote('A')}
-                        variant="outline"
-                        className={cn(
-                            "h-9 text-xs font-bold border-slate-200 text-slate-600 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 transition-all active:scale-95",
-                            userVote === 'A' && "bg-indigo-600 text-white hover:bg-indigo-700 hover:text-white border-indigo-600 shadow-md shadow-indigo-100"
-                        )}
-                    >
-                        {isPending && pendingChoice === 'A' ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : (userVote === 'A' && <Check className="w-3 h-3 mr-1" />)}
-                        A Tarafı
-                    </Button>
-
-                    <Button 
-                        disabled={isPending}
-                        onClick={() => handleVote('B')}
-                        variant="outline"
-                        className={cn(
-                            "h-9 text-xs font-bold border-slate-200 text-slate-600 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition-all active:scale-95",
-                            userVote === 'B' && "bg-rose-600 text-white hover:bg-rose-700 hover:text-white border-rose-600 shadow-md shadow-rose-100"
-                        )}
-                    >
-                        {isPending && pendingChoice === 'B' ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : (userVote === 'B' && <Check className="w-3 h-3 mr-1" />)}
-                        B Tarafı
-                    </Button>
+                {/* Metin Katmanı */}
+                <div className="relative z-10 flex items-center justify-center w-full h-full gap-2">
+                    {isPending && userVote === 'A' ? (
+                        <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+                    ) : (
+                        <span className={cn(
+                            "font-bold uppercase tracking-wide transition-all flex items-center gap-1",
+                            hasVoted ? "text-emerald-800 text-sm" : "text-emerald-600 text-base"
+                        )}>
+                            {/* Seçiliyse Tik İşareti */}
+                            {userVote === 'A' && <Check className="w-4 h-4" />}
+                            KATILIYORUM
+                            {/* Oy verildiyse yüzdeyi göster */}
+                            {hasVoted && <span className="ml-1 opacity-100">({percentA}%)</span>}
+                        </span>
+                    )}
                 </div>
+              </button>
+
+              {/* --- KIRMIZI BUTON: KATILMIYORUM --- */}
+              <button
+                onClick={() => handleVote('B')}
+                disabled={isPending}
+                className={cn(
+                  "relative flex-1 h-12 rounded-xl overflow-hidden transition-all duration-300 group",
+                  hasVoted 
+                    ? "border-rose-600/20 bg-rose-50 cursor-default" 
+                    : "border-2 border-rose-100 bg-white hover:border-rose-500 hover:bg-rose-50 cursor-pointer active:scale-95"
+                )}
+              >
+                {/* Progress Bar */}
+                {hasVoted && (
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${percentB}%` }}
+                    transition={{ duration: 1, ease: "easeOut" }}
+                    className="absolute top-0 left-0 h-full bg-rose-500/20 border-r border-rose-500/30"
+                  />
+                )}
+
+                {/* Metin Katmanı */}
+                <div className="relative z-10 flex items-center justify-center w-full h-full gap-2">
+                    {isPending && userVote === 'B' ? (
+                        <Loader2 className="w-5 h-5 animate-spin text-rose-600" />
+                    ) : (
+                        <span className={cn(
+                            "font-bold uppercase tracking-wide transition-all flex items-center gap-1",
+                            hasVoted ? "text-rose-800 text-sm" : "text-rose-600 text-base"
+                        )}>
+                             {userVote === 'B' && <Check className="w-4 h-4" />}
+                            KATILMIYORUM
+                            {hasVoted && <span className="ml-1 opacity-100">({percentB}%)</span>}
+                        </span>
+                    )}
+                </div>
+              </button>
             </div>
         </CardContent>
 
@@ -226,12 +265,13 @@ export default function DebateCard({ debate }: DebateCardProps) {
                      </Button>
                  </div>
                  
-                 <div className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                 <div className="flex items-center gap-1 text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                     <TrendingUp className="w-3 h-3" />
                      {total} Oy
                  </div>
              </div>
 
-             {/* YORUM BÖLÜMÜ (Burada açılıp kapanıyor) */}
+             {/* YORUM BÖLÜMÜ (Orijinal DebateCommentColumn kullanıldı) */}
              <AnimatePresence>
                  {showComments && (
                      <motion.div

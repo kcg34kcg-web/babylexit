@@ -3,9 +3,30 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { BrainCircuit, CheckCircle2, Star } from "lucide-react"; // Star eklendi
+import { BrainCircuit, CheckCircle2 } from "lucide-react"; 
 import { useState } from "react";
 import { cn } from "@/utils/cn";
+
+// --- YENİ: Listede kullanmak için Statik Mini Alkış İkonu ---
+const SmallClapIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+    <defs>
+      <linearGradient id="smallClapGradient" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+        <stop stopColor="#F59E0B" /> {/* Amber */}
+        <stop offset="1" stopColor="#EA580C" /> {/* Orange */}
+      </linearGradient>
+    </defs>
+    <path 
+      d="M6.5 10C6.5 8.61929 7.61929 7.5 9 7.5H10.5V16.5H4.5C3.39543 16.5 2.5 15.6046 2.5 14.5V14C2.5 12.8954 3.39543 12 4.5 12H5V11.5C5 10.6716 5.67157 10 6.5 10Z" 
+      fill="url(#smallClapGradient)" 
+    />
+    <path 
+      d="M17.5 10C17.5 8.61929 16.3807 7.5 15 7.5H13.5V16.5H19.5C20.6046 16.5 21.5 15.6046 21.5 14.5V14C21.5 12.8954 20.6046 12 19.5 12H19V11.5C19 10.6716 18.3284 10 17.5 10Z" 
+      fill="url(#smallClapGradient)"
+      fillOpacity="0.8" 
+    />
+  </svg>
+);
 
 interface Candidate {
   id: string;
@@ -43,11 +64,9 @@ export default function PersuasionModal({
     }
   };
 
-  // Taraf Rengi Belirleme (A: Yeşil, B: Kırmızı)
   const isA = targetSide === 'A';
   const accentColor = isA ? "text-emerald-600" : "text-rose-600";
-  const ringColor = isA ? "ring-emerald-600/20" : "ring-rose-600/20";
-  const borderColor = isA ? "border-emerald-600" : "border-rose-600";
+  const borderRingColor = isA ? "ring-emerald-600/20 border-emerald-600" : "ring-rose-600/20 border-rose-600";
   const buttonColor = isA ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700";
 
   return (
@@ -88,11 +107,10 @@ export default function PersuasionModal({
                className={cn(
                  "relative p-4 rounded-xl border-2 transition-all cursor-pointer group bg-white",
                  selectedId === item.id 
-                    ? cn(borderColor, "shadow-md ring-2", ringColor)
+                    ? cn("shadow-md ring-2", borderRingColor)
                     : "border-transparent hover:border-slate-300 shadow-sm"
                )}
              >
-                {/* Seçim İkonu */}
                 <div className={cn(
                     "absolute top-3 right-3 transition-all duration-300 transform",
                     selectedId === item.id ? "opacity-100 scale-100" : "opacity-0 scale-50"
@@ -111,10 +129,17 @@ export default function PersuasionModal({
                    <div className="flex-1 pr-6">
                       <div className="flex items-center gap-2 mb-1">
                           <span className="font-bold text-xs text-slate-800">{item.profiles?.full_name}</span>
+                          
+                          {/* --- GÜNCELLENEN ALKIŞ ROZETİ --- */}
                           {item.persuasion_count > 0 && (
-                              <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
-                                <Star className="w-2.5 h-2.5 fill-amber-600" />
-                                {item.persuasion_count}
+                              <span className="flex items-center gap-1 ml-2 px-1.5 py-0.5 rounded-full bg-orange-50 border border-orange-100/50">
+                                {/* Özel Mini SVG İkon */}
+                                <SmallClapIcon className="w-3 h-3" />
+                                
+                                {/* Gradient Renkli Sayı */}
+                                <span className="text-[10px] font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600 tabular-nums">
+                                    {item.persuasion_count}
+                                </span>
                               </span>
                           )}
                       </div>
