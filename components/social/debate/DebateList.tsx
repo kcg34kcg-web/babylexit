@@ -1,77 +1,79 @@
 'use client';
 
-import { useState, useEffect } from "react";
-import { getDebateFeed } from "@/app/actions/debate";
+import { useEffect, useState } from "react";
+import { Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { getDebateFeed, type Debate } from "@/app/actions/debate";
 import DebateCard from "./DebateCard";
-import { RefreshCw } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 export default function DebateList() {
-  const [debates, setDebates] = useState<any[]>([]);
+  const [debates, setDebates] = useState<Debate[]>([]);
   const [loading, setLoading] = useState(true);
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const loadDebates = async (currentPage: number) => {
-    if (currentPage === 0) setLoading(true);
-    
+  const fetchDebates = async () => {
+    setLoading(true);
+    setError(null);
     try {
-        const data = await getDebateFeed(currentPage);
-        if (data.length === 0) {
-            setHasMore(false);
-        } else {
-            // Eğer sayfa 0 ise (yenileme), eski veriyi sil yeni geleni koy.
-            // Sayfa > 0 ise (daha fazla yükle), eski verinin üzerine ekle.
-            setDebates(prev => currentPage === 0 ? data : [...prev, ...data]);
-        }
-    } catch (error) {
-        console.error(error);
+        const data = await getDebateFeed(0, 20); // İlk 20 taneyi getir
+        setDebates(data);
+    } catch (err) {
+        console.error(err);
+        setError("Münazaralar yüklenirken bir hata oluştu.");
     } finally {
         setLoading(false);
     }
   };
 
+  // Bileşen yüklendiğinde veriyi çek
   useEffect(() => {
-    loadDebates(0);
+    fetchDebates();
   }, []);
 
-  const handleLoadMore = () => {
-      const nextPage = page + 1;
-      setPage(nextPage);
-      loadDebates(nextPage);
-  };
+  if (loading) {
+    return (
+        <div className="flex flex-col items-center justify-center py-20 space-y-4">
+            <Loader2 className="w-10 h-10 text-slate-300 animate-spin" />
+            <p className="text-slate-400 text-sm animate-pulse">Arena hazırlanıyor...</p>
+        </div>
+    );
+  }
 
-  if (loading) return (
-    <div className="flex flex-col items-center py-20 gap-4">
-        <div className="w-10 h-10 border-4 border-slate-200 border-t-amber-500 rounded-full animate-spin"></div>
-        <p className="text-slate-400 font-medium">Arenalar yükleniyor...</p>
-    </div>
-  );
+  if (error) {
+    return (
+        <div className="text-center py-10 bg-red-50 rounded-xl border border-red-100">
+            <AlertCircle className="w-10 h-10 text-red-400 mx-auto mb-3" />
+            <p className="text-red-600 font-medium mb-4">{error}</p>
+            <Button onClick={fetchDebates} variant="outline" className="border-red-200 text-red-600 hover:bg-red-100">
+                <RefreshCw size={16} className="mr-2" /> Tekrar Dene
+            </Button>
+        </div>
+    );
+  }
+
+  if (debates.length === 0) {
+      return (
+        <div className="text-center py-16 px-4">
+            <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="text-slate-400" size={32} />
+            </div>
+            <h3 className="text-slate-900 font-bold text-lg">Henüz Münazara Yok</h3>
+            <p className="text-slate-500 text-sm max-w-xs mx-auto mt-2">
+                Ortalık çok sessiz. İlk kıvılcımı sen çakmak ister misin?
+            </p>
+        </div>
+      );
+  }
 
   return (
-    <div className="space-y-8 pb-20">
-       {debates.length === 0 ? (
-           <div className="text-center py-20 bg-white rounded-3xl border border-dashed border-slate-300">
-               <p className="text-slate-500 text-lg font-bold">Henüz bir münazara başlatılmamış.</p>
-               <p className="text-slate-400 text-sm mt-2">İlk tartışmayı sen başlat!</p>
-           </div>
-       ) : (
-           debates.map((debate) => (
-               <DebateCard key={debate.id} debateData={debate} />
-           ))
-       )}
-
-       {/* Daha Fazla Yükle Butonu */}
-       {hasMore && debates.length > 0 && (
-           <div className="flex justify-center pt-4">
-               <button 
-                 onClick={handleLoadMore}
-                 className="flex items-center gap-2 px-6 py-3 bg-white border border-slate-200 hover:border-amber-300 hover:bg-amber-50 rounded-full text-slate-600 hover:text-amber-700 transition-all font-medium shadow-sm"
-               >
-                   <RefreshCw size={18} />
-                   Daha Fazla Göster
-               </button>
-           </div>
-       )}
+    <div className="space-y-6">
+      {debates.map((debate) => (
+         <DebateCard key={debate.id} debate={debate} />
+      ))}
+      
+      <div className="text-center pt-6 pb-10">
+          <p className="text-xs text-slate-400 font-medium">Şimdilik bu kadar.</p>
+      </div>
     </div>
   );
 }

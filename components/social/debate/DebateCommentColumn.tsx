@@ -1,173 +1,156 @@
 'use client';
 
-import { useToast } from "@/hooks/use-toast"; // veya "@/components/ui/use-toast"
-import { confirmVoteChange } from "@/app/actions/debate";
+import { useState, useEffect, useTransition } from "react";
+import { Send, Lock, Loader2, MessageSquare } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/utils/cn";
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
-import { AlertCircle, ThumbsUp } from "lucide-react";
-import { useState, useTransition } from "react";
-// BUG FIX #4: PersuasionButton artık import edildi
-import PersuasionButton from "./PersuasionButton"; 
 
-interface Comment {
-  id: string;
-  content: string;
-  side: 'A' | 'B';
-  persuasion_count: number;
-  created_at: string;
-  user_id: string;
-  profiles: {
-    username: string;
-    full_name: string;
-    avatar_url: string;
-    job_title?: string;
-  };
-}
+// Actions & Components
+import { getDebateComments, postDebateComment } from "@/app/actions/debate";
+import PersuasionButton from "./PersuasionButton";
 
-interface DebateCommentColumnProps {
-  side: 'A' | 'B';
-  comments: Comment[];
+interface Props {
   debateId: string;
-  userVote: 'A' | 'B' | null; // Kullanıcının mevcut tarafı
+  userVote: 'A' | 'B' | null;
+  isOpen: boolean;
 }
 
-export default function DebateCommentColumn({ 
-  side, 
-  comments, 
-  debateId, 
-  userVote 
-}: DebateCommentColumnProps) {
+export default function DebateCommentColumn({ debateId, userVote, isOpen }: Props) {
   const { toast } = useToast();
-  const [isPending, startTransition] = useTransition();
-  const [optimisticComments, setOptimisticComments] = useState(comments);
+  const [comments, setComments] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  
+  // Yorum Yazma State
+  const [content, setContent] = useState("");
+  const [isPosting, startPosting] = useTransition();
 
-  // BUG FIX #16: Kullanıcı taraf değiştirmek istediğinde tetiklenir
-  const handlePersuasion = async (commentId: string, commentSide: 'A' | 'B') => {
-    if (!userVote) {
-      toast({
-        title: "Önce tarafını seçmelisin!",
-        description: "İkna olmak için önce bir duruşun olmalı.",
-        variant: "destructive",
-      });
-      return;
+  // Açıldığında yorumları çek
+  useEffect(() => {
+    if (isOpen && comments.length === 0) {
+        setLoading(true);
+        getDebateComments(debateId)
+            .then(data => setComments(data || []))
+            .finally(() => setLoading(false));
     }
+  }, [isOpen, debateId]);
 
-    if (userVote === commentSide) {
-      toast({
-        title: "Zaten bu taraftasın!",
-        description: "Kendi tarafındaki yorumlara sadece beğeni atabilirsin (yakında).",
+  // Yorum Gönderme
+  const handlePost = () => {
+      if (!content.trim() || !userVote) return;
+
+      startPosting(async () => {
+          const result = await postDebateComment(debateId, content, userVote);
+          
+          if (result.success) {
+              toast({ title: "Yorum Gönderildi", description: "Fikrin arenaya eklendi." });
+              setContent("");
+              // Listeyi yenile
+              const newData = await getDebateComments(debateId);
+              setComments(newData || []);
+          } else {
+              toast({ title: "Hata", description: result.error, variant: "destructive" });
+          }
       });
-      return;
-    }
-
-    // Taraf değiştirme işlemi başlıyor
-    startTransition(async () => {
-      const result = await confirmVoteChange(debateId, commentSide, commentId);
-
-      if (result.success) {
-        toast({
-          title: "Fikir Değişikliği Onaylandı!",
-          description: `Bu yorum seni "${commentSide}" tarafına ikna etti.`,
-          variant: "default", // Success
-        });
-        // Optimistic UI update (Basitçe sayfayı yenilemeden sayıyı artırabiliriz)
-        // Gerçek veri revalidatePath ile gelecek.
-      } else {
-        toast({
-          title: "Hata",
-          description: result.error || "Bir sorun oluştu.",
-          variant: "destructive",
-        });
-      }
-    });
   };
+
+  if (!isOpen) return null;
 
   return (
-    <div className="flex flex-col gap-4">
-      <h3 className={cn(
-        "text-lg font-bold sticky top-0 bg-background/95 backdrop-blur z-10 py-2 border-b",
-        side === 'A' ? "text-blue-600 border-blue-100" : "text-red-600 border-red-100"
-      )}>
-        {side === 'A' ? "Mavi Taraf Görüşleri" : "Kırmızı Taraf Görüşleri"}
-        <span className="ml-2 text-sm font-normal text-muted-foreground">({comments.length})</span>
-      </h3>
-
-      {comments.length === 0 ? (
-        <div className="text-center py-10 text-muted-foreground border-2 border-dashed rounded-xl">
-          <p>Henüz bu tarafta bir savunma yok.</p>
-          <p className="text-sm">İlk yorumu sen yaz!</p>
-        </div>
-      ) : (
-        <div className="space-y-4 pb-20">
-          {comments.map((comment) => (
-            <div 
-              key={comment.id} 
-              className={cn(
-                "group relative p-4 rounded-xl border transition-all hover:shadow-md",
-                side === 'A' ? "bg-blue-50/30 border-blue-100" : "bg-red-50/30 border-red-100",
-                // İkna eden yorum vurgusu
-                comment.persuasion_count > 0 && "ring-1 ring-offset-2", 
-                side === 'A' ? "ring-blue-200" : "ring-red-200"
-              )}
-            >
-              {/* Header */}
-              <div className="flex items-start justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Avatar className="w-8 h-8 border">
-                    <AvatarImage src={comment.profiles?.avatar_url || ""} />
-                    <AvatarFallback>{comment.profiles?.full_name?.[0] || "?"}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">
-                      {comment.profiles?.full_name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {comment.profiles?.job_title || "Üye"} • {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: tr })}
-                    </p>
-                  </div>
-                </div>
-                
-                {/* İkna Sayacı Badge */}
-                {comment.persuasion_count > 0 && (
-                  <div className="flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full bg-yellow-100 text-yellow-700 border border-yellow-200" title="Bu yorum kaç kişiyi taraf değiştirmeye ikna etti?">
-                    <AlertCircle className="w-3 h-3" />
-                    {comment.persuasion_count} İkna
-                  </div>
+    <div className="bg-slate-50 border-t border-slate-100 p-4 animate-in slide-in-from-top-2">
+       
+       {/* YORUM YAZMA ALANI */}
+       <div className="mb-6 flex gap-3">
+          <div className="flex-1 relative">
+             <Textarea 
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                disabled={!userVote || isPosting}
+                placeholder={userVote ? "Argümanlarını sun..." : "Yorum yapmak için önce oy ver."}
+                className={cn(
+                    "min-h-[80px] text-sm resize-none bg-white",
+                    !userVote && "opacity-50 cursor-not-allowed bg-slate-100"
                 )}
-              </div>
+             />
+             
+             {!userVote && (
+                 <div className="absolute inset-0 flex items-center justify-center text-slate-400 gap-2 pointer-events-none">
+                     <Lock size={16} />
+                     <span className="text-xs font-bold">Taraf Seçmelisin</span>
+                 </div>
+             )}
+          </div>
+          
+          <Button 
+            onClick={handlePost}
+            disabled={!content.trim() || !userVote || isPosting}
+            className="h-[80px] w-[60px] bg-slate-900 hover:bg-slate-800"
+          >
+             {isPosting ? <Loader2 className="animate-spin" /> : <Send size={20} />}
+          </Button>
+       </div>
 
-              {/* Content */}
-              <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
-                {comment.content}
-              </p>
+       {/* YORUM LİSTESİ */}
+       {loading ? (
+           <div className="flex justify-center py-4"><Loader2 className="animate-spin text-slate-400" /></div>
+       ) : comments.length === 0 ? (
+           <div className="text-center py-6 text-slate-400">
+               <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-20" />
+               <p className="text-xs">Henüz yorum yok. İlk sen ol!</p>
+           </div>
+       ) : (
+           <div className="space-y-4">
+               {comments.map((comment) => (
+                   <div key={comment.id} className="flex gap-3 group">
+                       <Avatar className="w-8 h-8 mt-1 border border-white shadow-sm">
+                           <AvatarImage src={comment.profiles?.avatar_url} />
+                           <AvatarFallback>U</AvatarFallback>
+                       </Avatar>
+                       
+                       <div className="flex-1">
+                           <div className="bg-white p-3 rounded-2xl rounded-tl-none border border-slate-200 shadow-sm relative">
+                               {/* Taraf Rozeti */}
+                               <span className={cn(
+                                   "absolute top-3 right-3 text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider",
+                                   comment.side === 'A' ? "bg-indigo-50 text-indigo-600" : "bg-rose-50 text-rose-600"
+                               )}>
+                                   {comment.side} Tarafı
+                               </span>
 
-              {/* Footer / Actions */}
-              <div className="mt-3 flex items-center justify-between pt-2 border-t border-dashed border-gray-200/50">
-                <div className="flex gap-2">
-                    {/* Standart Beğeni (Opsiyonel) */}
-                    <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground hover:text-foreground">
-                        <ThumbsUp className="w-3 h-3 mr-1" /> Beğen
-                    </Button>
-                </div>
+                               <div className="flex items-center gap-2 mb-1">
+                                   <span className="text-xs font-bold text-slate-800">
+                                       {comment.profiles?.full_name || "Gizli Üye"}
+                                   </span>
+                                   <span className="text-[10px] text-slate-400">
+                                       {formatDistanceToNow(new Date(comment.created_at), { addSuffix: true, locale: tr })}
+                                   </span>
+                               </div>
+                               
+                               <p className="text-sm text-slate-700 leading-relaxed">
+                                   {comment.content}
+                               </p>
+                           </div>
 
-                {/* BUG FIX #4: PersuasionButton Eklendi */}
-                {/* Eğer kullanıcı karşı taraftaysa (veya tarafsızsa) ikna butonu görünür */}
-                {userVote !== side && (
-                    <PersuasionButton 
-                        commentId={comment.id}
-                        side={side}
-                        isPending={isPending}
-                        onPersuade={() => handlePersuasion(comment.id, side)}
-                    />
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                           <div className="flex items-center gap-4 mt-1 ml-2">
+                               <PersuasionButton 
+                                   debateId={debateId}
+                                   commentId={comment.id}
+                                   authorId={comment.profiles?.id}
+                                   initialCount={comment.persuasion_count || 0}
+                                   userSide={userVote}
+                                   commentSide={comment.side} // Yorumun tarafı
+                               />
+                               {/* Yanıtla butonu eklenebilir */}
+                           </div>
+                       </div>
+                   </div>
+               ))}
+           </div>
+       )}
     </div>
   );
 }
