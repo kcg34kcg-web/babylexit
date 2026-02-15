@@ -151,23 +151,37 @@ export async function createDebate(formData: FormData) {
     const title = formData.get('title') as string;
     const description = formData.get('description') as string;
     const category = formData.get('category') as string || 'general';
+    // Yeni eklenen kısımlar: Seçenekler (Varsayılan değerlerle)
+    const optionA = formData.get('optionA') as string || 'Katılıyorum';
+    const optionB = formData.get('optionB') as string || 'Katılmıyorum';
 
     if (!title || title.trim().length < 5) return { error: "Başlık çok kısa." };
 
     const { data, error } = await supabase
         .from('social_debates')
         .insert({
-            title: title.trim(), description: description.trim(), category,
-            created_by: user.id, is_active: true, vote_count_a: 0, vote_count_b: 0
+            title: title.trim(),
+            description: description.trim(),
+            category,
+            created_by: user.id,
+            is_active: true,
+            vote_count_a: 0,
+            vote_count_b: 0,
+            // Veritabanı muhtemelen bunları bekliyor:
+            option_a: optionA,
+            option_b: optionB
         })
         .select()
         .single();
 
-    if (error) return { error: "Oluşturulamadı." };
+    if (error) {
+        console.error("Münazara oluşturma hatası:", error); // Terminalde hatayı görmek için
+        return { error: `Hata: ${error.message}` }; // Kullanıcıya hatayı göstermek için
+    }
+    
     revalidatePath('/social');
     return { success: true, debateId: data.id };
 }
-
 // --- 5. TARAF DEĞİŞİKLİĞİ ONAY ---
 export async function confirmVoteChange(debateId: string, newChoice: 'A' | 'B', convincedByCommentId: string): Promise<VoteResponse> {
     const supabase = await createClient();
