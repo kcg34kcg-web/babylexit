@@ -32,7 +32,7 @@ class QueryIntent(BaseModel):
 # --- RAG Katmanı ---
 class RagLayer:
     def __init__(self):
-        # API Anahtarlarını al (Hata fırlatma, sadece logla veya None bırak)
+        # API Anahtarlarını al
         self.google_api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
@@ -41,7 +41,7 @@ class RagLayer:
         self.supabase = None
         self.ranker = None
         
-        # FlashRank'i hemen başlatmıyoruz, ilk çağrıda yükleyebiliriz veya try-except ile koruyabiliriz
+        # FlashRank'i güvenli başlat
         try:
             print("⚡ FlashRank (CPU) hazırlanıyor...")
             self.ranker = Ranker(model_name="ms-marco-TinyBERT-L-2-v2", cache_dir="./.flashrank_cache")
@@ -78,7 +78,6 @@ class RagLayer:
                     config=types.EmbedContentConfig(task_type="RETRIEVAL_QUERY")
                 )
             )
-            # embeddings özelliği bir liste döner, biz ilkini alıyoruz
             return result.embeddings[0].values
         except Exception as e:
             print(f"⚠️ Embedding Hatası: {e}")
@@ -90,8 +89,8 @@ class RagLayer:
 
         prompt = f"""
         Bu hukuk asistanı için gelen sorguyu analiz et: "{query}"
-        1. "INTERNAL": Hukuk analizi, dava, dosya.
-        2. "FACTUAL": Genel bilgi (Dolar, Hava, vb.).
+        1. "INTERNAL": Hukuk analizi, dava, dosya, mevzuat.
+        2. "FACTUAL": Genel bilgi (Dolar, Hava durumu vb.).
         Cevabı JSON ver: {{ "category": "...", "reasoning": "..." }}
         """
         try:
@@ -131,7 +130,7 @@ class RagLayer:
         client = self._connect_google()
         if not client: return RagResult(found=False, source_type="error", context_str="", sources=[], chunks=[])
 
-        print(f"🌍 Web Araması Yapılıyor: {query}")
+        print(f"🌍 Web Araması Yapılıyor (Google): {query}")
         try:
             # Yeni SDK ile Google Search Tool kullanımı
             google_search_tool = types.Tool(google_search=types.GoogleSearch())
@@ -145,7 +144,6 @@ class RagLayer:
             )
             
             sources = []
-            # Yeni SDK yanıt yapısında grounding metadata ayrıştırma
             if resp.candidates and resp.candidates[0].grounding_metadata:
                  for chunk in resp.candidates[0].grounding_metadata.grounding_chunks:
                     if chunk.web:
@@ -162,23 +160,26 @@ class RagLayer:
             print(f"❌ Web Search Hatası: {e}")
             return RagResult(found=False, source_type="error", context_str="", sources=[], chunks=[])
 
-    async def process(self, query: str) -> RagResult:
-        print(f"🚀 İşleniyor: {query}")
+    # DÜZELTME: Metot adı 'process' yerine 'search' yapıldı. graph.py bu ismi bekliyor.
+    async def search(self, query: str) -> RagResult:
+        print(f"🚀 RAG İşleniyor: {query}")
         
-        # API Key kontrolü
         if not self._connect_google():
             return RagResult(found=False, source_type="error", context_str="API Key eksik", sources=[], chunks=[])
 
+        # 1. Intent Analizi
         intent = await self._classify_intent(query)
         if intent.category == "FACTUAL":
             return await self._web_fallback(query)
 
+        # 2. Supabase Araması
         docs = await self._search_supabase(query)
         
+        # 3. Sonuç yoksa Web Fallback
         if not docs:
             return await self._web_fallback(query)
 
-        # Rerank
+        # 4. Reranking
         if self.ranker:
             passages = [
                 {"id": str(d['id']), "text": d.get('content', ''), "meta": d.get('metadata', {})} 
@@ -190,7 +191,9 @@ class RagLayer:
         else:
             final = docs[:5]
 
+        # Skor düşükse yine Web'e git
         if not final or (self.ranker and final[0]['score'] < 0.20):
+             print("⚠️ Skor düşük -> Web Fallback")
              return await self._web_fallback(query)
 
         context = "\n---\n".join([f"Kaynak: {i.get('meta', {}).get('source')}\n{i.get('text', '')}" for i in final])

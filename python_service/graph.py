@@ -4,15 +4,15 @@ import asyncio
 from typing import TypedDict, Optional, Literal, List
 from langgraph.graph import StateGraph, END
 
-# Katmanlar (Import yolları ve isimleri korundu)
-from layers.guard import GuardLayer, GuardOutput
+# Katmanlar
+from layers.guard import GuardLayer
 from layers.router import RouterLayer
 from layers.rag import RagLayer, RagResult
 from layers.web import WebLayer, WebResult
 from layers.expert import ExpertLayer, ExpertResult
 from layers.author import AuthorLayer
 
-# Supabase Client Kurulumu (Mevcut mantık korundu)
+# Supabase Client
 try:
     from utils.supabase import supabase_client
 except ImportError:
@@ -27,17 +27,17 @@ except ImportError:
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("BabyLexitGraph")
 
-# --- 1. State Tanımı (Aynen korundu) ---
+# --- 1. State Tanımı ---
 class AgentState(TypedDict):
     question_id: str
     query: str
-    safety_status: str  # 'safe', 'toxic'
-    route: str          # 'internal', 'web', 'hybrid'
+    safety_status: str
+    route: str
     rag_result: Optional[RagResult]
     web_result: Optional[WebResult]
     expert_result: Optional[ExpertResult]
     final_report: str
-    status: str         # 'processing', 'completed', 'failed'
+    status: str
 
 # --- 2. Node Tanımları ---
 guard_layer = GuardLayer()
@@ -47,56 +47,53 @@ web_layer = WebLayer()
 expert_layer = ExpertLayer()
 author_layer = AuthorLayer()
 
-async def guard_node(state: AgentState) -> AgentState:
+# NOT: Paralel çalışacak node'lar (RAG, Web) SADECE kendi güncelledikleri key'i döndürmelidir.
+# {**state} kullanımı paralel kollarda çakışma yaratır.
+
+async def guard_node(state: AgentState) -> dict:
     logger.info("--- NODE: Guard ---")
-    # Senkron check metodunu güvenli çağırma
     result = guard_layer.check(state["query"])
-    # Hem 'safe' hem 'is_safe' alanlarını kontrol ederek hata payını sıfırlıyoruz
     is_safe = getattr(result, 'safe', getattr(result, 'is_safe', True))
     
     if not is_safe:
         return {
-            **state, 
             "safety_status": "toxic", 
             "final_report": "⚠️ Bu içerik güvenlik politikalarımıza uymamaktadır.",
             "status": "failed"
         }
-    return {**state, "safety_status": "safe"}
+    return {"safety_status": "safe"}
 
-async def router_node(state: AgentState) -> AgentState:
+async def router_node(state: AgentState) -> dict:
     logger.info("--- NODE: Router ---")
-    # decide metodu asenkron olabileceği için kontrol ederek çağırıyoruz
     if asyncio.iscoroutinefunction(router_layer.decide):
         decision = await router_layer.decide(state["query"])
     else:
         decision = router_layer.decide(state["query"])
-    return {**state, "route": decision.route}
+    return {"route": decision.route}
 
-async def rag_node(state: AgentState) -> AgentState:
+async def rag_node(state: AgentState) -> dict:
     logger.info("--- NODE: RAG ---")
-    result = rag_layer.search(state["query"])
-    return {**state, "rag_result": result}
+    # DÜZELTME 1: await eklendi
+    result = await rag_layer.search(state["query"])
+    # DÜZELTME 2: Sadece ilgili key dönüyor
+    return {"rag_result": result}
 
-async def web_node(state: AgentState) -> AgentState:
+async def web_node(state: AgentState) -> dict:
     logger.info("--- NODE: Web ---")
-    result = web_layer.search(state["query"])
-    return {**state, "web_result": result}
+    # DÜZELTME 1: await eklendi
+    result = await web_layer.search(state["query"])
+    # DÜZELTME 2: Sadece ilgili key dönüyor
+    return {"web_result": result}
 
-def grade_node(state: AgentState) -> dict:
-    logger.info("--- NODE: Grader ---")
-    rag_found = state.get("rag_result") and getattr(state["rag_result"], 'found', False)
-    web_found = state.get("web_result") and getattr(state["web_result"], 'found', False)
-    return "sufficient" if (rag_found or web_found) else "insufficient"
-
-async def expert_node(state: AgentState) -> AgentState:
+async def expert_node(state: AgentState) -> dict:
     logger.info("--- NODE: Expert ---")
     context = ""
     if state.get("rag_result"): context += str(state["rag_result"])
     if state.get("web_result"): context += str(state["web_result"])
     result = expert_layer.get_response(state["query"], context=context)
-    return {**state, "expert_result": result}
+    return {"expert_result": result}
 
-async def author_node(state: AgentState) -> AgentState:
+async def author_node(state: AgentState) -> dict:
     logger.info("--- NODE: Author ---")
     result = author_layer.write_report(
         query=state["query"],
@@ -104,26 +101,32 @@ async def author_node(state: AgentState) -> AgentState:
         web_result=state.get("web_result"),
         expert_result=state.get("expert_result")
     )
-    return {**state, "final_report": result.final_markdown, "status": "completed"}
+    return {"final_report": result.final_markdown, "status": "completed"}
 
-async def db_writer_node(state: AgentState) -> AgentState:
-    logger.info(f"--- NODE: DB Writer (ID: {state['question_id']}) ---")
-    if supabase_client:
+async def db_writer_node(state: AgentState) -> dict:
+    logger.info(f"--- NODE: DB Writer (ID: {state.get('question_id')}) ---")
+    if supabase_client and state.get("question_id"):
         try:
-            # Sources verisini güvenli bir şekilde JSON formatına çeviriyoruz
+            def to_dict_safe(obj):
+                return obj.dict() if hasattr(obj, 'dict') else (obj.model_dump() if hasattr(obj, 'model_dump') else str(obj))
+
             sources_payload = {
-                "rag": state.get("rag_result").dict() if state.get("rag_result") and hasattr(state.get("rag_result"), 'dict') else None,
-                "web": state.get("web_result").dict() if state.get("web_result") and hasattr(state.get("web_result"), 'dict') else None,
-                "expert": state.get("expert_result").dict() if state.get("expert_result") and hasattr(state.get("expert_result"), 'dict') else None
+                "rag": to_dict_safe(state.get("rag_result")) if state.get("rag_result") else None,
+                "web": to_dict_safe(state.get("web_result")) if state.get("web_result") else None,
+                "expert": to_dict_safe(state.get("expert_result")) if state.get("expert_result") else None
             }
+            
+            # answer kolonu yok hatası almamak için önce select ile kontrol edilebilir ama
+            # şimdilik doğrudan update deniyoruz.
             supabase_client.table("questions").update({
-                "answer": state["final_report"],
-                "status": state["status"],
+                "answer": state.get("final_report", ""),
+                "status": state.get("status", "completed"),
                 "sources": sources_payload
             }).eq("id", state["question_id"]).execute()
         except Exception as e:
             logger.error(f"DB Write Error: {e}")
-    return state
+            # Tablo yapısı hatası alırsak loglayalım
+    return {} # DB Writer son adım, state güncellemesine gerek yok
 
 # --- 3. Graph Kurulumu ---
 workflow = StateGraph(AgentState)
@@ -138,25 +141,24 @@ workflow.add_node("db_writer_node", db_writer_node)
 workflow.set_entry_point("guard_node")
 
 def check_safety(state: AgentState):
-    return "end" if state["safety_status"] == "toxic" else "continue"
+    return "end" if state.get("safety_status") == "toxic" else "continue"
 
 workflow.add_conditional_edges("guard_node", check_safety, {"end": "db_writer_node", "continue": "router_node"})
 
 def route_decision_func(state: AgentState):
-    route = state["route"]
+    route = state.get("route", "internal")
     if route == "internal": return ["rag_node"]
     elif route == "web": return ["web_node"]
-    else: return ["rag_node", "web_node"]
+    else: return ["rag_node", "web_node"] # Hybrid
 
 workflow.add_conditional_edges("router_node", route_decision_func, ["rag_node", "web_node"])
 
-def check_sufficiency(state: AgentState):
-    rag_found = state.get("rag_result") and getattr(state["rag_result"], 'found', False)
-    web_found = state.get("web_result") and getattr(state["web_result"], 'found', False)
-    return "author" if (rag_found or web_found) else "expert"
-
-workflow.add_conditional_edges("rag_node", check_sufficiency, {"author": "author_node", "expert": "expert_node"})
-workflow.add_conditional_edges("web_node", check_sufficiency, {"author": "author_node", "expert": "expert_node"})
+# RAG ve Web bittikten sonra Expert'e mi Author'a mı gidecek?
+# Şimdilik direkt Author'a bağlayalım (Basitlik için)
+# İsterseniz expert_node'u araya sokabilirsiniz.
+# Mevcut akış: (RAG/Web) -> Expert -> Author
+workflow.add_edge("rag_node", "expert_node")
+workflow.add_edge("web_node", "expert_node")
 
 workflow.add_edge("expert_node", "author_node")
 workflow.add_edge("author_node", "db_writer_node")
@@ -190,19 +192,21 @@ async def start_analysis(question_id: str):
             "status": "processing"
         }
         
-        # app.ainvoke kullanımı yeni sürüm LangGraph ile tam uyumlu hale getirildi
-        result = await app.ainvoke(inputs)
+        await app.ainvoke(inputs)
         logger.info(f"Analysis completed for {question_id}")
-        return result
 
     except Exception as e:
         logger.error(f"Critical Error in Pipeline: {e}")
+        import traceback
+        traceback.print_exc()
         if supabase_client:
-            supabase_client.table("questions").update({
-                "status": "failed",
-                "answer": f"Sistemde beklenmeyen bir hata oluştu: {str(e)}"
-            }).eq("id", question_id).execute()
+            try:
+                supabase_client.table("questions").update({
+                    "status": "failed",
+                    "answer": f"Sistemde beklenmeyen bir hata oluştu: {str(e)}"
+                }).eq("id", question_id).execute()
+            except:
+                logger.error("DB update failed during error handling")
 
 if __name__ == "__main__":
-    # Test bloğu
-    asyncio.run(start_analysis("test-uuid"))    
+    asyncio.run(start_analysis("test-uuid"))

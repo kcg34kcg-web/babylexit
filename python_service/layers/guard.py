@@ -34,11 +34,11 @@ class GuardLayer:
     Filters input for injections, illegal intent, and gibberish using gemini-2.0-flash.
     """
     def __init__(self):
-        self.api_key = os.getenv("GOOGLE_API_KEY") # STANDART ENV İSMİ
+        self.api_key = os.getenv("GEMINI_API_KEY") # STANDART ENV İSMİ
         self.client = None
         
         if not self.api_key:
-            logger.warning("GOOGLE_API_KEY not found. GuardLayer will default to FAIL-OPEN (Safe).")
+            logger.warning("GEMINI_API_KEY not found. GuardLayer will default to FAIL-OPEN (Safe).")
         else:
             try:
                 # v1.0 SDK Client Init

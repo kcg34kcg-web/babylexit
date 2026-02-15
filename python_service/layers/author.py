@@ -1,16 +1,12 @@
 import os
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 from pydantic import BaseModel
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 # Loglama
 logger = logging.getLogger(__name__)
-
-# Supabase veya environment'tan API key
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if GOOGLE_API_KEY:
-    genai.configure(api_key=GOOGLE_API_KEY)
 
 class AuthorResult(BaseModel):
     final_markdown: str
@@ -18,8 +14,19 @@ class AuthorResult(BaseModel):
 
 class AuthorLayer:
     def __init__(self):
+        # API Anahtarını al (Environment değişkenlerinden)
+        self.api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
         self.model_name = "gemini-2.0-flash"
-        self.model = genai.GenerativeModel(self.model_name)
+        self.client = None
+        
+        # Client'ı güvenli başlat (API key yoksa None kalır, program çökmez)
+        if self.api_key:
+            try:
+                self.client = genai.Client(api_key=self.api_key)
+            except Exception as e:
+                logger.error(f"Google GenAI Client başlatılamadı: {e}")
+        else:
+            logger.warning("⚠️ AuthorLayer için API Key bulunamadı. Raporlama çalışmayabilir.")
 
     def _prepare_context(self, 
                          rag_data: Optional[Any], 
@@ -28,14 +35,21 @@ class AuthorLayer:
         """Gelen ham verileri okunabilir bir bağlam metnine dönüştürür."""
         context_parts = []
 
+        # RAG Verisi (Mevzuat)
+        # Not: Orijinal kodda .text aranıyordu, rag.py'de context_str olabilir. İkisini de deniyoruz.
         if rag_data and getattr(rag_data, 'found', False):
-            context_parts.append(f"--- MEVZUAT VE İÇTİHAT (RAG) ---\n{rag_data.text}\n")
+            text_content = getattr(rag_data, 'context_str', getattr(rag_data, 'text', ''))
+            context_parts.append(f"--- MEVZUAT VE İÇTİHAT (RAG) ---\n{text_content}\n")
         
+        # Web Verisi (Haberler)
         if web_data and getattr(web_data, 'found', False):
-            context_parts.append(f"--- GÜNCEL WEB HABERLERİ ---\n{web_data.summary}\n")
+            summary_content = getattr(web_data, 'context_str', getattr(web_data, 'summary', ''))
+            context_parts.append(f"--- GÜNCEL WEB HABERLERİ ---\n{summary_content}\n")
         
+        # Uzman Görüşü
         if expert_data:
-            context_parts.append(f"--- UZMAN AI GÖRÜŞÜ ---\n{expert_data.answer}\n")
+            answer_content = getattr(expert_data, 'answer', '')
+            context_parts.append(f"--- UZMAN AI GÖRÜŞÜ ---\n{answer_content}\n")
         
         if not context_parts:
             return "Elimizde yeterli veri yok."
@@ -48,6 +62,12 @@ class AuthorLayer:
                      web_result: Optional[Any] = None, 
                      expert_result: Optional[Any] = None) -> AuthorResult:
         
+        if not self.client:
+            return AuthorResult(
+                final_markdown="⚠️ API Anahtarı eksik olduğu için rapor oluşturulamadı. Lütfen .env dosyasını kontrol edin.", 
+                status="error"
+            )
+
         context_str = self._prepare_context(rag_result, web_result, expert_result)
         
         prompt = f"""
@@ -71,7 +91,11 @@ class AuthorLayer:
         """
 
         try:
-            response = self.model.generate_content(prompt)
+            # Yeni SDK kullanımı (google-genai)
+            response = self.client.models.generate_content(
+                model=self.model_name,
+                contents=prompt
+            )
             return AuthorResult(final_markdown=response.text)
         except Exception as e:
             logger.error(f"Author layer failed: {e}")
