@@ -3,9 +3,10 @@
 import { voteDailyDebate, confirmVoteChange, type Debate } from "@/app/actions/debate";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/hooks/use-toast";
+// HATA GİDERİLDİ: use-toast yerine react-hot-toast import edildi
+import toast from 'react-hot-toast'; 
 import { cn } from "@/utils/cn";
-import { Loader2, TrendingUp, AlertCircle } from "lucide-react";
+import { Loader2, TrendingUp } from "lucide-react";
 import { useState, useTransition, useEffect } from "react";
 // YENİ MODAL IMPORT
 import PersuasionModal from "@/components/social/debate/PersuasionModal";
@@ -15,7 +16,7 @@ interface Props {
 }
 
 export default function DailyDebateWidget({ preloadedData }: Props) {
-  const { toast } = useToast();
+  // HATA GİDERİLDİ: useToast hook kullanımı kaldırıldı
   const [isPending, startTransition] = useTransition();
 
   const [debate, setDebate] = useState<Debate | null>(preloadedData || null);
@@ -35,7 +36,7 @@ export default function DailyDebateWidget({ preloadedData }: Props) {
     }
   }, [preloadedData]);
 
-  // Loading & Empty States (Aynen kalsın)
+  // Loading & Empty States
   if (!debate && !preloadedData) return <div className="p-4 bg-white animate-pulse rounded-xl h-[200px]" />;
   if (!debate) return null;
 
@@ -62,7 +63,8 @@ export default function DailyDebateWidget({ preloadedData }: Props) {
         const result = await voteDailyDebate(debate.id, choice);
 
         if (result.success) {
-            toast({ title: "Oyunuz Kaydedildi", description: "Topluluk nabzına katkıda bulundunuz." });
+            // GÜNCELLENDİ: react-hot-toast formatı
+            toast.success("Oyunuz Kaydedildi: Topluluk nabzına katkıda bulundunuz.");
             if (result.newStats) setStats(result.newStats);
         } 
         else if (result.requiresPersuasion) {
@@ -76,7 +78,8 @@ export default function DailyDebateWidget({ preloadedData }: Props) {
              setStats(previousStats);
         } 
         else {
-             toast({ title: "Hata", description: result.error, variant: "destructive" });
+             // GÜNCELLENDİ: react-hot-toast formatı
+             toast.error(`Hata: ${result.error}`);
              setUserVote(previousVote);
              setStats(previousStats);
         }
@@ -94,9 +97,11 @@ export default function DailyDebateWidget({ preloadedData }: Props) {
               setIsModalOpen(false);
               setUserVote(pendingChoice);
               if (result.newStats) setStats(result.newStats);
-              toast({ title: "Fikir Değişikliği Onaylandı", description: "Esnek bir zihne sahip olduğun için tebrikler!" });
+              // GÜNCELLENDİ: react-hot-toast formatı
+              toast.success("Fikir Değişikliği Onaylandı: Esnek bir zihne sahip olduğun için tebrikler!");
           } else {
-              toast({ title: "Hata", description: result.error, variant: "destructive" });
+              // GÜNCELLENDİ: react-hot-toast formatı
+              toast.error(`Hata: ${result.error}`);
           }
       });
   };
@@ -104,9 +109,6 @@ export default function DailyDebateWidget({ preloadedData }: Props) {
   return (
     <>
         <Card className="w-full bg-gradient-to-br from-indigo-50 to-white border-indigo-100 shadow-sm overflow-hidden relative">
-            {/* ... CARD TASARIMI (Önceki kodun aynısı) ... */}
-            {/* Header, Progress Bar, Butonlar buraya gelecek (Kod tekrarı olmasın diye kısalttım) */}
-            
              <CardHeader className="pb-2 pt-4 px-4">
                 <div className="flex items-center gap-2 text-indigo-600 mb-1.5">
                     <TrendingUp className="w-3.5 h-3.5" />

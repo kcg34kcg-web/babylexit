@@ -2,14 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { motion } from "framer-motion";
-import { MessageCircle, Share2, AlertCircle, Loader2, Check } from "lucide-react";
+import { MessageCircle, Share2, Loader2, Check } from "lucide-react"; // AlertCircle kullanılmadığı için kaldırıldı
 import { formatDistanceToNow } from "date-fns";
 import { tr } from "date-fns/locale";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { cn } from "@/utils/cn";
-import { useToast } from "@/hooks/use-toast";
+// HATA GİDERİLDİ: use-toast yerine react-hot-toast import edildi
+import toast from 'react-hot-toast'; 
 
 // Server Actions
 import { voteDailyDebate, confirmVoteChange, type Debate } from "@/app/actions/debate";
@@ -22,7 +23,7 @@ interface DebateCardProps {
 }
 
 export default function DebateCard({ debate }: DebateCardProps) {
-  const { toast } = useToast();
+  // HATA GİDERİLDİ: useToast hook çağrısı kaldırıldı
   const [isPending, startTransition] = useTransition();
 
   // --- LOCAL STATE (OPTIMISTIC UI) ---
@@ -56,7 +57,7 @@ export default function DebateCard({ debate }: DebateCardProps) {
                  [choice.toLowerCase()]: prev[choice.toLowerCase() as 'a'|'b'] + 1,
                  [previousVote?.toLowerCase() as 'a'|'b' || '']: isSwitching 
                     ? prev[previousVote?.toLowerCase() as 'a'|'b' || 'a'] - 1 
-                    : prev[previousVote?.toLowerCase() as 'a'|'b' || 'a'] // Değişmiyorsa dokunma
+                    : prev[previousVote?.toLowerCase() as 'a'|'b' || 'a']
              };
         });
 
@@ -64,21 +65,21 @@ export default function DebateCard({ debate }: DebateCardProps) {
         const result = await voteDailyDebate(debate.id, choice);
 
         if (result.success) {
-            toast({ title: "Oyunuz Alındı", description: "Münazaraya katılımın için teşekkürler." });
+            // GÜNCELLENDİ: react-hot-toast kullanımı
+            toast.success("Oyunuz Alındı: Münazaraya katılımın için teşekkürler.");
             if (result.newStats) setStats({ ...result.newStats, total: result.newStats.a + result.newStats.b });
         } 
         else if (result.requiresPersuasion) {
-             // İKNA MODALINI AÇ
              setModalCandidates(result.candidates || []);
              setPendingChoice(choice);
              setIsModalOpen(true);
              
-             // UI Geri Al (Rollback)
              setUserVote(previousVote);
              setStats(previousStats);
         } 
         else {
-             toast({ title: "Hata", description: result.error, variant: "destructive" });
+             // GÜNCELLENDİ: react-hot-toast kullanımı
+             toast.error(`Hata: ${result.error}`);
              setUserVote(previousVote);
              setStats(previousStats);
         }
@@ -96,9 +97,11 @@ export default function DebateCard({ debate }: DebateCardProps) {
               setIsModalOpen(false);
               setUserVote(pendingChoice);
               if (result.newStats) setStats({ ...result.newStats, total: result.newStats.a + result.newStats.b });
-              toast({ title: "Fikir Değişikliği Onaylandı", description: "Esnek düşünebildiğin için tebrikler!" });
+              // GÜNCELLENDİ: react-hot-toast kullanımı
+              toast.success("Fikir Değişikliği Onaylandı: Esnek düşünebildiğin için tebrikler!");
           } else {
-              toast({ title: "Hata", description: result.error, variant: "destructive" });
+              // GÜNCELLENDİ: react-hot-toast kullanımı
+              toast.error(`Hata: ${result.error}`);
           }
       });
   };
@@ -108,29 +111,27 @@ export default function DebateCard({ debate }: DebateCardProps) {
     <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
       <Card className="overflow-hidden border-slate-200 shadow-sm hover:shadow-md transition-shadow bg-white">
         
-        {/* HEADER: User Info & Time */}
         <CardHeader className="p-4 pb-2 flex flex-row items-start justify-between space-y-0">
-           <div className="flex gap-3">
-              <Avatar className="h-10 w-10 border border-slate-100">
-                <AvatarImage src={debate.created_by?.avatar_url} />
-                <AvatarFallback>{debate.created_by?.full_name?.substring(0,2) || "??"}</AvatarFallback>
-              </Avatar>
-              <div>
-                 <p className="text-sm font-bold text-slate-900">{debate.created_by?.full_name || "Anonim"}</p>
-                 <p className="text-xs text-slate-500 flex items-center gap-1">
-                    {debate.created_by?.job_title && <span>{debate.created_by.job_title} • </span>}
-                    {formatDistanceToNow(new Date(debate.created_by ? debate.created_at : new Date()), { addSuffix: true, locale: tr })}
-                 </p>
-              </div>
-           </div>
-           {debate.is_active && (
-               <span className="bg-emerald-100 text-emerald-700 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">
-                   CANLI
-               </span>
-           )}
+            <div className="flex gap-3">
+               <Avatar className="h-10 w-10 border border-slate-100">
+                 <AvatarImage src={debate.created_by?.avatar_url} />
+                 <AvatarFallback>{debate.created_by?.full_name?.substring(0,2) || "??"}</AvatarFallback>
+               </Avatar>
+               <div>
+                  <p className="text-sm font-bold text-slate-900">{debate.created_by?.full_name || "Anonim"}</p>
+                  <p className="text-xs text-slate-500 flex items-center gap-1">
+                     {debate.created_by?.job_title && <span>{debate.created_by.job_title} • </span>}
+                     {formatDistanceToNow(new Date(debate.created_at || new Date()), { addSuffix: true, locale: tr })}
+                  </p>
+               </div>
+            </div>
+            {debate.is_active && (
+                <span className="bg-emerald-100 text-emerald-700 text-[10px] px-2 py-0.5 rounded-full font-bold animate-pulse">
+                    CANLI
+                </span>
+            )}
         </CardHeader>
 
-        {/* CONTENT: Title & Description */}
         <CardContent className="p-4 pt-2 space-y-4">
             <div>
                 <h3 className="text-lg font-black text-slate-800 leading-tight mb-2">
@@ -141,9 +142,7 @@ export default function DebateCard({ debate }: DebateCardProps) {
                 </p>
             </div>
 
-            {/* VOTING AREA */}
             <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                {/* Progress Bar */}
                 <div className="flex justify-between text-xs font-bold mb-2 uppercase tracking-wide">
                      <span className={cn(userVote === 'A' ? "text-indigo-600" : "text-slate-400")}>
                         A: Katılıyorum (%{percentA})
@@ -157,7 +156,6 @@ export default function DebateCard({ debate }: DebateCardProps) {
                     <div className="h-full bg-rose-500 transition-all duration-500" style={{ width: `${percentB}%` }} />
                 </div>
 
-                {/* Buttons */}
                 <div className="grid grid-cols-2 gap-3">
                     <Button 
                         disabled={isPending}
@@ -168,9 +166,9 @@ export default function DebateCard({ debate }: DebateCardProps) {
                             userVote === 'A' && "bg-indigo-600 text-white hover:bg-indigo-700 hover:text-white border-indigo-600 shadow-md shadow-indigo-100"
                         )}
                     >
-                       {isPending && userVote === 'A' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-                       {userVote === 'A' && <Check className="w-3 h-3 mr-1" />}
-                       A Tarafı
+                        {isPending && userVote === 'A' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
+                        {userVote === 'A' && <Check className="w-3 h-3 mr-1" />}
+                        A Tarafı
                     </Button>
 
                     <Button 
@@ -182,15 +180,14 @@ export default function DebateCard({ debate }: DebateCardProps) {
                             userVote === 'B' && "bg-rose-600 text-white hover:bg-rose-700 hover:text-white border-rose-600 shadow-md shadow-rose-100"
                         )}
                     >
-                       {isPending && userVote === 'B' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-                       {userVote === 'B' && <Check className="w-3 h-3 mr-1" />}
-                       B Tarafı
+                        {isPending && userVote === 'B' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
+                        {userVote === 'B' && <Check className="w-3 h-3 mr-1" />}
+                        B Tarafı
                     </Button>
                 </div>
             </div>
         </CardContent>
 
-        {/* FOOTER: Social Actions */}
         <CardFooter className="p-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center text-slate-500">
              <div className="flex gap-4 text-xs font-medium">
                  <button className="flex items-center gap-1 hover:text-slate-800 transition-colors">
@@ -209,7 +206,6 @@ export default function DebateCard({ debate }: DebateCardProps) {
       </Card>
     </motion.div>
 
-    {/* PERSUASION MODAL INTEGRATION */}
     <PersuasionModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

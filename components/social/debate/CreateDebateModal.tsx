@@ -4,11 +4,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { Sparkles, Loader2, Gavel, Plus, X } from "lucide-react";
+import { Sparkles, Loader2, Gavel, Plus } from "lucide-react";
 import { useState, useTransition } from "react";
-import { useToast } from "@/hooks/use-toast";
+// HATA GİDERİLDİ: use-toast yerine react-hot-toast import edildi
+import toast from 'react-hot-toast'; 
 import { cn } from "@/utils/cn";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -31,7 +31,7 @@ const CATEGORIES = [
 ];
 
 export default function CreateDebateModal({ isOpen, onClose, onCreated }: CreateDebateModalProps) {
-  const { toast } = useToast();
+  // HATA GİDERİLDİ: const { toast } = useToast(); satırı kaldırıldı
   const [isPending, startTransition] = useTransition();
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -45,30 +45,21 @@ export default function CreateDebateModal({ isOpen, onClose, onCreated }: Create
 
   // --- AI BAŞLIK ÖNERİSİ ---
   const handleGenerateTitles = async () => {
-    // Konu girilmemişse uyarı ver
     const topicBase = title || description;
     if (topicBase.length < 3) {
-      toast({
-        title: "Konu Eksik",
-        description: "AI'ın çalışması için en azından aklındaki konuyu kısaca yazmalısın.",
-        variant: "destructive"
-      });
+      // GÜNCELLENDİ: react-hot-toast kullanımı
+      toast.error("Konu Eksik: AI'ın çalışması için en azından konuyu kısaca yazmalısın.");
       return;
     }
 
     setIsGenerating(true);
     try {
-      // Server Action'ı çağır
       const titles = await generateSmartTitles(topicBase);
       setGeneratedTitles(titles);
-      
-      toast({
-        title: "AI Başlıklar Hazır",
-        description: "İlgi çekici bir tanesini seçebilirsin.",
-        variant: "default" // "success" yerine default kullanıyoruz (Shadcn standardı)
-      });
+      // GÜNCELLENDİ: react-hot-toast kullanımı
+      toast.success("AI Başlıklar Hazır! İlgi çekici bir tanesini seçebilirsin.");
     } catch (error) {
-      toast({ title: "Hata", description: "Başlık üretilemedi.", variant: "destructive" });
+      toast.error("Hata: Başlık üretilemedi.");
     } finally {
       setIsGenerating(false);
     }
@@ -79,7 +70,6 @@ export default function CreateDebateModal({ isOpen, onClose, onCreated }: Create
     if (!title || !description) return;
 
     startTransition(async () => {
-      // FormData oluştur (Server Action beklediği format)
       const formData = new FormData();
       formData.append('title', title);
       formData.append('description', description);
@@ -88,19 +78,18 @@ export default function CreateDebateModal({ isOpen, onClose, onCreated }: Create
       const result = await createDebate(formData);
 
       if (result.success) {
-        toast({ title: "Münazara Başlatıldı!", description: "Topluluk şimdi fikirlerini tartışabilir." });
+        // GÜNCELLENDİ: react-hot-toast kullanımı
+        toast.success("Münazara Başlatıldı! Topluluk şimdi fikirlerini tartışabilir.");
         
-        // Formu temizle
         setTitle("");
         setDescription("");
         setCategory("general");
         setGeneratedTitles([]);
         
-        // Listeyi yenilemesi için üst bileşene haber ver
         if (onCreated) onCreated();
         onClose();
       } else {
-        toast({ title: "Hata", description: result.error, variant: "destructive" });
+        toast.error(result.error || "Münazara oluşturulamadı.");
       }
     });
   };
@@ -173,7 +162,6 @@ export default function CreateDebateModal({ isOpen, onClose, onCreated }: Create
                 maxLength={100}
               />
 
-              {/* AI Önerileri */}
               <AnimatePresence>
                 {generatedTitles.length > 0 && (
                   <motion.div 
