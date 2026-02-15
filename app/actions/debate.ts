@@ -14,82 +14,57 @@ export type VoteResponse = {
 };
 
 export type Debate = {
-    id: string;
-    title: string;
-    description: string;
-    created_at: string;
-    created_by: any;
-    stats: { a: number; b: number; total: number };
-    userVote: 'A' | 'B' | null;
-    changeCount: number;
-    is_active: boolean;
+  id: string;
+  title: string;
+  description: string;
+  created_at: string;
+  created_by: any;
+  stats: { a: number; b: number; total: number };
+  userVote: 'A' | 'B' | null;
+  changeCount: number;
+  is_active: boolean;
 };
 
-// --- 1. MÜNAZARA AKIŞI (Feed) - OPTIMIZED ---
+// --- 1. MÜNAZARA AKIŞI (Feed) - TAMAMEN OPTİMİZE EDİLDİ ---
 export async function getDebateFeed(page = 0, limit = 10, search?: string) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Temel sorgu
-  let query = supabase
-    .from('social_debates')
-    .select(`
-      *,
-      profiles:created_by (username, full_name, avatar_url, job_title)
-    `)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .range(page * limit, (page + 1) * limit - 1);
+  // Eski "Promise.all" döngüsü tamamen silindi.
+  // Yerine tek bir RPC çağrısı yapıyoruz.
+  
+  const { data, error } = await supabase.rpc('get_debate_feed', {
+      p_user_id: user?.id || null, // Giriş yapmamışsa null gider
+      p_limit: limit,
+      p_offset: page * limit,
+      p_search: search || null
+  });
 
-  // BUG 14 FIX: Case-insensitive search
-  if (search) {
-    query = query.ilike('title', `%${search}%`);
-  }
-
-  const { data: debates, error } = await query;
-
-  if (error || !debates) {
+  if (error) {
     console.error("Debate Feed Error:", error);
     return [];
   }
 
-  // BUG 10 FIX: N+1 Problemi Azaltma
-  // İstatistikleri ve kullanıcı oylarını tek tek çekmek yerine, daha verimli bir yol izleyebiliriz.
-  // Ancak Supabase join yetenekleri sınırlı olduğu için burada 'Promise.all' kullanıyoruz ama
-  // en azından gereksiz veri çekmeyi önlüyoruz.
-  // (İleri seviye optimizasyon için SQL view oluşturulabilir)
+  if (!data) return [];
 
-  const enrichedDebates = await Promise.all(debates.map(async (debate) => {
-    // İstatistikler için count (head: true)
-    const { count: countA } = await supabase.from('social_debate_votes').select('*', { count: 'exact', head: true }).eq('debate_id', debate.id).eq('choice', 'A');
-    const { count: countB } = await supabase.from('social_debate_votes').select('*', { count: 'exact', head: true }).eq('debate_id', debate.id).eq('choice', 'B');
-
-    let userVote = null;
-    let changeCount = 0;
-
-    if (user) {
-      const { data: vote } = await supabase
-        .from('social_debate_votes')
-        .select('choice, change_count')
-        .eq('debate_id', debate.id)
-        .eq('user_id', user.id)
-        .maybeSingle(); // .single() yerine maybeSingle() hata fırlatmaz
-      
-      if (vote) {
-        userVote = vote.choice;
-        changeCount = vote.change_count || 0;
-      }
-    }
-
-    return {
-      ...debate,
-      stats: { a: countA || 0, b: countB || 0, total: (countA || 0) + (countB || 0) },
-      userVote,
-      changeCount
-    };
+  // SQL'den gelen veriyi Frontend'in beklediği 'Debate' tipine dönüştürüyoruz
+  const mappedDebates = data.map((d: any) => ({
+      id: d.id,
+      title: d.title,
+      description: d.description,
+      created_at: d.created_at,
+      created_by: d.created_by_data, // JSON olarak SQL'den geldi
+      stats: { 
+          a: d.stats_a, 
+          b: d.stats_b, 
+          total: d.stats_a + d.stats_b 
+      },
+      userVote: d.user_vote,
+      changeCount: d.user_change_count,
+      is_active: d.is_active
   }));
 
-  return enrichedDebates;
+  return mappedDebates;
 }
 
 // --- 2. GÜNLÜK MÜNAZARA OYLAMA (BUG 1 FIX) ---
@@ -146,7 +121,6 @@ export async function voteDailyDebate(debateId: string, choice: 'A' | 'B'): Prom
   }
 
   // RPC'den dönen güncel istatistikler (Optimistic UI için)
-  // rpcResult bir array döner, ilk elemanı al
   const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
   
   if (!result || !result.success) {
@@ -173,12 +147,10 @@ export async function confirmVoteChange(
 
     // 1. İkna eden yoruma puan ver (Eğer seçildiyse)
     if (convincedByCommentId) {
-        // Basit artırma işlemi (Concurrency için rpc daha iyi olurdu ama şimdilik update yeterli)
         const { error: boostError } = await supabase.rpc('increment_persuasion', { 
             row_id: convincedByCommentId 
         });
         
-        // Eğer rpc yoksa manuel yap (Fallback)
         if (boostError) {
              const { data: comment } = await supabase.from('social_debate_comments').select('persuasion_count').eq('id', convincedByCommentId).single();
              if (comment) {
@@ -209,7 +181,7 @@ export async function confirmVoteChange(
     };
 }
 
-// --- 4. YENİ MÜNAZARA OLUŞTUR (BUG 2 FIX) ---
+// --- 4. YENİ MÜNAZARA OLUŞTUR (GÜVENLİK GÜNCELLEMESİ) ---
 export async function createDebate(formData: FormData) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -220,13 +192,20 @@ export async function createDebate(formData: FormData) {
     const description = formData.get('description') as string;
     const category = formData.get('category') as string || 'general';
 
-    if (!title || title.length < 5) return { error: "Başlık çok kısa." };
+    // SERVER-SIDE VALIDATION (Bug Fix)
+    if (!title || title.trim().length < 5) {
+        return { error: "Başlık çok kısa. En az 5 karakter olmalı." };
+    }
+     
+    if (!description || description.trim().length < 10) {
+        return { error: "Açıklama çok kısa. Tartışma bağlamını belirtmelisiniz." };
+    }
 
     const { data, error } = await supabase
         .from('social_debates')
         .insert({
-            title,
-            description,
+            title: title.trim(),
+            description: description.trim(),
             category,
             created_by: user.id,
             is_active: true
@@ -235,8 +214,8 @@ export async function createDebate(formData: FormData) {
         .single();
 
     if (error) {
-        console.error(error);
-        return { error: "Münazara oluşturulamadı." };
+        console.error("Create Debate Error:", error);
+        return { error: "Münazara oluşturulamadı. Lütfen daha sonra tekrar deneyin." };
     }
 
     revalidatePath('/social');
@@ -246,9 +225,7 @@ export async function createDebate(formData: FormData) {
 // --- 5. AI BAŞLIK ÖNERİLERİ (BUG 3 & 15 FIX) ---
 export async function generateSmartTitles(topic: string) {
     // Gerçek bir AI servisi entegre edilene kadar simülasyon.
-    // İleride 'ai-engine.ts' buraya bağlanacak.
-    
-    await new Promise(resolve => setTimeout(resolve, 800)); // Yapay gecikme (Loading UI görmek için)
+    await new Promise(resolve => setTimeout(resolve, 800)); // Yapay gecikme
 
     if (!topic || topic.length < 3) return [];
 
@@ -285,11 +262,6 @@ export async function postDebateComment(debateId: string, content: string, side:
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Giriş yapmalısınız." };
 
-    // BUG 7 FIX: Katı taraf kontrolünü kaldırdık. 
-    // Kullanıcı taraf değiştirmek istiyorsa karşı tarafa yorum yazabilmeli (ya da sistem buna izin vermeli).
-    // Ancak yine de temel tutarlılık için uyarı verebiliriz veya frontend'de yönetebiliriz.
-    // Şimdilik sadece oy vermiş mi diye bakıyoruz.
-
     const { data: vote } = await supabase
         .from('social_debate_votes')
         .select('choice')
@@ -301,9 +273,6 @@ export async function postDebateComment(debateId: string, content: string, side:
         return { error: "Yorum yapmadan önce tarafını seçmelisin!" };
     }
 
-    // İsteğe bağlı: Hala sadece kendi tarafına yazsın isteniyorsa burayı açabilirsin.
-    // if (vote.choice !== side) { ... }
-    
     const { error } = await supabase.from('social_debate_comments').insert({
         debate_id: debateId,
         user_id: user.id,

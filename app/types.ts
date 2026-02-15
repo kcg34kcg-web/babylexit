@@ -140,3 +140,43 @@ export interface Poll {
   // Analytics
   total_votes?: number; 
 }
+
+// --- 6. DEBATE TYPES (YENİ) ---
+export interface DebateAuthor {
+  username?: string;
+  full_name?: string;
+  avatar_url?: string;
+  job_title?: string;
+}
+
+export interface DebateStats {
+  a: number;
+  b: number;
+  total: number;
+}
+
+export interface Debate {
+  id: UUID;
+  title: string;
+  description: string;
+  category: string;
+  created_at: ISODateString;
+  // Backend optimizasyonundan sonra bu alan 'profiles' yerine 'created_by' oldu
+  created_by: DebateAuthor; 
+  stats: DebateStats;
+  userVote: 'A' | 'B' | null;
+  changeCount: number;
+  is_active: boolean;
+}
+
+export interface DebateComment {
+  id: UUID;
+  debate_id: UUID;
+  user_id: UUID;
+  content: string;
+  side: 'A' | 'B';
+  persuasion_count: number;
+  created_at: ISODateString;
+  // Yorumlarda hala standart join kullandığımız için burası 'profiles' kalabilir
+  profiles: DebateAuthor; 
+}
