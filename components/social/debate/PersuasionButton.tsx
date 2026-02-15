@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useTransition } from "react";
-import { BrainCircuit, Loader2 } from "lucide-react";
+import { Star, Loader2 } from "lucide-react"; // BrainCircuit yerine Star
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
+import toast from "react-hot-toast";
 import { markAsPersuasive } from "@/app/actions/debate";
 import { cn } from "@/utils/cn";
 
@@ -24,19 +24,20 @@ export default function PersuasionButton({
   userSide,
   commentSide 
 }: Props) {
-  const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [count, setCount] = useState(initialCount);
   const [hasClicked, setHasClicked] = useState(false);
 
   const handlePersuade = () => {
-    // Kural 1: Kendi tarafındaki yorumu "ikna edici" bulamazsın (Zaten aynısını düşünüyorsun)
+    // 1. Kendi tarafındakine yıldız veremezsin (Mantık kuralı)
     if (userSide === commentSide) {
-        toast({
-            title: "Zaten Bu Taraftasın",
-            description: "Sadece karşıt görüşteki yorumlar seni ikna edebilir.",
-            variant: "default"
-        });
+        toast.error("Kendi tarafını ikna edemezsin! Sadece karşıt görüşe yıldız verebilirsin.");
+        return;
+    }
+
+    // 2. Taraf seçmemişse
+    if (!userSide) {
+        toast.error("Yıldız vermek için önce tarafını seçmelisin.");
         return;
     }
 
@@ -48,15 +49,17 @@ export default function PersuasionButton({
         const result = await markAsPersuasive(debateId, commentId, authorId);
 
         if (!result.success) {
-            // Hata varsa geri al
             setCount(prev => prev - 1);
             setHasClicked(false);
-            toast({ title: "Hata", description: result.error, variant: "destructive" });
+            toast.error(result.error || "İşlem başarısız");
         } else {
-            toast({ 
-                title: "Puan Verildi", 
-                description: "Bu yorumun değerini artırdın.",
-                className: "bg-indigo-600 text-white border-none" 
+            toast.success("Yorumu Yıldızladın! ✨", {
+                style: {
+                    background: '#FEF3C7',
+                    color: '#D97706',
+                    border: '1px solid #FCD34D'
+                },
+                icon: '⭐'
             });
         }
     });
@@ -69,18 +72,23 @@ export default function PersuasionButton({
       onClick={handlePersuade}
       disabled={isPending || hasClicked || !userSide}
       className={cn(
-        "h-7 px-2 text-[10px] font-medium transition-all rounded-full border border-transparent",
+        "h-7 px-2.5 text-[11px] font-bold transition-all rounded-full border shadow-sm group",
         hasClicked 
-            ? "bg-indigo-100 text-indigo-700 border-indigo-200" 
-            : "text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+            ? "bg-amber-100 text-amber-700 border-amber-200" 
+            : "bg-white border-slate-200 text-slate-400 hover:text-amber-600 hover:border-amber-200 hover:bg-amber-50"
       )}
     >
       {isPending ? (
-        <Loader2 className="w-3 h-3 animate-spin mr-1" />
+        <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
       ) : (
-        <BrainCircuit className={cn("w-3.5 h-3.5 mr-1", hasClicked && "fill-indigo-700")} />
+        <Star 
+            className={cn(
+                "w-3.5 h-3.5 mr-1.5 transition-all", 
+                hasClicked ? "fill-amber-500 text-amber-500" : "text-slate-300 group-hover:text-amber-500"
+            )} 
+        />
       )}
-      {count} İkna
+      {count}
     </Button>
   );
 }

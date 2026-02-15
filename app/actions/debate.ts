@@ -2,7 +2,7 @@
 
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
-
+import { unstable_noStore as noStore } from 'next/cache';
 // --- TİPLER ---
 export type VoteResponse = {
   success?: boolean;
@@ -26,14 +26,15 @@ export type Debate = {
   is_daily?: boolean; // Yeni alan
 };
 
-// --- 1. GÜNÜN TARTIŞMASINI GETİR (YENİ) ---
-// Artık widget hardcoded veri yerine bunu kullanacak
+// --- 1. GÜNÜN TARTIŞMASINI GETİR (DÜZELTİLDİ) ---
+// Widget'taki "undefined (reading 'a')" hatasını çözer ve kullanıcı oyunu getirir.
 export async function getDailyDebate() {
     const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
     const today = new Date().toISOString().split('T')[0];
 
-    // Önce bugünün özel tartışması var mı bakalım
-    const { data: daily, error } = await supabase
+    // 1. Önce bugünün özel tartışması var mı bakalım
+    let { data: rawDebate, error } = await supabase
         .from('social_debates')
         .select(`
             *,
@@ -45,19 +46,58 @@ export async function getDailyDebate() {
 
     if (error) console.error("Daily Fetch Error:", error);
 
-    // Eğer bugün için özel seçilmiş yoksa, en çok oy alanı getir (Fallback mekanizması)
-    if (!daily) {
+    // 2. Eğer bugün için özel seçilmiş yoksa, en çok oy alanı getir (Fallback)
+    if (!rawDebate) {
          const { data: popular } = await supabase
             .from('social_debates')
-            .select('*')
+            .select('*, profiles:created_by (full_name, avatar_url)')
             .eq('is_active', true)
-            .order('vote_count_a', { ascending: false }) // Geçici sıralama mantığı
+            .order('vote_count_a', { ascending: false }) 
             .limit(1)
             .maybeSingle();
-         return popular;
+         rawDebate = popular;
     }
 
-    return daily;
+    if (!rawDebate) return null;
+
+    // 3. Kullanıcının bu tartışmadaki oy durumunu kontrol et
+    let userVote: 'A' | 'B' | null = null;
+    let changeCount = 0;
+
+    if (user) {
+        const { data: voteData } = await supabase
+            .from('social_debate_votes')
+            .select('choice, change_count')
+            .eq('debate_id', rawDebate.id)
+            .eq('user_id', user.id)
+            .maybeSingle();
+        
+        if (voteData) {
+            userVote = voteData.choice as 'A' | 'B';
+            changeCount = voteData.change_count || 0;
+        }
+    }
+
+    // 4. Veriyi Component'in beklediği 'Debate' formatına dönüştür
+    // (Veritabanı sütunlarını 'stats' objesine map ediyoruz)
+    const formattedDebate: Debate = {
+        id: rawDebate.id,
+        title: rawDebate.title,
+        description: rawDebate.description,
+        created_at: rawDebate.created_at,
+        created_by: rawDebate.profiles,
+        stats: {
+            a: rawDebate.vote_count_a || 0,
+            b: rawDebate.vote_count_b || 0,
+            total: (rawDebate.vote_count_a || 0) + (rawDebate.vote_count_b || 0)
+        },
+        userVote: userVote,
+        changeCount: changeCount,
+        is_active: rawDebate.is_active,
+        is_daily: true
+    };
+
+    return formattedDebate;
 }
 
 // --- 2. MÜNAZARA AKIŞI (Feed) ---
@@ -96,7 +136,7 @@ export async function getDebateFeed(page = 0, limit = 10, search?: string) {
   }));
 }
 
-// --- 3. OYLAMA İŞLEMİ (GÜNCELLENDİ) ---
+// --- 3. OYLAMA İŞLEMİ ---
 export async function voteDailyDebate(debateId: string, choice: 'A' | 'B'): Promise<VoteResponse> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -111,7 +151,6 @@ export async function voteDailyDebate(debateId: string, choice: 'A' | 'B'): Prom
   });
 
   if (rpcError) {
-      // Hata mesajını yakalayıp kullanıcı dostu hale getirelim
       console.error("Vote Error:", rpcError);
       if (rpcError.message.includes("Fikir değiştirme limitiniz")) {
           return { error: "Fikir değiştirme limitiniz (3/3) doldu." };
@@ -119,12 +158,9 @@ export async function voteDailyDebate(debateId: string, choice: 'A' | 'B'): Prom
       return { error: "Oy işlemi başarısız oldu." };
   }
 
-  // RPC'den dönen veri array olabilir
   const result = Array.isArray(rpcResult) ? rpcResult[0] : rpcResult;
   
   if (!result || !result.success) {
-      // Eğer limit dolduysa ve ikna modülü gerekiyorsa (RPC'den bu bilgi dönmeli veya burada kontrol edilmeli)
-      // Şimdilik basit hata dönüyoruz, gelişmiş senaryoda burada 'requiresPersuasion' dönebiliriz.
       return { error: result?.message || "İşlem başarısız." };
   }
 
@@ -136,7 +172,7 @@ export async function voteDailyDebate(debateId: string, choice: 'A' | 'B'): Prom
   };
 }
 
-// --- 4. EKSİK OLAN FONKSİYON: İKNA PUANI VERME ---
+// --- 4. İKNA PUANI VERME ---
 export async function markAsPersuasive(debateId: string, commentId: string, commentAuthorId: string) {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -144,7 +180,6 @@ export async function markAsPersuasive(debateId: string, commentId: string, comm
     if (!user) return { error: "Giriş yapmalısınız." };
     if (user.id === commentAuthorId) return { error: "Kendi yorumunuza ikna puanı veremezsiniz." };
 
-    // 1. Daha önce bu yoruma ikna puanı vermiş mi kontrol et (Unique Constraint koruması olsa da)
     const { data: existing } = await supabase
         .from('social_persuasions')
         .select('id')
@@ -156,9 +191,6 @@ export async function markAsPersuasive(debateId: string, commentId: string, comm
         return { error: "Zaten bu yoruma puan verdiniz." };
     }
 
-    // 2. Transaction benzeri işlem: Tabloya ekle + Yorum sayacını artır
-    // Not: Gerçek atomiklik için bunu da bir RPC fonksiyonu yapmak en iyisidir ama şimdilik kod tarafında hallediyoruz.
-    
     const { error: insertError } = await supabase.from('social_persuasions').insert({
         debate_id: debateId,
         comment_id: commentId,
@@ -171,18 +203,14 @@ export async function markAsPersuasive(debateId: string, commentId: string, comm
         return { error: "İşlem sırasında hata oluştu." };
     }
 
-    // Yorumun sayacını artır (RPC ile güvenli artış)
-    // Eğer `increment_persuasion` fonksiyonun yoksa basit update yapıyoruz:
     const { error: updateError } = await supabase.rpc('increment_persuasion', { row_id: commentId });
     
-    // Fallback: RPC yoksa manuel update (Riskli ama geçici çözüm)
     if (updateError) {
         const { error: manualUpdateError } = await supabase.rpc('increment_counter', { 
             table_name: 'social_debate_comments', 
             row_id: commentId, 
             col_name: 'persuasion_count' 
         });
-        // Eğer o da yoksa, SQL yazmamız gerekecek. Şimdilik RPC var varsayıyoruz.
     }
 
     revalidatePath('/social');
@@ -212,7 +240,6 @@ export async function createDebate(formData: FormData) {
             category,
             created_by: user.id,
             is_active: true,
-            // Yeni yapıda varsayılan sayaçlar
             vote_count_a: 0,
             vote_count_b: 0
         })
@@ -227,9 +254,8 @@ export async function createDebate(formData: FormData) {
     return { success: true, debateId: data.id };
 }
 
-// --- 6. AI BAŞLIK ÖNERİLERİ (Geliştirilecek) ---
+// --- 6. AI BAŞLIK ÖNERİLERİ ---
 export async function generateSmartTitles(topic: string) {
-    // İleride gerçek AI servisine bağlanacak.
     if (!topic || topic.length < 3) return [];
     
     return [
@@ -240,14 +266,13 @@ export async function generateSmartTitles(topic: string) {
     ];
 }
 
-
-// --- 7. YORUM EKLEME ---
+// --- 7. YORUM EKLEME (KESİN KAYIT & DATA DÖNÜŞÜ) ---
 export async function postDebateComment(debateId: string, content: string, side: 'A' | 'B') {
     const supabase = await createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Giriş yapmalısınız." };
 
-    // Önce oy vermiş mi kontrol et
+    // 1. Önce oy kontrolü
     const { data: vote } = await supabase
         .from('social_debate_votes')
         .select('choice')
@@ -255,25 +280,46 @@ export async function postDebateComment(debateId: string, content: string, side:
         .eq('user_id', user.id)
         .maybeSingle();
     
-    if (!vote) {
-        return { error: "Yorum yapmadan önce tarafını seçmelisin!" };
-    }
+    if (!vote) return { error: "Önce tarafını seçmelisin!" };
+    if (vote.choice !== side) return { error: "Sadece seçtiğin taraf için yazabilirsin." };
 
-    const { error } = await supabase.from('social_debate_comments').insert({
-        debate_id: debateId,
-        user_id: user.id,
-        content,
-        side,
-        persuasion_count: 0
-    });
+    // 2. Mükerrer yorum kontrolü
+    const { data: existing } = await supabase
+        .from('social_debate_comments')
+        .select('id')
+        .eq('debate_id', debateId)
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+    if (existing) return { error: "Zaten bir görüş bildirdin. Hakkın doldu!" };
+
+    // 3. Yorumu Ekle ve EKLENEN VERİYİ GERİ DÖNDÜR (select() önemli)
+    const { data: savedComment, error } = await supabase
+        .from('social_debate_comments')
+        .insert({
+            debate_id: debateId,
+            user_id: user.id,
+            content: content,
+            side: side,
+            persuasion_count: 0
+        })
+        .select(`
+            *,
+            profiles:user_id (
+                id, full_name, avatar_url, job_title
+            )
+        `)
+        .single(); // Tek bir obje dönmesini garanti et
     
-    if (error) return { error: "Yorum gönderilemedi" };
+    if (error) {
+        console.error("Comment Insert Error:", error);
+        return { error: "Veritabanı hatası: " + error.message };
+    }
     
     revalidatePath('/social');
-    return { success: true };
+    // Kritik Nokta: Kaydedilen veriyi frontend'e geri gönderiyoruz
+    return { success: true, savedData: savedComment };
 }
-// --- app/actions/debate.ts DOSYASININ SONUNA EKLEYİN ---
-
 // --- 8. TARAF DEĞİŞİKLİĞİNİ ONAYLA ---
 export async function confirmVoteChange(
     debateId: string, 
@@ -284,17 +330,13 @@ export async function confirmVoteChange(
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return { error: "Yetkisiz işlem." };
 
-    // 1. İkna eden yoruma puan ver (Atomik artış)
     if (convincedByCommentId) {
-        // Yorumun sahibini bul (Puan kazandırmak için)
-        // Burada basitçe sayacı artırıyoruz, gelişmiş versiyonda 'social_persuasions' tablosuna da eklenmeli.
         const { error: boostError } = await supabase.rpc('increment_persuasion', { 
             row_id: convincedByCommentId 
         });
         
         if (boostError) {
              console.error("Persuasion Boost Error:", boostError);
-             // RPC yoksa manuel fallback (Yedek plan)
              const { data: comment } = await supabase
                 .from('social_debate_comments')
                 .select('persuasion_count')
@@ -310,7 +352,6 @@ export async function confirmVoteChange(
         }
     }
 
-    // 2. Oyu güncelle (RPC ile)
     const { data: rpcResult, error: rpcError } = await supabase.rpc('handle_vote_transaction', {
         p_debate_id: debateId,
         p_user_id: user.id,
@@ -331,13 +372,12 @@ export async function confirmVoteChange(
         userVote: newChoice
     };
 }
-// --- app/actions/debate.ts DOSYASININ SONUNA EKLEYİN ---
 
-// --- 9. YORUMLARI GETİR ---
 export async function getDebateComments(debateId: string) {
+    noStore(); // BU SATIR ÇOK ÖNEMLİ: Cache'i devre dışı bırakır, her zaman taze veri çeker.
+    
     const supabase = await createClient();
     
-    // Yorumları ve yazarlarını çek
     const { data, error } = await supabase
         .from('social_debate_comments')
         .select(`
@@ -356,8 +396,8 @@ export async function getDebateComments(debateId: string) {
             )
         `)
         .eq('debate_id', debateId)
-        .order('persuasion_count', { ascending: false }) // En ikna ediciler üstte
-        .order('created_at', { ascending: false });      // Sonra yeniler
+        .order('persuasion_count', { ascending: false }) // En çok beğenilenler
+        .order('created_at', { ascending: false });      // Sonra en yeniler
 
     if (error) {
         console.error("Comments Fetch Error:", error);

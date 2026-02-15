@@ -3,7 +3,7 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { BrainCircuit, CheckCircle2, Quote } from "lucide-react";
+import { BrainCircuit, CheckCircle2, Star } from "lucide-react"; // Star eklendi
 import { useState } from "react";
 import { cn } from "@/utils/cn";
 
@@ -43,57 +43,83 @@ export default function PersuasionModal({
     }
   };
 
+  // Taraf Rengi Belirleme (A: Yeşil, B: Kırmızı)
+  const isA = targetSide === 'A';
+  const accentColor = isA ? "text-emerald-600" : "text-rose-600";
+  const ringColor = isA ? "ring-emerald-600/20" : "ring-rose-600/20";
+  const borderColor = isA ? "border-emerald-600" : "border-rose-600";
+  const buttonColor = isA ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700";
+
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !isSubmitting && !open && onClose()}>
       <DialogContent className="sm:max-w-md bg-slate-50 border-slate-200 p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-2 bg-white border-b border-slate-100">
+        
+        {/* HEADER */}
+        <DialogHeader className="p-6 pb-4 bg-white border-b border-slate-100">
           <div className="flex items-center gap-3 mb-2">
-            <div className="bg-amber-100 p-2 rounded-full">
-                <BrainCircuit className="w-6 h-6 text-amber-600" />
+            <div className={cn("p-2.5 rounded-full bg-slate-100", accentColor)}>
+                <BrainCircuit className="w-6 h-6" />
             </div>
-            <DialogTitle className="text-xl font-black text-slate-800">Fikir Değişikliği</DialogTitle>
+            <div>
+                <DialogTitle className="text-lg font-black text-slate-800">
+                    Fikir Değişikliği Onayı
+                </DialogTitle>
+                <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-xs text-slate-500 font-medium">Yeni Tercihin:</span>
+                    <span className={cn("text-xs font-bold px-2 py-0.5 rounded border bg-white uppercase", 
+                        isA ? "text-emerald-700 border-emerald-200 bg-emerald-50" : "text-rose-700 border-rose-200 bg-rose-50"
+                    )}>
+                        {isA ? "KATILIYORUM (A)" : "KATILMIYORUM (B)"}
+                    </span>
+                </div>
+            </div>
           </div>
-          <DialogDescription className="text-slate-500 font-medium">
-            Taraf değiştirmek üzeresin ({targetSide} Tarafına). <br/>
-            Bu kararında seni en çok hangi görüş etkiledi?
+          <DialogDescription className="text-slate-500 text-sm mt-2">
+            Kararını değiştirmek üzeresin. Bu konuda seni ikna eden veya en çok etkileyen yorumu seçerek sahibine puan kazandırabilirsin.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
+        {/* LİSTE */}
+        <div className="p-4 space-y-3 max-h-[50vh] overflow-y-auto bg-slate-50/50">
            {candidates.map((item) => (
              <div 
                key={item.id}
                onClick={() => setSelectedId(item.id)}
                className={cn(
-                 "relative p-4 rounded-xl border-2 transition-all cursor-pointer group",
+                 "relative p-4 rounded-xl border-2 transition-all cursor-pointer group bg-white",
                  selectedId === item.id 
-                    ? "bg-white border-indigo-600 shadow-md ring-2 ring-indigo-600/10" 
-                    : "bg-white border-transparent hover:border-slate-300 shadow-sm"
+                    ? cn(borderColor, "shadow-md ring-2", ringColor)
+                    : "border-transparent hover:border-slate-300 shadow-sm"
                )}
              >
                 {/* Seçim İkonu */}
                 <div className={cn(
-                    "absolute top-3 right-3 transition-all duration-300",
+                    "absolute top-3 right-3 transition-all duration-300 transform",
                     selectedId === item.id ? "opacity-100 scale-100" : "opacity-0 scale-50"
                 )}>
-                    <CheckCircle2 className="text-indigo-600 fill-indigo-50" />
+                    <CheckCircle2 className={cn("w-5 h-5 fill-white", accentColor)} />
                 </div>
 
                 <div className="flex gap-3">
-                   <Avatar className="w-10 h-10 border border-slate-100">
+                   <Avatar className="w-10 h-10 border border-slate-100 shadow-sm">
                      <AvatarImage src={item.profiles?.avatar_url} />
-                     <AvatarFallback>{item.profiles?.full_name?.substring(0,2)}</AvatarFallback>
+                     <AvatarFallback className="text-xs bg-slate-200 text-slate-500">
+                        {item.profiles?.full_name?.substring(0,2).toUpperCase()}
+                     </AvatarFallback>
                    </Avatar>
-                   <div className="flex-1">
+                   
+                   <div className="flex-1 pr-6">
                       <div className="flex items-center gap-2 mb-1">
-                          <span className="font-bold text-sm text-slate-800">{item.profiles?.full_name}</span>
-                          <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
-                            {item.persuasion_count} ikna
-                          </span>
+                          <span className="font-bold text-xs text-slate-800">{item.profiles?.full_name}</span>
+                          {item.persuasion_count > 0 && (
+                              <span className="text-[10px] text-amber-600 bg-amber-50 border border-amber-100 px-1.5 py-0.5 rounded-full flex items-center gap-0.5">
+                                <Star className="w-2.5 h-2.5 fill-amber-600" />
+                                {item.persuasion_count}
+                              </span>
+                          )}
                       </div>
-                      <p className="text-sm text-slate-600 leading-relaxed relative pl-2">
-                         <span className="absolute left-0 top-0 w-0.5 h-full bg-slate-200 rounded-full" />
-                         "{item.content}"
+                      <p className="text-xs text-slate-600 leading-relaxed line-clamp-3">
+                          "{item.content}"
                       </p>
                    </div>
                 </div>
@@ -101,19 +127,20 @@ export default function PersuasionModal({
            ))}
         </div>
 
+        {/* FOOTER */}
         <div className="p-4 bg-white border-t border-slate-100 flex justify-end gap-3">
-            <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
+            <Button variant="ghost" onClick={onClose} disabled={isSubmitting} className="text-slate-500">
                 Vazgeç
             </Button>
             <Button 
                 onClick={handleConfirm} 
                 disabled={!selectedId || isSubmitting}
                 className={cn(
-                    "font-bold transition-all",
-                    selectedId ? "bg-indigo-600 hover:bg-indigo-700" : "bg-slate-300 cursor-not-allowed"
+                    "font-bold transition-all text-white shadow-sm",
+                    selectedId ? buttonColor : "bg-slate-200 text-slate-400 cursor-not-allowed"
                 )}
             >
-                {isSubmitting ? "Kaydediliyor..." : "Bu Yorum İkna Etti"}
+                {isSubmitting ? "Kaydediliyor..." : "Bu Yorum Beni İkna Etti"}
             </Button>
         </div>
       </DialogContent>
