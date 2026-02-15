@@ -45,19 +45,17 @@ try:
     from graph import start_analysis, app as graph_app
     logger.info("✅ Graph modülü başarıyla yüklendi.")
 except Exception as e:
-    # BURASI GENİŞLETİLDİ: SİLME YAPILMADI, SADECE HATA DETAYI İÇİN TRACEBACK EKLENDİ
     import traceback
     start_analysis = None
     graph_app = None
     logger.error("❌ GRAPH MODÜLÜ YÜKLENİRKEN HATA OLUŞTU!")
-    traceback.print_exc() # Hatanın hangi dosyada olduğunu terminale basar
+    traceback.print_exc()
     logger.warning(f"⚠️ Hata özeti: {e}")
     logger.warning("AI motoru sınırlı modda (Sadece Dosya İşleme ve Embedding) çalışacak.")
 
 # --- 4. KONFIGÜRASYON KONTROLÜ ---
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-MODEL_NAME = 'BAAI/bge-m3'
 
 supabase = None
 if not SUPABASE_URL or not SUPABASE_KEY:
@@ -69,19 +67,33 @@ else:
     except Exception as e:
         logger.error(f"❌ Supabase Bağlantı Hatası: {e}")
 
-# Global Değişkenler
+# -----------------------------------------------------------------------------
+# 5. DOSYA İŞLEME VE EMBEDDING (GÜVENLİ YÜKLEME MEKANİZMASI EKLENDİ)
+# -----------------------------------------------------------------------------
+
+# HuggingFace Token Kontrolü (Opsiyonel)
+if not os.getenv("HF_TOKEN"):
+    logger.warning("⚠️ HF_TOKEN bulunamadı. Bazı kapalı modeller yüklenemeyebilir.")
+
+PRIMARY_MODEL = 'BAAI/bge-m3'
+FALLBACK_MODEL = 'sentence-transformers/all-MiniLM-L6-v2' # Hafif model yedeği
+
 embed_model = None
 
-# -----------------------------------------------------------------------------
-# 5. DOSYA İŞLEME VE EMBEDDING
-# -----------------------------------------------------------------------------
-
-logger.info(f"📥 Yerel AI Modeli Yükleniyor (CPU): {MODEL_NAME} ...")
+logger.info(f"📥 Yerel AI Modeli Yükleniyor...")
 try:
-    embed_model = SentenceTransformer(MODEL_NAME, device='cpu')
-    logger.info("✅ Yerel Embedding Modeli Hazır!")
+    # Önce güçlü modeli dene
+    logger.info(f"⏳ Birincil model deneniyor: {PRIMARY_MODEL}")
+    embed_model = SentenceTransformer(PRIMARY_MODEL, device='cpu')
+    logger.info(f"✅ {PRIMARY_MODEL} başarıyla yüklendi!")
 except Exception as e:
-    logger.error(f"❌ Model Hatası: {e}")
+    logger.warning(f"⚠️ Birincil model yüklenemedi ({e}). Fallback modele geçiliyor...")
+    try:
+        # Hata verirse hafif modeli dene
+        embed_model = SentenceTransformer(FALLBACK_MODEL, device='cpu')
+        logger.info(f"✅ Yedek model {FALLBACK_MODEL} başarıyla yüklendi.")
+    except Exception as e2:
+        logger.error(f"❌ Hiçbir embedding modeli yüklenemedi: {e2}")
 
 def get_local_embedding(text: str):
     """Metni vektöre çevirir."""
@@ -105,7 +117,8 @@ def chunk_text(text: str, chunk_size: int = 800, overlap: int = 100):
 
 def process_file_queue():
     """Kullanıcının yüklediği dosyaları işler. (PDF + OCR Resim Desteği)"""
-    if not supabase: return False
+    # Eğer model yüklenmediyse işlem yapma
+    if not supabase or not embed_model: return False
 
     try:
         res = supabase.table('file_processing_queue').select("*").eq('status', 'pending').limit(1).execute()
@@ -122,9 +135,9 @@ def process_file_queue():
         text = ""
         ftype = job.get('file_type', '').lower()
         if not ftype:
-            ftype = job['file_path'].split('.')[-1].lower()
+            ftype = str(job['file_path']).split('.')[-1].lower()
         
-        # --- DOSYA OKUMA MANTIĞI ---
+        # --- DOSYA OKUMA MANTIĞI (ORİJİNAL KOD KORUNDU) ---
         if 'pdf' in ftype:
             try:
                 with pdfplumber.open(BytesIO(file_bytes)) as pdf:
@@ -259,7 +272,12 @@ class ChatRequest(BaseModel):
 
 @app.get("/")
 def read_root():
-    return {"status": "active", "graph": bool(graph_app), "db": bool(supabase)}
+    return {
+        "status": "active", 
+        "graph": bool(graph_app), 
+        "db": bool(supabase),
+        "embedding_model": str(embed_model)
+    }
 
 @app.post("/analyze")
 async def trigger_analysis(request: AnalysisRequest, background_tasks: BackgroundTasks):
